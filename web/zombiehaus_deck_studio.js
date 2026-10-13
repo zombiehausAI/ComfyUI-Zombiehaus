@@ -178,6 +178,8 @@ function getNodeRoleDescription(node) {
     if (t.includes("saveimage")) return "Final Master Output Exporter";
     if (t.includes("previewimage")) return "Real-time Diagnostic Preview";
     if (t.includes("loadimage")) return "External Image Asset Input";
+    if (t.includes("allinonedetailer") || t.includes("allinone")) return "All-in-One YOLO Detailer";
+    if (t.includes("detailerslot")) return "Detailer Inpaint Slot";
     if (t.includes("upscale")) return "Super-Resolution Neural Upscaler";
     if (t.includes("inpaint") || t.includes("mask")) return "Selective Inpaint & Masking Tool";
     if (t.includes("zombiehaus")) return "Zombiehaus Custom Node";
@@ -249,6 +251,69 @@ class ZombiehausDeckStudio {
                 }
                 .zds-bay-resizer:hover, .zds-bay-resizer.is-resizing {
                     background: rgba(168, 85, 247, 0.6);
+                }
+                .zds-card-header {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                    padding: 8px 12px;
+                    background: rgba(14, 17, 28, 0.85);
+                    border-bottom: 1px solid var(--zds-border-subtle);
+                    cursor: grab;
+                }
+                .zds-card-header:active {
+                    cursor: grabbing;
+                }
+                .zds-card-title-row {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 8px;
+                    width: 100%;
+                }
+                .zds-card-title-left {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    min-width: 0;
+                    flex: 1;
+                }
+                .zds-card-title {
+                    font-size: 13.5px;
+                    font-weight: 700;
+                    color: #ffffff;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    border-radius: 4px;
+                    padding: 2px 5px;
+                    cursor: default;
+                    border: 1px solid transparent;
+                    transition: all 0.15s ease;
+                }
+                .zds-card-title:hover {
+                    background: rgba(255, 255, 255, 0.08);
+                    border-color: rgba(255, 255, 255, 0.15);
+                }
+                .zds-card-title.zds-title-editing {
+                    background: rgba(0, 0, 0, 0.9) !important;
+                    border-color: #a855f7 !important;
+                    box-shadow: 0 0 10px rgba(168, 85, 247, 0.5) !important;
+                    color: #ffffff !important;
+                    cursor: text !important;
+                    outline: none !important;
+                }
+                .zds-card-meta-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-size: 11px;
+                    color: var(--zds-text-secondary);
+                    overflow: hidden;
+                }
+                .zds-card-meta-row .zds-card-role {
+                    flex: 1;
+                    min-width: 0;
                 }
             `;
             document.head.appendChild(overrideStyle);
@@ -860,69 +925,86 @@ class ZombiehausDeckStudio {
 
         const conns = this.getNodeConnections(node.id);
 
-        // 1. Header
+        // Connection Links Drawer (collapsible details)
+        const drawer = document.createElement("div");
+        drawer.className = "zds-card-connections-drawer";
+        drawer.style.display = "none";
+
+        // 1. Header (Prominent Title Bar)
         const header = document.createElement("div");
         header.className = "zds-card-header";
 
-        const headerLeft = document.createElement("div");
-        headerLeft.className = "zds-card-header-left";
+        const titleRow = document.createElement("div");
+        titleRow.className = "zds-card-title-row";
+
+        const titleLeft = document.createElement("div");
+        titleLeft.className = "zds-card-title-left";
 
         const dragHandle = document.createElement("span");
         dragHandle.className = "zds-card-drag-handle";
         dragHandle.innerHTML = "⋮⋮";
-        dragHandle.title = "Drag to re-order priority";
-
-        // Execution Priority Step Badge
-        const stepBadge = document.createElement("span");
-        stepBadge.className = "zds-card-step-badge";
-        stepBadge.textContent = `▶ ${node._zdsRunStep || 1}`;
-        stepBadge.title = `Execution Run Priority #${node._zdsRunStep || 1}`;
+        dragHandle.title = "Drag to re-order priority / move card";
 
         const idBadge = document.createElement("span");
         idBadge.className = "zds-card-id";
         idBadge.textContent = `#${node.id}`;
 
-        const titleGroup = document.createElement("div");
-        titleGroup.className = "zds-card-title-group";
-
         const title = document.createElement("span");
         title.className = "zds-card-title";
         title.textContent = node.title || node.type;
-        title.contentEditable = "true";
+        title.contentEditable = "false";
         title.spellcheck = false;
-        title.onblur = () => {
-            node.title = title.textContent.trim();
-            node.setDirtyCanvas(true, true);
+        title.title = `Node #${node.id} (${node.type}) — Double-click to rename`;
+
+        let originalTitle = node.title || node.type;
+
+        title.ondblclick = (e) => {
+            e.stopPropagation();
+            title.contentEditable = "true";
+            title.classList.add("zds-title-editing");
+            title.focus();
+            try {
+                const range = document.createRange();
+                range.selectNodeContents(title);
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } catch (_) {}
         };
-        title.onkeydown = (e) => {
-            if (e.key === "Enter") {
-                e.preventDefault();
-                title.blur();
+
+        const finishEditing = (commit = true) => {
+            if (title.contentEditable !== "true") return;
+            title.contentEditable = "false";
+            title.classList.remove("zds-title-editing");
+            if (commit) {
+                const newTitle = title.textContent.trim();
+                if (newTitle) {
+                    node.title = newTitle;
+                    originalTitle = newTitle;
+                    node.setDirtyCanvas(true, true);
+                } else {
+                    title.textContent = originalTitle;
+                }
+            } else {
+                title.textContent = originalTitle;
             }
         };
 
-        const roleTag = document.createElement("span");
-        roleTag.className = "zds-card-role";
-        roleTag.textContent = getNodeRoleDescription(node);
+        title.onblur = () => finishEditing(true);
 
-        titleGroup.appendChild(title);
-        titleGroup.appendChild(roleTag);
-
-        headerLeft.appendChild(dragHandle);
-        headerLeft.appendChild(stepBadge);
-        headerLeft.appendChild(idBadge);
-        headerLeft.appendChild(titleGroup);
-
-        // Connection Summary Pill (Click to toggle Link Drawer)
-        const linksSummary = document.createElement("span");
-        linksSummary.className = "zds-card-links-summary";
-        linksSummary.title = `Connections: ${conns.feeders.length} input feeder(s), ${conns.consumers.length} output consumer(s). Click to toggle links drawer.`;
-        linksSummary.innerHTML = `<span class="zds-conn-in-count">◀ ${conns.feeders.length}</span> • <span class="zds-conn-out-count">${conns.consumers.length} ▶</span>`;
-        linksSummary.onclick = (e) => {
-            e.stopPropagation();
-            drawer.style.display = drawer.style.display === "none" ? "flex" : "none";
+        title.onkeydown = (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                finishEditing(true);
+            } else if (e.key === "Escape") {
+                e.preventDefault();
+                finishEditing(false);
+            }
         };
-        headerLeft.appendChild(linksSummary);
+
+        titleLeft.appendChild(dragHandle);
+        titleLeft.appendChild(idBadge);
+        titleLeft.appendChild(title);
 
         const headerActions = document.createElement("div");
         headerActions.className = "zds-card-header-actions";
@@ -1004,14 +1086,40 @@ class ZombiehausDeckStudio {
         headerActions.appendChild(locateBtn);
         headerActions.appendChild(collapseBtn);
 
-        header.appendChild(headerLeft);
-        header.appendChild(headerActions);
-        card.appendChild(header);
+        titleRow.appendChild(titleLeft);
+        titleRow.appendChild(headerActions);
 
-        // Connection Links Drawer (collapsible details)
-        const drawer = document.createElement("div");
-        drawer.className = "zds-card-connections-drawer";
-        drawer.style.display = "none";
+        // 2. Meta Sub-row (Priority Step, Node Role, Connection Pills)
+        const metaRow = document.createElement("div");
+        metaRow.className = "zds-card-meta-row";
+
+        // Execution Priority Step Badge
+        const stepBadge = document.createElement("span");
+        stepBadge.className = "zds-card-step-badge";
+        stepBadge.textContent = `▶ Step ${node._zdsRunStep || 1}`;
+        stepBadge.title = `Execution Run Priority #${node._zdsRunStep || 1}`;
+
+        const roleTag = document.createElement("span");
+        roleTag.className = "zds-card-role";
+        roleTag.textContent = getNodeRoleDescription(node);
+
+        // Connection Summary Pill (Click to toggle Link Drawer)
+        const linksSummary = document.createElement("span");
+        linksSummary.className = "zds-card-links-summary";
+        linksSummary.title = `Connections: ${conns.feeders.length} input feeder(s), ${conns.consumers.length} output consumer(s). Click to toggle links drawer.`;
+        linksSummary.innerHTML = `<span class="zds-conn-in-count">◀ ${conns.feeders.length}</span> • <span class="zds-conn-out-count">${conns.consumers.length} ▶</span>`;
+        linksSummary.onclick = (e) => {
+            e.stopPropagation();
+            drawer.style.display = drawer.style.display === "none" ? "flex" : "none";
+        };
+
+        metaRow.appendChild(stepBadge);
+        metaRow.appendChild(roleTag);
+        metaRow.appendChild(linksSummary);
+
+        header.appendChild(titleRow);
+        header.appendChild(metaRow);
+        card.appendChild(header);
 
         if (conns.feeders.length > 0) {
             const inRow = document.createElement("div");

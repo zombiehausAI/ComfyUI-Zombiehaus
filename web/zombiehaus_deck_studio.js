@@ -410,19 +410,19 @@ class ZombiehausDeckStudio {
         overlay.querySelector("#zds-btn-add-card").onclick = () => this.openAddCardModal();
 
         // ComfyUI WebSocket & Execution Listeners
-        api.addEventListener("execution_start", () => {
+        api?.addEventListener?.("execution_start", () => {
             this.executingNodeId = null;
             this.updateExecutionState();
         });
 
-        api.addEventListener("executing", (e) => {
+        api?.addEventListener?.("executing", (e) => {
             const nodeId = e.detail;
             this.executingNodeId = nodeId ? parseInt(nodeId, 10) : null;
             this.updateExecutionState();
         });
 
-        api.addEventListener("progress", (e) => {
-            const { value, max, node } = e.detail;
+        api?.addEventListener?.("progress", (e) => {
+            const { value, max, node } = e.detail || {};
             if (node) {
                 const nid = parseInt(node, 10);
                 this.samplerProgress[nid] = { value, max };
@@ -430,8 +430,8 @@ class ZombiehausDeckStudio {
             }
         });
 
-        api.addEventListener("executed", (e) => {
-            const { node, output } = e.detail;
+        api?.addEventListener?.("executed", (e) => {
+            const { node, output } = e.detail || {};
             if (node && output?.images && output.images.length > 0) {
                 const img = output.images[0];
                 const url = `/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder || "")}&type=${encodeURIComponent(img.type || "output")}`;
@@ -493,8 +493,12 @@ class ZombiehausDeckStudio {
         if (window.zombiehausImageTray) {
             window.zombiehausImageTray.updateBottomOffset();
         }
-        this.syncCards();
-        this.updateExecutionState();
+        try {
+            this.syncCards();
+            this.updateExecutionState();
+        } catch (err) {
+            console.error("[Deck Studio] Error during open syncCards:", err);
+        }
     }
 
     close() {
@@ -630,8 +634,12 @@ class ZombiehausDeckStudio {
                 });
 
                 for (const node of laneNodes) {
-                    const card = this.renderCard(node);
-                    cardsContainer.appendChild(card);
+                    try {
+                        const card = this.renderCard(node);
+                        if (card) cardsContainer.appendChild(card);
+                    } catch (cardErr) {
+                        console.error(`[Deck Studio] Error rendering card #${node?.id}:`, cardErr);
+                    }
                 }
 
                 lanesContainer.appendChild(laneEl);
@@ -916,8 +924,12 @@ class ZombiehausDeckStudio {
 
         if (node.widgets && node.widgets.length > 0) {
             for (const widget of node.widgets) {
-                const wRow = this.renderWidgetControl(node, widget);
-                if (wRow) widgetsBody.appendChild(wRow);
+                try {
+                    const wRow = this.renderWidgetControl(node, widget);
+                    if (wRow) widgetsBody.appendChild(wRow);
+                } catch (wErr) {
+                    console.warn(`[Deck Studio] Skipping widget "${widget?.name}" on #${node.id}:`, wErr);
+                }
             }
         } else {
             const noW = document.createElement("div");
@@ -1573,12 +1585,27 @@ class ZombiehausDeckStudio {
         }
 
         // Dropdown Select (COMBO)
-        if (widget.type === "combo" || Array.isArray(widget.options?.values)) {
+        if (widget.type === "combo" || Array.isArray(widget.options?.values) || typeof widget.options?.values === "function") {
             row.appendChild(header);
             const select = document.createElement("select");
             select.className = "zds-select";
 
-            const values = widget.options?.values || [];
+            let values = widget.options?.values;
+            if (typeof values === "function") {
+                try {
+                    values = values(widget, node);
+                } catch (_) {
+                    values = [];
+                }
+            }
+            if (!Array.isArray(values)) {
+                values = [];
+            }
+
+            if (widget.value && !values.includes(widget.value)) {
+                values = [widget.value, ...values];
+            }
+
             for (const val of values) {
                 const opt = document.createElement("option");
                 opt.value = val;
@@ -1594,6 +1621,20 @@ class ZombiehausDeckStudio {
             };
 
             row.appendChild(select);
+            return row;
+        }
+
+        // Button Widget
+        if (widget.type === "button" || (typeof widget.callback === "function" && widget.value === undefined)) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "zds-btn";
+            btn.style.cssText = "width: 100%; margin-top: 4px; padding: 5px 10px; font-size: 11px;";
+            btn.textContent = widget.name || "Action";
+            btn.onclick = () => {
+                if (widget.callback) widget.callback(widget, app.canvas, node);
+            };
+            row.appendChild(btn);
             return row;
         }
 
@@ -1792,11 +1833,33 @@ class ZombiehausDeckStudio {
 }
 
 // ── Extension Registration ───────────────────────────────────────────────────
+let studioInstance = null;
+function getOrCreateDeckStudio() {
+    if (!studioInstance) {
+        try {
+            studioInstance = new ZombiehausDeckStudio();
+            window.zombiehausDeckStudio = studioInstance;
+        } catch (err) {
+            console.error("[Deck Studio] Initialization Error:", err);
+        }
+    }
+    return studioInstance;
+}
+
+window.zombiehausToggleDeckStudio = () => {
+    const s = getOrCreateDeckStudio();
+    if (s) s.toggle();
+};
+
 app.registerExtension({
     name: "zombiehaus.DeckStudio",
 
+    async init() {
+        getOrCreateDeckStudio();
+    },
+
     async setup() {
-        const studio = new ZombiehausDeckStudio();
+        const studio = getOrCreateDeckStudio();
         window.zombiehausDeckStudio = studio;
 
         // Helper to check element visibility

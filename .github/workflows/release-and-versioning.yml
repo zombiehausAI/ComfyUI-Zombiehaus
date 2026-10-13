@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - master
       - dev
   workflow_dispatch:
 
@@ -11,12 +12,12 @@ permissions:
   contents: write
 
 jobs:
-  # JOB 1: Merges/Pushes into 'main' -> Publish Official Release & Bump 'dev' to Next Patch
+  # JOB 1: Merges/Pushes into 'main'/'master' -> Publish Official Release & Bump 'dev' to Next Patch
   release-main:
-    if: github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[skip ci]')
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main repository
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -26,8 +27,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
-          cache-dependency-path: vscode-extension/package-lock.json
 
       - name: Configure Git identity
         run: |

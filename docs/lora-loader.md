@@ -1,0 +1,175 @@
+# LoRA Loader
+
+Stack-based LoRA management with base model validation, Civitai integration, and pipe support.
+
+## Overview
+
+The Zombiehaus LoRA Loader manages a JSON-based stack of LoRAs through an interactive UI. Multiple LoRAs can be enabled, reordered, and strength-adjusted in the node panel without rewiring. The node applies all enabled LoRAs in order to the model and CLIP, and passes everything through via pipe.
+
+## Features
+
+- **LoRA Stack UI**: Add, remove, reorder, and toggle individual LoRAs in the node's panel — all state is stored in a hidden `lora_stack` JSON field
+- **Hybrid Fixed & Random Pool**: Mark individual LoRAs as either Fixed (`📌` always applied) or Random Pool (`🎲` randomly chosen per generation)
+- **Show Text Integration**: Outputs a formatted string (`loaded_loras`) listing exactly which LoRAs were applied, ready to connect to `ZombiehausShowText`
+- **Deterministic Randomization**: Connect a `seed` to ensure the exact same random LoRA is picked for a given seed, or leave unconnected for dynamic generation
+- **Case-Insensitive Path Matching**: Finds LoRA files using three fallback strategies (exact, basename, basename without extension) — handles subdirectories and mixed-case filenames
+- **Per-LoRA Strength**: Each entry in the stack has its own strength value; strength 0 skips the LoRA
+- **Base Model Validation**: The `base_model_name` dropdown (populated from `config.json` definitions) lets the UI warn when a LoRA's metadata doesn't match the selected base model
+- **Civitai Integration**: Preview images, training keywords, and model info are fetched from Civitai via the built-in API routes
+- **Pipe Support**: Accepts and emits a `(model, clip, vae, positive, negative)` pipe — individual inputs override pipe values
+
+## Inputs
+
+### Required
+- **lora_stack** (STRING, hidden): JSON array of LoRA entries managed by the node UI — do not wire manually
+- **base_model_name** (COMBO): Base model type for validation (populated from `base_model_definitions` in `config.json`); does not affect execution
+
+### Optional
+- **pipe** (PIPE): Carries `(model, clip, vae, positive, negative)` — individual inputs override pipe
+- **model** (MODEL): Model to apply LoRAs to
+- **clip** (CLIP): CLIP to apply LoRAs to
+- **positive** (CONDITIONING): Positive conditioning passthrough
+- **negative** (CONDITIONING): Negative conditioning passthrough
+- **seed** (INT): Seed passthrough and random pool seed (forceInput — must be wired, not typed)
+- **prompt** (STRING): Optional prompt text input (e.g. from **Text Editor**). Automatically scans for `<lora:name:strength>` tags and loads them on the fly
+- **random_pick_count** (INT, default: 1): How many LoRAs to randomly pick from the `🎲 Random Pool`
+- **lora_filter** (STRING): Text filter for the LoRA list in the UI panel; persists automatically across browser sessions via `localStorage` and within saved workflows
+- **civitai_api_key** (STRING, hidden): Civitai API key stored in the workflow; overrides `config.json` key
+- **auto_keyword_discovery** (BOOLEAN, default: True): Automatically extract trained trigger words / keywords from active LoRAs to emit via `trigger_words`; toggle off to disable keyword discovery
+- **keyword_blacklist** (STRING, default: ""): Comma-separated list of keywords/tags to ignore and exclude from `trigger_words` (can also be configured globally via `lora_keyword_blacklist` in `config.json`)
+
+## Outputs
+
+| Output | Type | Description |
+|--------|------|-------------|
+| model | MODEL | Model with all enabled and selected LoRAs applied |
+| clip | CLIP | CLIP with all enabled and selected LoRAs applied |
+| positive | CONDITIONING | Positive conditioning passthrough (auto-encoded with modified CLIP if `prompt` is wired and input conditioning is empty) |
+| negative | CONDITIONING | Negative conditioning passthrough |
+| seed | INT | Seed passthrough |
+| pipe | PIPE | `(model, clip, vae, positive, negative)` passthrough |
+| loaded_loras | STRING | Formatted list of applied LoRAs (connect to **Show Text**) |
+| trigger_words | STRING | Comma-separated trained trigger words extracted from active LoRAs (connect to **Text Editor** / **CLIP Encode**) |
+| prompt | STRING | Clean prompt text with all `<lora:...>` tags cleanly stripped and punctuation normalized |
+
+## Random Pool & Hybrid LoRAs
+
+The LoRA Loader allows combining **Fixed** LoRAs that always load alongside a **Random Pool** of variations:
+
+- **📌 Fixed (Default)**: Any LoRA marked with the pin icon is applied on every run. Perfect for base styles, detailers, or face enhancers.
+- **🎲 Random Pool**: Click the mode button to toggle a LoRA into the Random Pool (indicated with a dice icon and purple glow).
+- **`random_pick_count`**: Specifies how many LoRAs to randomly sample from the pool on each generation (default: 1).
+- **Live Header Count**: The header displays the active pool count (e.g., `(2 fixed, 4 random pool)`).
+
+### Connecting to Show Text
+
+Connect the `loaded_loras` output to the `text` input of a **Show Text** node (`ZombiehausShowText`). It displays exactly what was loaded for that run:
+```text
+[Fixed] detailer_v2.safetensors (strength: 1)
+[Random] cyberpunk_girl_v1.safetensors (strength: 0.85)
+[Prompt] futanari_v2 (strength: 0.85)
+```
+
+## Dynamic Prompt LoRA Tagging (`<lora:name:strength>`)
+
+Instead of configuring every LoRA in the UI panel, you can "tag" LoRAs directly in your prompt (e.g. inside dynamic choices, variables, or CASE statements in `ZombiehausTextEditor`).
+
+### How It Works
+
+1. Wire **Text Editor** `positive` (STRING) &rarr; **LoRA Loader** `prompt` (STRING).
+2. The LoRA Loader scans the incoming text for `<lora:...>` tags at execution time.
+3. It searches your installed LoRAs on disk (`models/loras/` including all subdirectories) using case-insensitive matching.
+4. It dynamically loads them onto `model` and `clip`, triggers automatic keyword discovery for them, and returns clean text via the `prompt` output with the tags stripped.
+
+### Supported Syntax
+
+- `<lora:name>` &rarr; Model & CLIP strength `1.0`
+- `<lora:name:0.8>` &rarr; Model & CLIP strength `0.8`
+- `<lora:name:0.8:0.6>` &rarr; Model strength `0.8`, CLIP strength `0.6`
+- `<lora:subfolder/name:0.75>` &rarr; Subfolder path matching
+- `/* <lora:name:1.0> */` &rarr; Comments are ignored (muted)
+
+### Conditional & Choice Examples
+
+```text
+// Dynamic choice
+{<lora:cyberpunk_v1:0.8> | <lora:fantasy_v2:0.9>}
+
+// Variable & CASE statement
+$character = {futanari | man | woman}
+{case $character:
+    futanari => <lora:futanari_v2:0.85>
+    | man    => <lora:male_enhancer:0.7>
+    | woman  => <lora:female_details:0.8>
+}
+```
+The Text Editor evaluates the variable/case/choice first, and the winning branch's tag is loaded by the LoRA Loader.
+
+## LoRA Stack
+
+Each entry in the stack contains:
+- **name**: LoRA filename (relative path from `models/loras/`)
+- **strength**: Applied to both model and CLIP weights (can be negative)
+- **enabled**: When false, the LoRA is skipped without removing it from the stack
+
+LoRAs are applied in stack order. The output model/CLIP reflects the cumulative effect of all enabled LoRAs.
+
+## Base Model Validation
+
+Set `base_model_definitions` in `config.json` to enable validation:
+
+```json
+{
+  "base_model_definitions": [
+    {"type": "sdxl", "keywords": ["sdxl", "xl"]},
+    {"type": "sd15", "keywords": ["sd15", "sd1.5", "v1-5"]},
+    {"type": "flux", "keywords": ["flux"]}
+  ]
+}
+```
+
+The UI compares the LoRA's `ss_base_model_version` or `modelspec.architecture` metadata field against the selected base model type and shows a compatibility indicator. This is UI-only and does not block execution.
+
+## Civitai Integration
+
+- **Preview images**: Fetched from the LoRA file's embedded metadata or a sidecar image file
+- **Civitai lookup**: Triggered by the UI using the LoRA's SHA-256 hash via the `/zombiehaus/get_lora_civitai_info` API route
+- **API key**: Add to `config.json` or wire the `civitai_api_key` input for access to NSFW models
+
+```json
+{
+  "civitai_api_key": "your_api_key_here"
+}
+```
+
+## Usage Patterns
+
+### Basic LoRA Application
+```
+Model Loader → model, clip → LoRA Loader → model, clip → KSampler
+```
+
+### Via Pipe
+```
+Model Loader → pipe → LoRA Loader → pipe → KSampler
+```
+
+### Seed Passthrough
+```
+KSampler seed → LoRA Loader seed input → seed output → Save Image %seed%
+```
+
+## Tips
+
+- **Multiple LoRAs**: Add all LoRAs to one node's stack — no need to chain multiple nodes
+- **Disable without removing**: Toggle `enabled` on a stack entry to temporarily skip a LoRA
+- **Strength 0**: Automatically skipped; same effect as disabling
+- **Negative strength**: Inverts the LoRA effect
+- **Trigger words**: Copy training keywords shown in the Civitai panel into your prompt
+
+## Troubleshooting
+
+- **LoRA not found**: Verify the file exists in `models/loras/`. Path matching is case-insensitive but the file must be present
+- **No validation indicators**: Add `base_model_definitions` to `config.json` and select a base model type in the dropdown
+- **Civitai errors**: Check internet connection and API key; some models require authentication
+- **Empty positive/negative outputs**: If no conditioning is wired (and no pipe), outputs are empty lists — wire conditioning before this node or pass via pipe

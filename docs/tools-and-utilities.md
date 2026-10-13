@@ -1,0 +1,142 @@
+# Zombiehaus Tools, ControlNet & Advanced Utilities
+
+Overview and usage reference for Zombiehaus's advanced utility suite: Tiled VAE Decoding, Pipe-Aware ControlNet, Latent Upscaling (2-Pass Hires Fix), Mask Tools, A/B Image Comparison, All-in-One Model Upscaling, Flow-Matching Timestep Shifting, and Dynamic Wildcards.
+
+---
+
+## 1. Zombiehaus VAE Decode (`ZombiehausVAEDecode`)
+* **Category:** `Zombiehaus/Latent`
+* **Overview:** Decodes latent tensors into pixel images with optional **Tiled VAE Decoding** and unified `PIPE` passthrough.
+* **Why Tiled VAE?** Decoding large $2\text{K} - 8\text{K}$ images with 16-channel Flux/Chroma or SDXL VAEs can easily trigger GPU Out-Of-Memory (OOM) errors. Tiled VAE divides the latent grid into tiles (e.g. 512px) and decodes them sequentially, using minimal VRAM.
+* **Inputs:**
+  * `samples` (LATENT): Latent tensor.
+  * `tile_vae` (BOOLEAN): Enable tiled decoding (default: `false`).
+  * `tile_size` (INT): Tile size in pixels (default: `512`).
+  * `vae` (VAE, optional) / `pipe` (PIPE, optional): VAE source.
+* **Outputs:** `image` (IMAGE), `pipe` (PIPE).
+
+---
+
+## 2. Pipe-Aware ControlNet (`ZombiehausControlNetApply` & `ZombiehausControlNetLoader`)
+* **Category:** `Zombiehaus/Conditioning`
+* **Overview:** Seamlessly applies ControlNet or T2I-Adapter guidance (Canny, Depth, OpenPose, Anyline) directly into the unified `PIPE` without unbundling wires.
+* **Usage:**
+  ```
+  [ Model Loader ] ── PIPE ──► [ Apply ControlNet ] ── PIPE ──► [ KSampler ]
+                                      ▲
+                           [ ControlNet Loader ]
+  ```
+* **Inputs:**
+  * `image` (IMAGE): ControlNet hint/guide image (e.g. edge map, depth map, pose).
+  * `strength` (FLOAT, default `1.0`): ControlNet influence.
+  * `start_percent` / `end_percent` (FLOAT, `0.0 – 1.0`): Step range where ControlNet is active.
+  * `control_net` (CONTROL_NET, optional): Loaded ControlNet model.
+  * `pipe` (PIPE, optional): Zombiehaus pipe.
+* **Outputs:** `positive` (CONDITIONING), `negative` (CONDITIONING), `pipe` (PIPE).
+
+---
+
+## 3. Latent Upscale for 2-Pass Hires Fix (`ZombiehausLatentUpscale`)
+* **Category:** `Zombiehaus/Latent`
+* **Overview:** Scales latent tensors by multiplier factors ($1.25\times, 1.5\times, 2.0\times$) using bicubic, bislerp, or bilinear interpolation with spatial alignment for DiT / Flux architectures.
+* **Hires Fix Workflow:**
+  1. Base generation with KSampler at 1024x1024.
+  2. Route `latent` into `Zombiehaus Latent Upscale` (set `scale_by: 1.5`).
+  3. Route upscaled latent into a secondary `Zombiehaus KSampler` with low denoise (`0.30 – 0.38`).
+* **Inputs:** `samples` (LATENT), `upscale_method` (`bicubic`, `bislerp`, `bilinear`, `nearest-exact`), `scale_by` (FLOAT), `pipe` (PIPE, optional).
+* **Outputs:** `latent` (LATENT), `width` (INT), `height` (INT), `pipe` (PIPE).
+
+---
+
+## 4. All-in-One Model Upscaler (`ZombiehausModelUpscale`)
+* **Category:** `Zombiehaus/Image`
+* **Overview:** Complete super-resolution pipeline in a single node. Combines upscale model loading (e.g. `4x-UltraSharp.pth`, `4x_foolhardy_Remacri.pth`, `2x-UltraSharp.pth`), **memory-safe tiled neural inference** to completely prevent VRAM out-of-memory errors, and precision downscaling/rescaling (**Targeted Resolution** or **Scale Factor multiplier**) with seamless pipe pass-through.
+* **Why Use It?** Eliminates the need to wire separate `UpscaleModelLoader`, `ImageUpscaleWithModel`, and third-party image scaler nodes (`easy imageScaleDownBy`). Enables upscaling high-resolution passes without running out of GPU memory.
+* **Modes (`upscale_mode`):**
+  * `target`: Runs tiled neural model upscaling and automatically resizes to `target_size` (longest side, preserving aspect ratio) or custom width/height.
+  * `tiled`: Runs memory-safe tiled neural upscaling, then resizes by `scale_down_by` multiplier (e.g. 0.5x from a 4x model to create an ultra-crisp 2x final image).
+  * `standard`: Classic non-tiled full-image model upscaling, then resizes by `scale_down_by`.
+  * `disabled`: Completely bypasses the upscale model (preserves image or applies standalone downscale).
+* **Inputs:**
+  * `image` (IMAGE): Input pixel image.
+  * `upscale_model_name` (dropdown): Available upscale models in `models/upscale_models`.
+  * `upscale_mode` (`target`, `tiled`, `standard`, `disabled`): Upscaling and sizing mode.
+  * `target_size` (INT, default `2560`): Target size for the longest side when in `target` mode.
+  * `downscale_enabled` (BOOLEAN, default `true`): Toggle the subsequent downscaling/rescaling pass.
+  * `scale_down_by` (FLOAT, default `0.5`): Rescale factor when in `tiled` or `standard` mode.
+  * `rescale_method` (`lanczos`, `bicubic`, `bilinear`, `area`, `nearest-exact`).
+  * `tile_size` (INT, default `512`): Size of each processing tile in input pixels (512 uses ~1GB VRAM).
+  * `tile_overlap` (INT, default `32`): Overlap in pixels between adjacent tiles with 2D linear blending to eliminate seams.
+  * `pipe` (PIPE, optional): Pass-through pipe.
+  * `target_width` / `target_height` (INT, optional, default `0`): Exact pixel dimensions for `target` mode (overrides `target_size` when both > 0).
+  * `save_upscale` (BOOLEAN, optional, default `false`): Automatically saves the raw upscaled image to disk before downscaling.
+  * `upscale_save_prefix` (STRING, optional, default `"Zombiehaus_Upscale"`): Output file prefix for saved upscaled images.
+* **Outputs:**
+  * `image` (IMAGE): Final image (after targeted or factor downscaling).
+  * `pipe` (PIPE): Pass-through pipe.
+  * `upscaled_image` (IMAGE): Full-resolution model-upscaled image before downscaling (ideal for wiring to preview or custom save nodes).
+
+---
+
+## 5. Flow-Matching Timestep Shifting (`ZombiehausChromaShift`)
+* **Category:** `Zombiehaus/Sampling`
+* **Overview:** Applies resolution-dependent Flow-Matching timestep shifting for **Chroma 1-HD** and **FLUX.1** architectures.
+* **Why Is It Needed?** Chroma 1-HD operates in continuous flow matching. As image resolutions deviate from standard $1024\times1024$ (e.g. $832\times1216$ portrait or $1280\times960$ landscape), the noise schedule needs resolution-dependent shift:
+  $$\text{shift} = \frac{\text{width} \times \text{height}}{1024^2}$$
+  Without timestep shifting, non-square Chroma generations can suffer from slower convergence or diminished micro-details.
+* **Features:**
+  * **Auto (from Latent / Image):** Connect a latent or image from your workflow; the node automatically reads the exact width and height and scales the shift without typing numbers.
+  * **Pipe-Aware:** Connects directly into the Zombiehaus pipe between the Model Loader and Dynamic Guidance / KSampler.
+* **Inputs:**
+  * `max_shift` (FLOAT, default `1.15`), `base_shift` (FLOAT, default `0.5`).
+  * `width` / `height` (INT, default `1024`).
+  * `mode` (`Auto (from Latent / Image)`, `Manual Resolution`, `Fixed Shift`, `Bypass`).
+  * `fixed_shift` (FLOAT, default `1.0`).
+  * `pipe` (PIPE, optional), `model` (MODEL, optional), `latent` (LATENT, optional), `image` (IMAGE, optional).
+* **Outputs:** `model` (MODEL), `pipe` (PIPE).
+
+---
+
+## 6. Architecture Auto-Detection in `ZombiehausLatentPreset`
+* **Category:** `Zombiehaus/Latent`
+* **Overview:** Creates blank latent tensors with common aspect ratio presets while completely preventing channel dimension errors between architectures.
+* **16-Channel vs. 4-Channel Safety:**
+  * **Chroma 1-HD & FLUX:** Require **16 latent channels** (`ae.sft`).
+  * **SDXL & Pony:** Require **4 latent channels**.
+* **Architecture Options:**
+  * `Auto (from Pipe/VAE)`: Inspects the connected VAE/Pipe and automatically assigns 16 channels if Flux/Chroma `ae.sft` is detected, or 4 channels for SDXL.
+  * `Chroma / Flux (16ch)`: Forces 16 channels.
+  * `SDXL / Pony (4ch)` / `SD 1.5 (4ch)`: Forces 4 channels.
+  * `Manual`: Uses the numerical `latent_channels` widget.
+* **Outputs:** `latent` (LATENT), `pipe` (PIPE).
+
+---
+
+## 7. Inpainting Mask Tools (`ZombiehausMaskTools`)
+* **Category:** `Zombiehaus/Image`
+* **Overview:** Refines inpainting boundaries before encoding into latents.
+* **Features:**
+  * **Grow / Shrink (`grow_shrink`)**: Dilates or erodes mask edges (positive values expand mask; negative values contract).
+  * **Feather / Blur (`blur_radius`)**: Smooths harsh mask seams with Gaussian feathering.
+  * **Invert (`invert`)**: Flips masked and unmasked areas.
+* **Outputs:** `mask` (MASK), `preview_image` (IMAGE).
+
+---
+
+## 8. A/B Image Comparison & Live Interactive Preview (`ZombiehausCompareImages`)
+* **Category:** `Zombiehaus/Image`
+* **Overview:** Renders an interactive split-view comparison between Image A (Before) and Image B (After) with a real-time mouse-draggable divider line (`⟷` / `⥯`), corner status badges (`BEFORE (A)` / `AFTER (B)`), percentage readout, and bidirectional slider synchronization directly inside the node.
+* **Usage:** Connect Image A (e.g. original generation) and Image B (e.g. after DeWax, Detailer, or Restormer) to visually inspect sharpness, texture restoration, and facial improvements. Click and drag anywhere across the image or drag the divider line with your mouse to slide the comparison in real time (60fps). Moving the `split_percent` slider also moves the line instantly on the canvas. If `image_b` is unconnected, the node functions as an on-canvas image previewer for Image A.
+* **Inputs:** `image_a` (IMAGE, required), `image_b` (IMAGE, optional), `split_percent` (0–100%), `split_direction` (Vertical / Horizontal), `show_divider` (BOOLEAN).
+* **Outputs:** `comparison` (IMAGE), `image_a`, `image_b`.
+* **Execution:** Configured as an active output node (`OUTPUT_NODE = True`) with `IS_CHANGED` tracking, ensuring on-canvas previews render automatically on every run without requiring downstream connections.
+
+---
+
+## 9. List Curator (`ZombiehausListCurator`)
+* **Category:** `Zombiehaus/Prompting`
+* **Overview:** On-canvas wildcard and list viewing, editing, saving, updating, and deleting with live syntax highlighting, line counter badge, comment toggles (`Ctrl+/`), and autocomplete.
+* **Usage:** Select any list from `saved_prompts/wildcards/`, view or edit entries, and inject randomly or sequentially into prompts via `{curator}` placeholders. See the full [List Curator Documentation](list-curator.md) and [Text Editor & Wildcard Mastery Guide](guides/text-editor-mastery.md).
+* **Inputs:** `wildcard_list` (dropdown), `custom_entries` (STRING), `mode` (Random / Sequential / All Items), `seed` (INT).
+* **Outputs:** `selected_item` (STRING), `all_items` (STRING), `item_count` (INT).
+

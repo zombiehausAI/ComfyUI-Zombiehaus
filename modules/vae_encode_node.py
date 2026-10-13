@@ -1,0 +1,601 @@
+"""
+Zombiehaus VAE Encode & Fidelity Controller Nodes
+
+Provides:
+- ZombiehausLoadImage: Native image loader with upload support.
+- ZombiehausVAEEncode: Modular VAE encoding with automatic model alignment (Flux/Chroma 16px, SDXL/SD1.5 8px).
+- ZombiehausFidelityController: Standalone slider & preset controller mapping human-friendly similarity (0-100%) to denoise & steps.
+- ZombiehausImg2ImgVAEEncode: All-in-one node combining image loading/upload, VAE encode, fidelity slider, and pipe passthrough.
+"""
+
+import os
+import math
+import torch
+import torch.nn.functional as F
+import numpy as np
+from PIL import Image, ImageOps
+import folder_paths
+
+
+def _align_image_tensor(image_tensor, alignment_mode="Auto (16px for Flux/Chroma, 8px for SD)", resize_mode="Crop to Multiple"):
+    """
+    Ensure image dimensions match model patch/downscale requirements:
+    - Flux / Chroma: divisible by 16 (8x VAE downscale * 2x2 DiT patch)
+    - SDXL / Pony / Illustrious / SD 1.5: divisible by 8
+    """
+    if image_tensor is None:
+        return None
+
+    # image_tensor shape: [B, H, W, C]
+    _, h, w, _ = image_tensor.shape
+
+    div = 16
+    if "8px" in alignment_mode or "SDXL" in alignment_mode or "SD 1.5" in alignment_mode:
+        div = 8
+    elif alignment_mode == "None":
+        return image_tensor
+
+    target_w = (w // div) * div
+    target_h = (h // div) * div
+
+    if target_w == 0:
+        target_w = div
+    if target_h == 0:
+        target_h = div
+
+    if target_w == w and target_h == h:
+        return image_tensor
+
+    # Permute to [B, C, H, W] for torch operations
+    img = image_tensor.permute(0, 3, 1, 2)
+
+    if resize_mode == "Rescale to Multiple":
+        img = F.interpolate(img, size=(target_h, target_w), mode="bicubic", align_corners=False)
+    elif resize_mode == "Pad to Multiple":
+        pad_w = (div - (w % div)) % div
+        pad_h = (div - (h % div)) % div
+        pad_left = pad_w // 2
+        pad_right = pad_w - pad_left
+        pad_top = pad_h // 2
+        pad_bottom = pad_h - pad_top
+        img = F.pad(img, (pad_left, pad_right, pad_top, pad_bottom), mode="reflect")
+    else:
+        # Default: Crop to Multiple (Center crop, preserving aspect ratio and crispness)
+        crop_x = (w - target_w) // 2
+        crop_y = (h - target_h) // 2
+        img = img[:, :, crop_y:crop_y + target_h, crop_x:crop_x + target_w]
+
+    img = img.permute(0, 2, 3, 1).contiguous()
+    return img
+
+
+def _compute_fidelity_mapping(fidelity_pct, curve="Smooth S-Curve", min_denoise=0.20, max_denoise=0.95,
+                              base_steps=25, step_compensation=True, target_model="Chroma 1-HD"):
+    """
+    Map similarity/fidelity (0 - 100%) to diffusion denoise and recommended steps:
+    - 100% fidelity: exact replica + LoRA/style (denoise = min_denoise)
+    - 0% fidelity: barely recognizable (denoise = max_denoise)
+    """
+    fidelity_clamped = max(0.0, min(100.0, float(fidelity_pct)))
+    f = fidelity_clamped / 100.0  # 1.0 (exact replica) down to 0.0 (total change)
+    t = 1.0 - f                  # 0.0 (no transform) up to 1.0 (full transform)
+
+    # Apply transformation curve
+    if curve == "Linear":
+        factor = t
+    elif curve == "Preserve Structure (Exponential)":
+        factor = math.pow(t, 1.45)
+    elif curve == "Creative Bias":
+        factor = math.pow(t, 0.72)
+    else:
+        # Default: Smooth S-Curve (Hermite smoothstep)
+        factor = t * t * (3.0 - 2.0 * t)
+
+    # Calculate denoise
+    denoise = min_denoise + factor * (max_denoise - min_denoise)
+    denoise = round(float(denoise), 3)
+
+    # Step compensation
+    # At low denoise (e.g. 0.25), effective steps = steps * denoise = ~6 steps.
+    # We compensate so the sampler executes enough actual diffusion passes to resolve fine style details.
+    if step_compensation and denoise > 0.01:
+        if "Chroma" in target_model or "Flux" in target_model:
+            target_effective = 12.0
+            compensated = max(base_steps, int(round(target_effective / denoise)))
+            steps = min(60, compensated)
+        elif "SDXL" in target_model or "Pony" in target_model or "Illustrious" in target_model:
+            target_effective = 15.0
+            compensated = max(base_steps, int(round(target_effective / denoise)))
+            steps = min(60, compensated)
+        else:
+            target_effective = 14.0
+            compensated = max(base_steps, int(round(target_effective / denoise)))
+            steps = min(60, compensated)
+    else:
+        steps = int(base_steps)
+
+    effective_steps = max(1, int(round(steps * denoise)))
+
+    # Human-readable interpretation
+    if fidelity_clamped >= 88.0:
+        desc = f"Replica Mode ({fidelity_clamped:.0f}% fidelity) — Preserves geometry, pose, face identity; applies LoRA/texture styling."
+    elif fidelity_clamped >= 68.0:
+        desc = f"Faithful Restyle ({fidelity_clamped:.0f}% fidelity) — Maintains subject and composition; adapts fine details to prompt/style."
+    elif fidelity_clamped >= 45.0:
+        desc = f"Balanced Reimagining ({fidelity_clamped:.0f}% fidelity) — Preserves layout, framing, and color palette; restyles subject freely."
+    elif fidelity_clamped >= 20.0:
+        desc = f"Creative Divergence ({fidelity_clamped:.0f}% fidelity) — Original image acts as abstract inspiration; model generates new subjects."
+    else:
+        desc = f"Barely Recognizable ({fidelity_clamped:.0f}% fidelity) — Full creative freedom; minimal resemblance to original."
+
+    summary = f"Fidelity: {fidelity_clamped:.0f}% | Denoise: {denoise:.3f} | Steps: {steps} (Effective: ~{effective_steps}) | {desc}"
+    return denoise, steps, fidelity_clamped, summary
+
+
+class ZombiehausLoadImage:
+    """
+    Dedicated image loader node for Zombiehaus workflows with instant upload support.
+    """
+    @classmethod
+    def INPUT_TYPES(cls):
+        input_dir = folder_paths.get_input_directory()
+        files = []
+        if os.path.isdir(input_dir):
+            files = [
+                f for f in os.listdir(input_dir)
+                if os.path.isfile(os.path.join(input_dir, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff'))
+            ]
+            files.sort()
+        return {
+            "required": {
+                "image": (files if files else ["none"], {"image_upload": True}),
+            }
+        }
+
+    CATEGORY = "Zombiehaus/Image"
+    RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT", "STRING")
+    RETURN_NAMES = ("image", "mask", "width", "height", "filename")
+    FUNCTION = "load_image"
+
+    def load_image(self, image):
+        if not image or image == "none":
+            # Return blank placeholder tensor
+            blank = torch.zeros((1, 1024, 1024, 3), dtype=torch.float32)
+            mask = torch.zeros((1, 1024, 1024), dtype=torch.float32)
+            return (blank, mask, 1024, 1024, "none")
+
+        image_path = folder_paths.get_annotated_filepath(image)
+        i = Image.open(image_path)
+        i = ImageOps.exif_transpose(i)
+        image_rgb = i.convert("RGB")
+        img_np = np.array(image_rgb).astype(np.float32) / 255.0
+        img_tensor = torch.from_numpy(img_np)[None,]
+
+        # Extract mask if alpha channel exists
+        if "A" in i.getbands():
+            mask_np = np.array(i.getchannel("A")).astype(np.float32) / 255.0
+            mask_tensor = 1.0 - torch.from_numpy(mask_np)
+        else:
+            mask_tensor = torch.zeros((i.size[1], i.size[0]), dtype=torch.float32, device="cpu")
+
+        return (img_tensor, mask_tensor.unsqueeze(0), i.size[0], i.size[1], os.path.basename(image_path))
+
+
+class ZombiehausVAEEncode:
+    """
+    Modular VAE encoder for Zombiehaus with automatic architecture alignment
+    (16px grid for Flux/Chroma, 8px grid for SDXL/Pony/Illustrious/SD1.5).
+    """
+    @classmethod
+    def INPUT_TYPES(cls):
+        input_dir = folder_paths.get_input_directory()
+        files = []
+        if os.path.isdir(input_dir):
+            files = [
+                f for f in os.listdir(input_dir)
+                if os.path.isfile(os.path.join(input_dir, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff'))
+            ]
+            files.sort()
+
+        alignment_options = [
+            "Auto (16px for Flux/Chroma, 8px for SD)",
+            "Divisible by 16 (Flux / Chroma)",
+            "Divisible by 8 (SDXL / Pony / Illustrious / SD 1.5)",
+            "None",
+        ]
+        resize_options = ["Crop to Multiple", "Rescale to Multiple", "Pad to Multiple"]
+
+        return {
+            "required": {
+                "alignment": (alignment_options, {"default": alignment_options[0]}),
+                "resize_mode": (resize_options, {"default": resize_options[0]}),
+            },
+            "optional": {
+                "image": ("IMAGE",),
+                "image_upload": (files if files else ["none"], {"image_upload": True}),
+                "vae": ("VAE",),
+                "pipe": ("PIPE",),
+                "mask": ("MASK",),
+            }
+        }
+
+    CATEGORY = "Zombiehaus/Latent"
+    RETURN_TYPES = ("LATENT", "IMAGE", "INT", "INT", "PIPE")
+    RETURN_NAMES = ("latent", "image", "width", "height", "pipe")
+    FUNCTION = "encode"
+
+    def encode(self, alignment, resize_mode, image=None, image_upload="none", vae=None, pipe=None, mask=None):
+        # Resolve VAE from input or pipe
+        resolved_vae = vae
+        if resolved_vae is None and pipe is not None and len(pipe) > 2:
+            resolved_vae = pipe[2]
+
+        if resolved_vae is None:
+            raise ValueError("[Zombiehaus VAE Encode] VAE is required (provide via 'vae' input or 'pipe').")
+
+        # Resolve Image
+        img_tensor = image
+        if img_tensor is None and image_upload and image_upload != "none":
+            image_path = folder_paths.get_annotated_filepath(image_upload)
+            if os.path.exists(image_path):
+                i = Image.open(image_path)
+                i = ImageOps.exif_transpose(i).convert("RGB")
+                img_np = np.array(i).astype(np.float32) / 255.0
+                img_tensor = torch.from_numpy(img_np)[None,]
+
+        if img_tensor is None:
+            raise ValueError("[Zombiehaus VAE Encode] IMAGE is required (connect 'image' or choose an uploaded file).")
+
+        # Detect model alignment if Auto
+        target_align = alignment
+        if alignment.startswith("Auto"):
+            # If VAE has 16 latent channels or is Flux-based, use 16px
+            is_flux = False
+            if hasattr(resolved_vae, "latent_dim") and resolved_vae.latent_dim == 16:
+                is_flux = True
+            elif hasattr(resolved_vae, "first_stage_model") and hasattr(resolved_vae.first_stage_model, "z_channels") and resolved_vae.first_stage_model.z_channels == 16:
+                is_flux = True
+            target_align = "Divisible by 16 (Flux / Chroma)" if is_flux else "Divisible by 8 (SDXL / Pony / Illustrious / SD 1.5)"
+
+        # Align dimensions
+        aligned_image = _align_image_tensor(img_tensor, target_align, resize_mode)
+        _, h, w, _ = aligned_image.shape
+
+        # Encode with VAE
+        latent_tensor = resolved_vae.encode(aligned_image[:, :, :, :3])
+        latent_dict = {"samples": latent_tensor, "width": w, "height": h}
+
+        # Apply noise mask for inpainting if provided
+        if mask is not None:
+            # Mask shape: [B, H, W] -> resize to latent spatial dims
+            lat_h = latent_tensor.shape[-2]
+            lat_w = latent_tensor.shape[-1]
+            m = mask.unsqueeze(1)
+            m_resized = F.interpolate(m, size=(lat_h, lat_w), mode="bilinear", align_corners=False)
+            latent_dict["noise_mask"] = m_resized.squeeze(1)
+
+        return (latent_dict, aligned_image, w, h, pipe)
+
+
+class ZombiehausFidelityController:
+    """
+    Human-friendly image fidelity slider (0 - 100%) that calculates and outputs
+    optimal denoise and step compensation for Chroma, Flux, SDXL, Pony, and Illustrious.
+    """
+    @classmethod
+    def INPUT_TYPES(cls):
+        presets = [
+            "Custom (Use Slider)",
+            "Replica + Style / LoRA (90% Fidelity)",
+            "Faithful Restyle (75% Fidelity)",
+            "Balanced Reimagining (50% Fidelity)",
+            "Creative Divergence (25% Fidelity)",
+            "Barely Recognizable (10% Fidelity)",
+        ]
+        target_models = [
+            "Chroma 1-HD",
+            "Flux.1 (Dev / Schnell)",
+            "SDXL / Pony / Illustrious",
+            "SD 1.5",
+            "Custom / Generic",
+        ]
+        curves = [
+            "Smooth S-Curve",
+            "Linear",
+            "Preserve Structure (Exponential)",
+            "Creative Bias",
+        ]
+
+        return {
+            "required": {
+                "fidelity": ("FLOAT", {"default": 75.0, "min": 0.0, "max": 100.0, "step": 1.0, "display": "slider"}),
+                "preset": (presets, {"default": presets[0]}),
+                "target_model": (target_models, {"default": target_models[0]}),
+                "curve": (curves, {"default": curves[0]}),
+                "base_steps": ("INT", {"default": 25, "min": 1, "max": 10000, "step": 1}),
+                "step_compensation": ("BOOLEAN", {"default": True}),
+                "min_denoise": ("FLOAT", {"default": 0.20, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "max_denoise": ("FLOAT", {"default": 0.95, "min": 0.0, "max": 1.0, "step": 0.01}),
+            },
+            "optional": {
+                "pipe": ("PIPE",),
+            }
+        }
+
+    CATEGORY = "Zombiehaus/Sampling"
+    RETURN_TYPES = ("FLOAT", "INT", "FLOAT", "STRING", "PIPE")
+    RETURN_NAMES = ("denoise", "steps", "fidelity_pct", "summary", "pipe")
+    FUNCTION = "calculate"
+
+    def calculate(self, fidelity, preset, target_model, curve, base_steps, step_compensation, min_denoise, max_denoise, pipe=None):
+        active_fidelity = fidelity
+        if preset == "Replica + Style / LoRA (90% Fidelity)":
+            active_fidelity = 90.0
+        elif preset == "Faithful Restyle (75% Fidelity)":
+            active_fidelity = 75.0
+        elif preset == "Balanced Reimagining (50% Fidelity)":
+            active_fidelity = 50.0
+        elif preset == "Creative Divergence (25% Fidelity)":
+            active_fidelity = 25.0
+        elif preset == "Barely Recognizable (10% Fidelity)":
+            active_fidelity = 10.0
+
+        denoise, steps, fidelity_pct, summary = _compute_fidelity_mapping(
+            fidelity_pct=active_fidelity,
+            curve=curve,
+            min_denoise=min_denoise,
+            max_denoise=max_denoise,
+            base_steps=base_steps,
+            step_compensation=step_compensation,
+            target_model=target_model
+        )
+
+        return (denoise, steps, fidelity_pct, summary, pipe)
+
+
+class ZombiehausImg2ImgVAEEncode:
+    """
+    All-in-One Image-to-Image Node for Zombiehaus.
+    Combines image loading/upload, VAE encoding, automatic architecture alignment,
+    human-friendly fidelity slider (0-100%), and unified PIPE passthrough.
+    """
+    @classmethod
+    def INPUT_TYPES(cls):
+        input_dir = folder_paths.get_input_directory()
+        files = []
+        if os.path.isdir(input_dir):
+            files = [
+                f for f in os.listdir(input_dir)
+                if os.path.isfile(os.path.join(input_dir, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff'))
+            ]
+            files.sort()
+
+        presets = [
+            "Custom (Use Slider)",
+            "Replica + Style / LoRA (90% Fidelity)",
+            "Faithful Restyle (75% Fidelity)",
+            "Balanced Reimagining (50% Fidelity)",
+            "Creative Divergence (25% Fidelity)",
+            "Barely Recognizable (10% Fidelity)",
+        ]
+        target_models = [
+            "Chroma 1-HD",
+            "Flux.1 (Dev / Schnell)",
+            "SDXL / Pony / Illustrious",
+            "SD 1.5",
+            "Custom / Generic",
+        ]
+        alignment_options = [
+            "Auto (16px for Flux/Chroma, 8px for SD)",
+            "Divisible by 16 (Flux / Chroma)",
+            "Divisible by 8 (SDXL / Pony / Illustrious / SD 1.5)",
+            "None",
+        ]
+        resize_options = ["Crop to Multiple", "Rescale to Multiple", "Pad to Multiple"]
+        curves = [
+            "Smooth S-Curve",
+            "Linear",
+            "Preserve Structure (Exponential)",
+            "Creative Bias",
+        ]
+
+        return {
+            "required": {
+                "image_upload": (["none"] + [f for f in files if f != "none"], {"image_upload": True}),
+                "fidelity": ("FLOAT", {"default": 75.0, "min": 0.0, "max": 100.0, "step": 1.0, "display": "slider"}),
+                "preset": (presets, {"default": presets[0]}),
+                "target_model": (target_models, {"default": target_models[0]}),
+                "auto_resize": ("BOOLEAN", {"default": True, "tooltip": "Automatically resize uploaded image to fit within target dimensions while preserving aspect ratio."}),
+                "target_width": ("INT", {"default": 1024, "min": 256, "max": 8192, "step": 16}),
+                "target_height": ("INT", {"default": 1024, "min": 256, "max": 8192, "step": 16}),
+                "alignment": (alignment_options, {"default": alignment_options[0]}),
+                "resize_mode": (resize_options, {"default": resize_options[0]}),
+                "curve": (curves, {"default": curves[0]}),
+                "base_steps": ("INT", {"default": 25, "min": 1, "max": 10000, "step": 1}),
+                "step_compensation": ("BOOLEAN", {"default": True}),
+                "min_denoise": ("FLOAT", {"default": 0.20, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "max_denoise": ("FLOAT", {"default": 0.95, "min": 0.0, "max": 1.0, "step": 0.01}),
+            },
+            "optional": {
+                "image": ("IMAGE",),
+                "vae": ("VAE",),
+                "pipe": ("PIPE",),
+                "mask": ("MASK",),
+            }
+        }
+
+    CATEGORY = "Zombiehaus/Latent"
+    RETURN_TYPES = ("LATENT", "FLOAT", "INT", "IMAGE", "PIPE", "STRING")
+    RETURN_NAMES = ("latent", "denoise", "steps", "image", "pipe", "summary")
+    FUNCTION = "process"
+
+    def process(self, image_upload, fidelity, preset, target_model,
+                alignment="Auto (16px for Flux/Chroma, 8px for SD)",
+                resize_mode="Crop to Multiple",
+                curve="Smooth S-Curve",
+                base_steps=25,
+                step_compensation=True,
+                min_denoise=0.20,
+                max_denoise=0.95,
+                auto_resize=True,
+                target_width=1024,
+                target_height=1024,
+                image=None, vae=None, pipe=None, mask=None,
+                **kwargs):
+
+        # Resolve VAE
+        resolved_vae = vae
+        if resolved_vae is None and pipe is not None and len(pipe) > 2:
+            resolved_vae = pipe[2]
+
+        div = 16 if ("Chroma" in target_model or "Flux" in target_model) else 8
+
+        # Determine effective latent channels (16 for Flux/Chroma, 4 for SDXL/SD1.5)
+        latent_channels = 16 if ("Chroma" in target_model or "Flux" in target_model) else 4
+        if resolved_vae is not None:
+            ch = getattr(resolved_vae, "latent_channels", None)
+            if ch is None and hasattr(resolved_vae, "first_stage_model"):
+                ch = getattr(resolved_vae.first_stage_model, "latent_channels", None)
+            if ch is not None:
+                latent_channels = int(ch)
+
+        # 1. Resolve Image: external image input takes priority over uploaded image
+        img_tensor = image
+        if img_tensor is None and image_upload and image_upload != "none":
+            image_path = folder_paths.get_annotated_filepath(image_upload)
+            if os.path.exists(image_path):
+                try:
+                    i = Image.open(image_path)
+                    i = ImageOps.exif_transpose(i).convert("RGB")
+                    img_np = np.array(i).astype(np.float32) / 255.0
+                    img_tensor = torch.from_numpy(img_np)[None,]
+                except Exception as e:
+                    print(f"[Zombiehaus Img2Img VAE Encode] Warning: Error reading '{image_upload}': {e}")
+                    img_tensor = None
+
+        # Feature 1: If no image is selected, gracefully bypass and generate a blank latent for Text-to-Image
+        if img_tensor is None:
+            w = max(div, (target_width // div) * div)
+            h = max(div, (target_height // div) * div)
+            lat_w = w // 8
+            lat_h = h // 8
+            blank_latent = torch.zeros((1, latent_channels, lat_h, lat_w))
+            latent_dict = {"samples": blank_latent, "width": w, "height": h}
+
+            denoise = 1.0
+            steps = int(base_steps)
+            blank_image = torch.zeros((1, h, w, 3), dtype=torch.float32)
+            summary = f"Text-to-Image Mode (No image selected) — Generating from prompt at {w}x{h} (100% denoise, {steps} steps)"
+            return (latent_dict, denoise, steps, blank_image, pipe, summary)
+
+        # Feature 2: Auto-resize high-resolution images to fit within target dimensions while maintaining aspect ratio
+        if auto_resize and target_width > 0 and target_height > 0:
+            orig_h, orig_w = img_tensor.shape[1], img_tensor.shape[2]
+            scale = min(float(target_width) / float(orig_w), float(target_height) / float(orig_h))
+            # Calculate scaled dimensions and snap to model division
+            scaled_w = max(div, int(round(orig_w * scale)))
+            scaled_h = max(div, int(round(orig_h * scale)))
+            scaled_w = (scaled_w // div) * div
+            scaled_h = (scaled_h // div) * div
+
+            if scaled_w != orig_w or scaled_h != orig_h:
+                img_perm = img_tensor.permute(0, 3, 1, 2)
+                resized = F.interpolate(img_perm, size=(scaled_h, scaled_w), mode="bicubic", align_corners=False)
+                img_tensor = resized.permute(0, 2, 3, 1).clamp(0.0, 1.0)
+
+        # Alignment
+        target_align = alignment
+        if alignment.startswith("Auto"):
+            if "Chroma" in target_model or "Flux" in target_model:
+                target_align = "Divisible by 16 (Flux / Chroma)"
+            else:
+                target_align = "Divisible by 8 (SDXL / Pony / Illustrious / SD 1.5)"
+
+        aligned_image = _align_image_tensor(img_tensor, target_align, resize_mode)
+        _, h, w, _ = aligned_image.shape
+
+        if resolved_vae is None:
+            raise ValueError("[Zombiehaus Img2Img VAE Encode] VAE is required to encode the image (provide via 'vae' input or 'pipe').")
+
+        # Encode to Latent
+        latent_tensor = resolved_vae.encode(aligned_image[:, :, :, :3])
+        latent_dict = {"samples": latent_tensor, "width": w, "height": h}
+
+        if mask is not None:
+            lat_h = latent_tensor.shape[-2]
+            lat_w = latent_tensor.shape[-1]
+            m = mask.unsqueeze(1)
+            m_resized = F.interpolate(m, size=(lat_h, lat_w), mode="bilinear", align_corners=False)
+            latent_dict["noise_mask"] = m_resized.squeeze(1)
+
+        # Fidelity calculation
+        active_fidelity = fidelity
+        if preset == "Replica + Style / LoRA (90% Fidelity)":
+            active_fidelity = 90.0
+        elif preset == "Faithful Restyle (75% Fidelity)":
+            active_fidelity = 75.0
+        elif preset == "Balanced Reimagining (50% Fidelity)":
+            active_fidelity = 50.0
+        elif preset == "Creative Divergence (25% Fidelity)":
+            active_fidelity = 25.0
+        elif preset == "Barely Recognizable (10% Fidelity)":
+            active_fidelity = 10.0
+
+        denoise, steps, _, summary = _compute_fidelity_mapping(
+            fidelity_pct=active_fidelity,
+            curve=curve,
+            min_denoise=min_denoise,
+            max_denoise=max_denoise,
+            base_steps=base_steps,
+            step_compensation=step_compensation,
+            target_model=target_model
+        )
+
+        return (latent_dict, denoise, steps, aligned_image, pipe, summary)
+
+
+class ZombiehausVAEDecode:
+    """
+    Dedicated VAE decode node with optional tiled decoding and PIPE passthrough.
+    Prevents Out-Of-Memory (OOM) on large Flux, Chroma, and SDXL resolutions.
+    """
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "samples": ("LATENT",),
+                "tile_vae": ("BOOLEAN", {"default": False}),
+                "tile_size": ("INT", {"default": 512, "min": 64, "max": 4096, "step": 64}),
+            },
+            "optional": {
+                "vae": ("VAE",),
+                "pipe": ("PIPE",),
+            }
+        }
+
+    CATEGORY = "Zombiehaus/Latent"
+    RETURN_TYPES = ("IMAGE", "PIPE")
+    RETURN_NAMES = ("image", "pipe")
+    FUNCTION = "decode"
+
+    def decode(self, samples, tile_vae, tile_size, vae=None, pipe=None):
+        resolved_vae = vae
+        if resolved_vae is None and pipe is not None and len(pipe) > 2:
+            resolved_vae = pipe[2]
+
+        if resolved_vae is None:
+            raise ValueError("[Zombiehaus VAE Decode] VAE is required (provide via 'vae' or 'pipe').")
+
+        latent_samples = samples["samples"]
+
+        if tile_vae and hasattr(resolved_vae, "decode_tiled"):
+            images = resolved_vae.decode_tiled(latent_samples, tile_x=tile_size // 8, tile_y=tile_size // 8)
+        else:
+            images = resolved_vae.decode(latent_samples)
+
+        if hasattr(images, "ndim") and images.ndim == 5:
+            if images.shape[1] in (1, 3, 4) and images.shape[-1] not in (1, 3, 4):
+                images = images.permute(0, 2, 3, 4, 1)
+            images = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
+
+        return (images, pipe)

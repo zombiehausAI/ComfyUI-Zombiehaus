@@ -210,6 +210,12 @@ class ZombiehausDeckStudio {
             if (rawBay) this.bayWidths = JSON.parse(rawBay);
         } catch (_) {}
 
+        this.laneWidths = {};
+        try {
+            const rawLanes = localStorage.getItem("zds_lane_widths");
+            if (rawLanes) this.laneWidths = JSON.parse(rawLanes);
+        } catch (_) {}
+
         this.enableWireTracing = false;
         try {
             const rawTrace = localStorage.getItem("zds_trace_wires");
@@ -237,7 +243,7 @@ class ZombiehausDeckStudio {
             overrideStyle.textContent = `
                 .zds-card.zds-card-dimmed { opacity: 1 !important; filter: none !important; }
                 .zds-btn-active { background: rgba(168, 85, 247, 0.3) !important; border-color: rgba(168, 85, 247, 0.7) !important; color: #ffffff !important; }
-                .zds-bay { position: relative; }
+                .zds-bay { position: relative; width: max-content; }
                 .zds-bay-resizer {
                     position: absolute;
                     top: 0;
@@ -251,6 +257,69 @@ class ZombiehausDeckStudio {
                 }
                 .zds-bay-resizer:hover, .zds-bay-resizer.is-resizing {
                     background: rgba(168, 85, 247, 0.6);
+                }
+                .zds-column-lane {
+                    position: relative !important;
+                    flex: 0 0 auto !important;
+                    width: max-content !important;
+                    min-width: 320px !important;
+                    max-width: none !important;
+                }
+                .zds-lane-resizer {
+                    position: absolute;
+                    top: 0;
+                    right: -4px;
+                    width: 8px;
+                    height: 100%;
+                    cursor: col-resize;
+                    z-index: 24;
+                    background: transparent;
+                    transition: background 0.15s ease;
+                }
+                .zds-lane-resizer:hover, .zds-lane-resizer.is-resizing {
+                    background: rgba(6, 182, 212, 0.6) !important;
+                }
+                .zds-lane-cards {
+                    width: 100% !important;
+                    min-width: 100% !important;
+                    box-sizing: border-box !important;
+                }
+                .zds-card {
+                    resize: both !important;
+                    min-width: 280px !important;
+                    max-width: 1400px !important;
+                    min-height: 110px !important;
+                    max-height: 1200px !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    box-sizing: border-box !important;
+                }
+                .zds-card::-webkit-resizer {
+                    background: linear-gradient(135deg, transparent 50%, rgba(168, 85, 247, 0.8) 50%) !important;
+                    cursor: nwse-resize !important;
+                }
+                .zds-widgets-body {
+                    flex: 1 !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                }
+                .zds-widget-row {
+                    width: 100% !important;
+                    box-sizing: border-box !important;
+                }
+                .zds-widget-row.zds-widget-multiline {
+                    flex: 1 !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    min-height: 90px !important;
+                }
+                .zds-textarea {
+                    width: 100% !important;
+                    box-sizing: border-box !important;
+                    flex: 1 !important;
+                    min-height: 80px !important;
+                    height: 100% !important;
+                    resize: vertical !important;
                 }
                 .zds-card-header {
                     display: flex;
@@ -493,6 +562,44 @@ class ZombiehausDeckStudio {
             e.stopPropagation();
             startX = e.clientX;
             startWidth = bay.offsetWidth;
+            resizer.classList.add("is-resizing");
+            window.addEventListener("pointermove", onPointerMove);
+            window.addEventListener("pointerup", onPointerUp);
+        });
+    }
+
+    setupLaneResizer(resizer, laneEl, laneKey) {
+        let startX = 0;
+        let startWidth = 0;
+
+        const onPointerMove = (e) => {
+            const dx = e.clientX - startX;
+            const newWidth = Math.max(300, Math.min(1600, Math.round(startWidth + dx)));
+            laneEl.style.width = `${newWidth}px`;
+            this.laneWidths[laneKey] = newWidth;
+        };
+
+        const onPointerUp = () => {
+            resizer.classList.remove("is-resizing");
+            window.removeEventListener("pointermove", onPointerMove);
+            window.removeEventListener("pointerup", onPointerUp);
+            try {
+                localStorage.setItem("zds_lane_widths", JSON.stringify(this.laneWidths));
+            } catch (_) {}
+            if (this.enableWireTracing && this.svgOverlay) {
+                const focusedCard = this.overlay.querySelector(".zds-card-focused");
+                if (focusedCard) {
+                    const nid = parseInt(focusedCard.dataset.nodeId, 10);
+                    if (!isNaN(nid)) this.drawConnectionWires(nid, this.getNodeConnections(nid));
+                }
+            }
+        };
+
+        resizer.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            startX = e.clientX;
+            startWidth = laneEl.offsetWidth;
             resizer.classList.add("is-resizing");
             window.addEventListener("pointermove", onPointerMove);
             window.addEventListener("pointerup", onPointerUp);
@@ -812,6 +919,10 @@ class ZombiehausDeckStudio {
                 laneEl.className = "zds-column-lane";
                 laneEl.dataset.stageId = stage.id;
                 laneEl.dataset.laneIndex = laneIdx;
+                const laneKey = `${stage.id}_lane_${laneIdx}`;
+                if (this.laneWidths[laneKey]) {
+                    laneEl.style.width = `${this.laneWidths[laneKey]}px`;
+                }
 
                 const firstStep = laneNodes.length > 0 ? laneNodes[0]._zdsRunStep : "-";
                 const lastStep = laneNodes.length > 0 ? laneNodes[laneNodes.length - 1]._zdsRunStep : "-";
@@ -823,6 +934,12 @@ class ZombiehausDeckStudio {
                     </div>
                     <div class="zds-lane-cards"></div>
                 `;
+
+                const laneResizer = document.createElement("div");
+                laneResizer.className = "zds-lane-resizer";
+                laneResizer.title = "Drag to resize column lane width";
+                this.setupLaneResizer(laneResizer, laneEl, laneKey);
+                laneEl.appendChild(laneResizer);
 
                 const cardsContainer = laneEl.querySelector(".zds-lane-cards");
 
@@ -900,25 +1017,32 @@ class ZombiehausDeckStudio {
             }
         });
 
-        // Restore Saved Card Height (Resizability)
+        // Restore Saved Card Width & Height (Bidirectional Resizability)
         if (this.cardSizes[node.id]) {
-            card.style.height = `${this.cardSizes[node.id]}px`;
+            const sz = this.cardSizes[node.id];
+            if (typeof sz === "number") {
+                card.style.height = `${sz}px`;
+            } else if (sz && typeof sz === "object") {
+                if (sz.height) card.style.height = `${sz.height}px`;
+                if (sz.width) card.style.width = `${sz.width}px`;
+            }
         }
 
-        // Observe manual vertical resize to persist across sessions
+        // Observe manual resize (horizontal & vertical) to persist across sessions
         if (typeof ResizeObserver !== "undefined") {
             let resizeDebounce = null;
             const ro = new ResizeObserver(() => {
                 clearTimeout(resizeDebounce);
                 resizeDebounce = setTimeout(() => {
+                    const w = Math.round(card.offsetWidth);
                     const h = Math.round(card.offsetHeight);
-                    if (h && h > 80) {
-                        this.cardSizes[node.id] = h;
+                    if ((w && w > 120) || (h && h > 80)) {
+                        this.cardSizes[node.id] = { width: w, height: h };
                         try {
                             localStorage.setItem("zds_card_sizes", JSON.stringify(this.cardSizes));
                         } catch (_) {}
                     }
-                }, 300);
+                }, 200);
             });
             ro.observe(card);
         }
@@ -1964,8 +2088,12 @@ class ZombiehausDeckStudio {
             const isMultiline = widget.name.toLowerCase().includes("prompt") || widget.name.toLowerCase().includes("text");
 
             if (isMultiline) {
+                row.classList.add("zds-widget-multiline");
                 const ta = document.createElement("textarea");
                 ta.className = "zds-textarea";
+                ta.style.width = "100%";
+                ta.style.boxSizing = "border-box";
+                ta.style.flex = "1";
                 ta.value = widget.value || "";
 
                 ta.oninput = () => {

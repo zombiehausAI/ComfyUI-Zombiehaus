@@ -112,7 +112,8 @@ Cut out all extraneous noise and focus exclusively on the cards you need (e.g. P
   - **Header Nudge Buttons**: Click `◀` (Move Left/Earlier) or `▶` (Move Right/Later) on the card header to swap card positions with a single click.
   - Custom card order automatically persists in `localStorage`.
 - **All Resize Options**:
-  - **Free 2D Resizing**: Drag the bottom-right corner of any card to freely resize both width and height with zero artificial width caps (`min-width: 280px; max-width: none`). Card dimensions are automatically remembered.
+  - **Free 2D Resizing with Zero Caps**: Drag the tactile glowing orange corner handle at the bottom-right of any card to freely resize width and height with zero artificial caps or ceilings. The workspace scrolls smoothly in both directions if cards exceed the viewport.
+  - **Native Resizing**: CSS `resize: both` corner is fully supported without conflicting with dragging or card controls.
   - **Global Width Presets**: One-click preset buttons in the dashboard toolbar: `[ 380 ]`, `[ 520 ]`, `[ 720 ]`, `[ 960 ]`, or `[ ↺ Reset ]` to restore custom individual sizing.
   - **Header Quick Cycle (`↔`)**: Click the width icon on any card header to quickly step its width between `380px`, `540px`, `760px`, and `1000px`.
   - **Height Modes**: Toggle between `↕ Full Height` (cards expand to fill vertical studio height) and `↕ Auto Height` (cards hug their content naturally).

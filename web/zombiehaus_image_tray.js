@@ -65,7 +65,7 @@ class ZombiehausImageTray {
             const link = document.createElement("link");
             link.id = "zit-stylesheet";
             link.rel = "stylesheet";
-            link.href = "/zombiehaus/web/zombiehaus_image_tray.css";
+            link.href = new URL("./zombiehaus_image_tray.css", import.meta.url).href;
             document.head.appendChild(link);
         }
 
@@ -627,7 +627,7 @@ app.registerExtension({
             btn.type = "button";
             btn.innerHTML = "<span>🖼️</span> Tray";
             btn.title = tray.isEnabled ? "Toggle Zombiehaus Image Tray (Alt+T / F10)" : "Image Tray is Disabled (Click to Enable)";
-            if (!tray.isEnabled) btn.style.opacity = "0.5";
+            btn.style.cssText = "display: inline-flex; align-items: center; gap: 5px; background: rgba(20, 24, 38, 0.85); border: 1px solid rgba(168, 85, 247, 0.5); border-radius: 6px; padding: 4px 10px; color: #f8fafc; font-size: 11px; font-weight: 700; cursor: pointer; margin: 2px 4px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); z-index: 99990;";
             btn.onclick = (e) => {
                 e.preventDefault();
                 if (!tray.isEnabled) {
@@ -640,20 +640,31 @@ app.registerExtension({
             const menuBar = (
                 document.querySelector(".comfyui-menu") ||
                 document.querySelector(".comfy-menu") ||
-                document.querySelector("#comfyui-action-bar") ||
-                document.querySelector(".comfyui-body-top")
+                document.querySelector("#comfy-menu") ||
+                document.querySelector(".side-bar-button-selected")?.parentElement ||
+                document.querySelector(".comfyui-action-bar") ||
+                document.querySelector(".comfyui-body-top") ||
+                document.querySelector("header.comfyui-menu") ||
+                document.querySelector(".comfyui-nav")
             );
 
             if (menuBar) {
                 menuBar.appendChild(btn);
             } else {
-                btn.style.cssText = "position: fixed; bottom: 48px; right: 18px; z-index: 9999;";
+                btn.style.position = "fixed";
+                btn.style.bottom = "48px";
+                btn.style.right = "18px";
                 document.body.appendChild(btn);
             }
         };
 
         attachToggleBtn();
-        setTimeout(attachToggleBtn, 1000);
-        setTimeout(attachToggleBtn, 3000);
+        const trayTimer = setInterval(() => {
+            attachToggleBtn();
+            if (document.getElementById("zombiehaus-image-tray-toggle-btn")) {
+                clearInterval(trayTimer);
+            }
+        }, 1000);
+        setTimeout(() => clearInterval(trayTimer), 8000);
     }
 });

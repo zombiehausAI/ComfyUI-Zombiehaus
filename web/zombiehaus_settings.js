@@ -1,5 +1,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import "./zombiehaus_deck_studio.js";
+import "./zombiehaus_image_tray.js";
 
 /**
  * Zombiehaus Settings Extension

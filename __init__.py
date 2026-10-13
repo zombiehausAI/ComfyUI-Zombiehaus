@@ -1774,30 +1774,14 @@ async def list_models_endpoint(request):
     except Exception as e:
         return web.json_response({"success": False, "message": str(e)})
 
-# Ensure all /zombiehaus/* routes are registered for /zombiehaus/* and vice versa
-try:
-    existing_paths = {r.path for r in server.PromptServer.instance.routes if hasattr(r, "path")}
-    for r in list(server.PromptServer.instance.routes):
-        if hasattr(r, "path") and hasattr(r, "handler"):
-            method = getattr(r, "method", "GET").upper()
-            if r.path.startswith("/zombiehaus/"):
-                zpath = "/zombiehaus/" + r.path[len("/zombiehaus/"):]
-                if zpath not in existing_paths:
-                    if method == "GET":
-                        server.PromptServer.instance.routes.get(zpath)(r.handler)
-                    elif method == "POST":
-                        server.PromptServer.instance.routes.post(zpath)(r.handler)
-                    existing_paths.add(zpath)
-            elif r.path.startswith("/zombiehaus/"):
-                mpath = "/zombiehaus/" + r.path[len("/zombiehaus/"):]
-                if mpath not in existing_paths:
-                    if method == "GET":
-                        server.PromptServer.instance.routes.get(mpath)(r.handler)
-                    elif method == "POST":
-                        server.PromptServer.instance.routes.post(mpath)(r.handler)
-                    existing_paths.add(mpath)
-except Exception as e:
-    pass
+@server.PromptServer.instance.routes.get("/zombiehaus/web/{filename}")
+async def serve_zombiehaus_web_file(request):
+    filename = request.match_info.get("filename", "")
+    web_dir = os.path.join(os.path.dirname(__file__), "web")
+    filepath = os.path.normpath(os.path.join(web_dir, filename))
+    if filepath.startswith(web_dir) and os.path.isfile(filepath):
+        return web.FileResponse(filepath)
+    return web.Response(status=404)
 
 NODE_CLASS_MAPPINGS = {
     # Zombiehaus nodes

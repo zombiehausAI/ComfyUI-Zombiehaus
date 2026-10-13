@@ -1982,7 +1982,8 @@ function fetchLoraList(force = false) {
 
 // ── Property / Dictionary Autocomplete Cache & Helpers ───────────────────────
 const _wildcardKeysCache = new Map();
-const _fetchingWildcardKeys = new Set();
+const _wildcardObjectsCache = new Map();
+const _wildcardKeysPromises = new Map();
 
 function extractKeysFromDictString(str, keysSet) {
     if (!str || typeof str !== "string") return;
@@ -2071,57 +2072,171 @@ function extractKeysFromDictString(str, keysSet) {
     }
 }
 
-function extractKeysFromWildcardContent(content) {
-    const keys = new Set();
-    if (!content || typeof content !== "string") return [];
+function parseWildcardData(content) {
+    const itemKeys = new Set();
+    const byItem = new Map();
+    const allProps = new Set();
+
+    if (!content || typeof content !== "string") {
+        return { itemKeys: [], byItem: new Map(), allProps: [] };
+    }
 
     const trimmed = content.trim();
     if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
         try {
             const parsed = JSON.parse(trimmed);
             if (Array.isArray(parsed)) {
-                for (const item of parsed) {
-                    if (item && typeof item === "object") {
-                        Object.keys(item).forEach(k => {
-                            if (/^[a-zA-Z0-9_]+$/.test(k)) keys.add(k);
-                        });
+                for (const elem of parsed) {
+                    if (typeof elem === "string" && /^[a-zA-Z0-9_-]+$/.test(elem.trim())) {
+                        itemKeys.add(elem.trim());
+                    } else if (elem && typeof elem === "object") {
+                        const idKey = elem.name || elem.id || elem.key || elem.title;
+                        if (idKey && typeof idKey === "string") {
+                            itemKeys.add(idKey);
+                            const pSet = new Set();
+                            for (const k of Object.keys(elem)) {
+                                if (k !== "name" && k !== "id" && k !== "key" && /^[a-zA-Z0-9_]+$/.test(k)) {
+                                    pSet.add(k);
+                                    allProps.add(k);
+                                }
+                            }
+                            byItem.set(idKey.toLowerCase(), pSet);
+                        } else {
+                            for (const k of Object.keys(elem)) {
+                                if (/^[a-zA-Z0-9_]+$/.test(k)) {
+                                    itemKeys.add(k);
+                                    allProps.add(k);
+                                }
+                            }
+                        }
                     }
                 }
             } else if (parsed && typeof parsed === "object") {
-                Object.keys(parsed).forEach(k => {
-                    if (/^[a-zA-Z0-9_]+$/.test(k)) keys.add(k);
-                });
+                for (const [k, val] of Object.entries(parsed)) {
+                    if (/^[a-zA-Z0-9_]+$/.test(k)) {
+                        itemKeys.add(k);
+                        if (val && typeof val === "object" && !Array.isArray(val)) {
+                            const pSet = new Set();
+                            for (const pk of Object.keys(val)) {
+                                if (/^[a-zA-Z0-9_]+$/.test(pk)) {
+                                    pSet.add(pk);
+                                    allProps.add(pk);
+                                }
+                            }
+                            byItem.set(k.toLowerCase(), pSet);
+                        }
+                    }
+                }
             }
         } catch (_) {}
     }
 
     const lines = content.split(/\r?\n/);
-    for (const line of lines) {
-        const l = line.trim();
-        if (!l || l.startsWith("#") || l.startsWith("//")) continue;
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith("#") || line.startsWith("//")) continue;
 
-        if (l.startsWith("{") && l.endsWith("}")) {
-            extractKeysFromDictString(l.slice(1, -1), keys);
-        } else {
-            extractKeysFromDictString(l, keys);
+        if (line.startsWith("{") && line.endsWith("}")) {
+            try {
+                const obj = JSON.parse(line);
+                if (obj && typeof obj === "object") {
+                    const idKey = obj.name || obj.id || obj.key;
+                    if (idKey && typeof idKey === "string") {
+                        itemKeys.add(idKey);
+                        const pSet = byItem.get(idKey.toLowerCase()) || new Set();
+                        for (const k of Object.keys(obj)) {
+                            if (k !== "name" && k !== "id" && k !== "key" && /^[a-zA-Z0-9_]+$/.test(k)) {
+                                pSet.add(k);
+                                allProps.add(k);
+                            }
+                        }
+                        byItem.set(idKey.toLowerCase(), pSet);
+                        continue;
+                    }
+                }
+            } catch (_) {}
+        }
+
+        const colonOrEqMatch = line.match(/^([a-zA-Z0-9_]+)\s*[:=]\s*(.*)$/);
+        if (colonOrEqMatch) {
+            const itemKey = colonOrEqMatch[1].trim();
+            const remainder = colonOrEqMatch[2].trim();
+            itemKeys.add(itemKey);
+
+            const subProps = new Set();
+            if (remainder.startsWith("{") && remainder.endsWith("}")) {
+                extractKeysFromDictString(remainder.slice(1, -1), subProps);
+            } else {
+                extractKeysFromDictString(remainder, subProps);
+            }
+            if (subProps.size > 0) {
+                const existing = byItem.get(itemKey.toLowerCase()) || new Set();
+                for (const p of subProps) {
+                    existing.add(p);
+                    allProps.add(p);
+                }
+                byItem.set(itemKey.toLowerCase(), existing);
+            }
+            continue;
+        }
+
+        const plainIdentMatch = line.match(/^([a-zA-Z0-9_]+)(?:\s*[,;]|\s*$)/);
+        if (plainIdentMatch) {
+            const candidate = plainIdentMatch[1].trim();
+            if (candidate && !/^(true|false|null|none)$/i.test(candidate)) {
+                itemKeys.add(candidate);
+            }
         }
     }
 
-    return Array.from(keys);
+    return {
+        itemKeys: Array.from(itemKeys),
+        byItem,
+        allProps: Array.from(allProps)
+    };
+}
+
+function extractKeysFromWildcardContent(content) {
+    return parseWildcardData(content).itemKeys;
+}
+
+function findCuratorEntriesForWildcard(wildcardName) {
+    if (!wildcardName || typeof app === "undefined" || !app?.graph?._nodes) return null;
+    const clean = wildcardName.toLowerCase().replace(/^__+|__+$/g, "").replace(/\.txt$/i, "");
+    for (const node of app.graph._nodes) {
+        if (node?.type === "ZombiehausListCurator" || node?.comfyClass === "ZombiehausListCurator") {
+            const listWidget = node.widgets?.find(w => w.name === "wildcard_list");
+            const entriesWidget = node.widgets?.find(w => w.name === "custom_entries");
+            const listVal = String(listWidget?.value || "").toLowerCase().replace(/^__+|__+$/g, "").replace(/\.txt$/i, "");
+            if (listVal === clean && entriesWidget?.value && entriesWidget.value.trim()) {
+                return entriesWidget.value;
+            }
+        }
+    }
+    return null;
 }
 
 function fetchWildcardKeys(filename) {
     if (!filename) return Promise.resolve([]);
-    const cleanName = filename.replace(/^__+|__+$/g, "").trim();
-    if (_wildcardKeysCache.has(cleanName)) {
+    const cleanName = filename.replace(/^__+|__+$/g, "").replace(/\.txt$/i, "").trim().toLowerCase();
+    if (!cleanName) return Promise.resolve([]);
+
+    const liveContent = findCuratorEntriesForWildcard(cleanName);
+    if (liveContent) {
+        const parsed = parseWildcardData(liveContent);
+        _wildcardKeysCache.set(cleanName, parsed.itemKeys);
+        _wildcardObjectsCache.set(cleanName, parsed);
+        return Promise.resolve(parsed.itemKeys);
+    }
+
+    if (_wildcardKeysCache.has(cleanName) && _wildcardKeysCache.get(cleanName).length > 0) {
         return Promise.resolve(_wildcardKeysCache.get(cleanName));
     }
-    if (_fetchingWildcardKeys.has(cleanName)) {
-        return Promise.resolve([]);
+    if (_wildcardKeysPromises.has(cleanName)) {
+        return _wildcardKeysPromises.get(cleanName);
     }
-    _fetchingWildcardKeys.add(cleanName);
 
-    return fetch("/zombiehaus/wildcards/load", {
+    const promise = fetch("/zombiehaus/wildcards/load", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filename: cleanName })
@@ -2129,9 +2244,10 @@ function fetchWildcardKeys(filename) {
         .then(r => r.json())
         .then(data => {
             if (data && data.success && data.data) {
-                const keys = extractKeysFromWildcardContent(data.data);
-                _wildcardKeysCache.set(cleanName, keys);
-                return keys;
+                const parsed = parseWildcardData(data.data);
+                _wildcardKeysCache.set(cleanName, parsed.itemKeys);
+                _wildcardObjectsCache.set(cleanName, parsed);
+                return parsed.itemKeys;
             }
             _wildcardKeysCache.set(cleanName, []);
             return [];
@@ -2142,8 +2258,11 @@ function fetchWildcardKeys(filename) {
             return [];
         })
         .finally(() => {
-            _fetchingWildcardKeys.delete(cleanName);
+            _wildcardKeysPromises.delete(cleanName);
         });
+
+    _wildcardKeysPromises.set(cleanName, promise);
+    return promise;
 }
 
 function extractInlineVariableKeys(varName, contextText) {
@@ -2163,6 +2282,59 @@ function extractInlineVariableKeys(varName, contextText) {
     }
 
     return Array.from(keys);
+}
+
+function resolveVariableOrigin(varName, fullContext, depth = 0) {
+    if (!varName || !fullContext || depth > 5) return null;
+
+    const assignRegex = new RegExp(`(?:^|\\n)\\s*\\$${varName}\\s*=\\s*([^;\\n\\r]+)`, 'i');
+    const m = fullContext.match(assignRegex);
+    let rhs = m ? m[1].trim() : "";
+
+    if (!rhs) {
+        const cleanVar = varName.toLowerCase();
+        if (_cachedWildcards && _cachedWildcards.length > 0) {
+            const foundWc = _cachedWildcards.find(w => {
+                const cw = w.toLowerCase().replace(/^__+|__+$/g, "").replace(/\.txt$/i, "");
+                return cw === cleanVar || cw === cleanVar + "s" || (cleanVar.endsWith("s") && cw === cleanVar.slice(0, -1));
+            });
+            if (foundWc) {
+                const wcClean = foundWc.toLowerCase().replace(/^__+|__+$/g, "").replace(/\.txt$/i, "");
+                return { wildcardName: wcClean, isDirectList: true };
+            }
+        }
+        return null;
+    }
+
+    const wcMatch = rhs.match(/__(?:[a-zA-Z0-9_\\-*$]+?\\$\\$)?([a-zA-Z0-9_\\-/]+)__/i);
+    if (wcMatch) {
+        const wcClean = wcMatch[1].replace(/\.txt$/i, "").trim().toLowerCase();
+        return { wildcardName: wcClean, isDirectList: true };
+    }
+
+    const funcWcMatch = rhs.match(/(?:all|any|one|choose)\s*[\(\{]\s*['"]?([a-zA-Z0-9_\\-/]+)['"]?\s*[\)\}]/i);
+    if (funcWcMatch && !funcWcMatch[1].startsWith("$")) {
+        const cand = funcWcMatch[1].replace(/\.txt$/i, "").trim().toLowerCase();
+        return { wildcardName: cand, isDirectList: true };
+    }
+
+    const chainMatch = rhs.match(/(?:all|any|one|choose)?\s*[\(\[]?\s*\$([a-zA-Z0-9_]+)(?:\.([a-zA-Z0-9_]+)|\[\s*["']?([a-zA-Z0-9_]+)["']?\s*\])?/i);
+    if (chainMatch) {
+        const parentVar = chainMatch[1];
+        const subItem = chainMatch[2] || chainMatch[3] || null;
+
+        const parentOrigin = resolveVariableOrigin(parentVar, fullContext, depth + 1);
+        if (parentOrigin && parentOrigin.wildcardName) {
+            return {
+                wildcardName: parentOrigin.wildcardName,
+                parentVar: parentVar,
+                subItem: subItem || parentOrigin.subItem || null,
+                isItemProperty: true
+            };
+        }
+    }
+
+    return null;
 }
 
 const BUILTIN_OBJECT_HELPERS = [
@@ -2224,23 +2396,22 @@ function detectTrigger(text, cursor, node) {
     if (cursor <= 0 || !text) return null;
     const sub = text.slice(0, cursor);
 
-    // 0. Property access: $var.prop (e.g. $woman. or $woman.lo)
+    // 0. Property access: $var.prop (e.g. $woman. or $woman.lo or $scenes.rus)
     const propMatch = sub.match(/(?:^|[^\$a-zA-Z0-9_])\$([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]*)$/);
     if (propMatch) {
         const varName = propMatch[1];
         const query = propMatch[2] || "";
 
-        let wildcardName = null;
         const fullContext = (text || "") + (node ? "\n" + (node.widgets?.map(w => w.value || "").join("\n") || "") : "");
-        const wcDef = fullContext.match(new RegExp(`(?:^|\\n)\\s*\\$${varName}\\s*=\\s*__(?:[a-zA-Z0-9_\\-*$]+?\\$\\$)?([a-zA-Z0-9_\\-/]+)__`, 'i'));
-        if (wcDef) {
-            wildcardName = wcDef[1].trim();
-        }
+        const origin = resolveVariableOrigin(varName, fullContext);
 
         return {
             type: "property",
             varName,
-            wildcardName,
+            wildcardName: origin?.wildcardName || null,
+            subItem: origin?.subItem || null,
+            isItemProperty: !!origin?.isItemProperty,
+            isDirectList: !!origin?.isDirectList,
             fullToken: propMatch[0],
             query,
             replaceStart: cursor - query.length,
@@ -2429,17 +2600,58 @@ function getSuggestions(trigger, node) {
         const propSet = new Set();
         const items = [];
 
-        if (trigger.wildcardName && _wildcardKeysCache.has(trigger.wildcardName)) {
-            const wcKeys = _wildcardKeysCache.get(trigger.wildcardName) || [];
-            for (const k of wcKeys) {
-                if (!propSet.has(k)) {
-                    propSet.add(k);
-                    items.push({
-                        name: k,
-                        badge: "PROP",
-                        badgeClass: "badge-property",
-                        desc: `Property (${trigger.wildcardName})`
-                    });
+        if (trigger.wildcardName) {
+            const cleanWc = trigger.wildcardName.toLowerCase();
+
+            const liveContent = findCuratorEntriesForWildcard(cleanWc);
+            if (liveContent) {
+                const parsed = parseWildcardData(liveContent);
+                _wildcardKeysCache.set(cleanWc, parsed.itemKeys);
+                _wildcardObjectsCache.set(cleanWc, parsed);
+            }
+
+            if (trigger.isItemProperty) {
+                const objData = _wildcardObjectsCache.get(cleanWc);
+                const subItemKey = trigger.subItem ? trigger.subItem.toLowerCase() : null;
+                const specificProps = subItemKey && objData?.byItem ? objData.byItem.get(subItemKey) : null;
+
+                if (specificProps && specificProps.size > 0) {
+                    for (const p of specificProps) {
+                        if (!propSet.has(p)) {
+                            propSet.add(p);
+                            items.push({
+                                name: p,
+                                badge: "PROP",
+                                badgeClass: "badge-property",
+                                desc: `Property (${trigger.subItem})`
+                            });
+                        }
+                    }
+                } else if (objData?.allProps && objData.allProps.length > 0) {
+                    for (const p of objData.allProps) {
+                        if (!propSet.has(p)) {
+                            propSet.add(p);
+                            items.push({
+                                name: p,
+                                badge: "PROP",
+                                badgeClass: "badge-property",
+                                desc: `Property (${trigger.subItem || trigger.wildcardName})`
+                            });
+                        }
+                    }
+                }
+            } else {
+                const wcKeys = _wildcardKeysCache.get(cleanWc) || [];
+                for (const k of wcKeys) {
+                    if (!propSet.has(k)) {
+                        propSet.add(k);
+                        items.push({
+                            name: k,
+                            badge: "ITEM",
+                            badgeClass: "badge-wildcard",
+                            desc: `List item (${trigger.wildcardName})`
+                        });
+                    }
                 }
             }
         }
@@ -2685,7 +2897,7 @@ function attachAutocomplete(widget, node) {
                 });
                 return;
             }
-            if (trigger.type === "property" && trigger.wildcardName && !_wildcardKeysCache.has(trigger.wildcardName)) {
+            if (trigger.type === "property" && trigger.wildcardName && !_wildcardKeysCache.has(trigger.wildcardName.toLowerCase())) {
                 fetchWildcardKeys(trigger.wildcardName).then(() => {
                     if (document.activeElement === ta) {
                         checkTriggerAndSuggest();

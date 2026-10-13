@@ -937,7 +937,7 @@ The Text Editor features a built-in, context-aware autocomplete menu with real-t
 | `%` | **System Variables** | `SYS` | System variables including `%date%`, `%time%`, `%seed%`, `%model%`, `%width%`, `%height%`, `%steps%`, `%cfg%`. Selecting inserts `%name% `. |
 | `{c` | **Curator Placeholders** | `CUR` | Fast insertion for `{curator}`, `{curator2}`, `{curator3}`, `{curator4}`, `{curator5}`, `{curator6}` slots. Selecting inserts `{curator} `. |
 | `<l` or `<lora:` | **LoRA Models** | `LORA` | Scans available ComfyUI LoRA models. Selecting inserts `<lora:model_name:1.0> `. |
-| `.` *(after `$var`)* | **Object / Dict Properties** | `PROP` / `METH` | Typing `.` after a variable (e.g. `$woman.`) autocompletes dictionary keys from assigned wildcards or inline dictionaries, plus helpers (`keys`, `values`, `length`). Selecting inserts the property name. |
+| `.` *(after `$var`)* | **List Items & Object Properties** | `ITEM` / `PROP` / `METH` | Typing `.` after a variable (e.g. `$scenes.`, `$women.`, or `$woman.`) autocompletes list items or dictionary keys from assigned wildcards (including `all(__name__)`, `any(__name__)`, `one(__name__)`, or direct assignments), chained sub-item properties (e.g. `$woman = $women.JulianneHough` -> `$woman.lora`), and built-in helpers (`keys`, `values`, `length`, `first`, `last`). |
 
 ### Keyboard & Navigation Controls
 

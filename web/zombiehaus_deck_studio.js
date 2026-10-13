@@ -337,12 +337,21 @@ class ZombiehausDeckStudio {
             }
         } catch (_) {}
 
+        this.quickViewColumns = [];
+        try {
+            const rawQVC = localStorage.getItem("zds_quick_view_columns");
+            if (rawQVC) {
+                const arr = JSON.parse(rawQVC);
+                if (Array.isArray(arr)) this.quickViewColumns = arr.map(c => Array.isArray(c) ? c.map(String) : [String(c)]);
+            }
+        } catch (_) {}
+
         this.quickViewOrder = [];
         try {
             const rawQVO = localStorage.getItem("zds_quick_view_order");
             if (rawQVO) {
                 const arr = JSON.parse(rawQVO);
-                if (Array.isArray(arr)) this.quickViewOrder = arr;
+                if (Array.isArray(arr)) this.quickViewOrder = arr.map(String);
             }
         } catch (_) {}
         this.quickViewOrder = this.quickViewOrder.filter(id => this.quickViewNodeIds.has(id));
@@ -1286,15 +1295,30 @@ class ZombiehausDeckStudio {
                     border-color: rgba(245, 158, 11, 0.6) !important;
                     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.65), 0 0 20px rgba(245, 158, 11, 0.18) !important;
                 }
+                .zds-qv-column {
+                    display: flex !important;
+                    flex-direction: column !important;
+                    gap: 16px !important;
+                    flex: 0 0 auto !important;
+                    min-width: 240px !important;
+                    align-items: flex-start !important;
+                    box-sizing: border-box !important;
+                }
                 .zds-card.zds-qv-drop-before {
-                    border-left: 4px solid #f59e0b !important;
-                    box-shadow: -4px 0 16px rgba(245, 158, 11, 0.7) !important;
-                    transform: scale(1.01) !important;
+                    border-left: 5px solid #f59e0b !important;
+                    box-shadow: -6px 0 20px rgba(245, 158, 11, 0.8) !important;
                 }
                 .zds-card.zds-qv-drop-after {
-                    border-right: 4px solid #f59e0b !important;
-                    box-shadow: 4px 0 16px rgba(245, 158, 11, 0.7) !important;
-                    transform: scale(1.01) !important;
+                    border-right: 5px solid #f59e0b !important;
+                    box-shadow: 6px 0 20px rgba(245, 158, 11, 0.8) !important;
+                }
+                .zds-card.zds-qv-drop-top {
+                    border-top: 5px solid #f59e0b !important;
+                    box-shadow: 0 -6px 20px rgba(245, 158, 11, 0.8) !important;
+                }
+                .zds-card.zds-qv-drop-bottom {
+                    border-bottom: 5px solid #f59e0b !important;
+                    box-shadow: 0 6px 20px rgba(245, 158, 11, 0.8) !important;
                 }
                 .zds-card-btn-move {
                     font-size: 10px !important;
@@ -2352,7 +2376,6 @@ class ZombiehausDeckStudio {
             lane.addEventListener("drop", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                // If dropped directly onto or inside an existing card, the card's drop listener takes priority
                 if (e.target.closest(".zds-card")) return;
 
                 let rawId = null;
@@ -2364,29 +2387,42 @@ class ZombiehausDeckStudio {
                 const fromStr = String(rawId || this.draggedCardNodeId || "");
                 if (!fromStr) return;
 
-                const order = (this.quickViewOrder || []).map(String);
-                const fromIdx = order.indexOf(fromStr);
-                if (fromIdx !== -1) {
-                    order.splice(fromIdx, 1);
-                }
-                order.push(fromStr);
-                this.quickViewOrder = order;
+                const cols = this.getQuickViewColumns();
+                cols.push([fromStr]);
+                this.quickViewColumns = cols;
+                this.quickViewOrder = cols.flat();
                 try {
+                    localStorage.setItem("zds_quick_view_columns", JSON.stringify(this.quickViewColumns));
                     localStorage.setItem("zds_quick_view_order", JSON.stringify(this.quickViewOrder));
                 } catch (_) {}
                 this.syncCards();
             });
 
-            orderedNodes.forEach(node => {
-                try {
-                    const card = this.renderCard(node);
-                    if (card) {
-                        lane.appendChild(card);
+            const columns = this.getQuickViewColumns();
+            columns.forEach((colIds, cIdx) => {
+                const colEl = document.createElement("div");
+                colEl.className = "zds-qv-column";
+                colEl.dataset.colIdx = cIdx;
+
+                colIds.forEach(idStr => {
+                    const node = nodeMap.get(idStr);
+                    if (node) {
+                        try {
+                            const card = this.renderCard(node);
+                            if (card) {
+                                colEl.appendChild(card);
+                            }
+                        } catch (err) {
+                            console.error(`[Deck Studio] Error rendering Quick View card #${idStr}:`, err);
+                        }
                     }
-                } catch (err) {
-                    console.error(`[Deck Studio] Error rendering Quick View card #${node?.id}:`, err);
+                });
+
+                if (colEl.children.length > 0) {
+                    lane.appendChild(colEl);
                 }
             });
+
             qvContainer.appendChild(lane);
         }
 
@@ -2395,31 +2431,146 @@ class ZombiehausDeckStudio {
         this.updateExecutionState();
     }
 
-    moveQuickViewCard(fromId, toId, after = false) {
+    getQuickViewColumns() {
+        const pinnedList = Array.from(this.quickViewNodeIds || []).map(String);
+        let cols = [];
+        try {
+            const raw = localStorage.getItem("zds_quick_view_columns");
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    cols = parsed.map(c => Array.isArray(c) ? c.map(String) : [String(c)]);
+                }
+            }
+        } catch (_) {}
+
+        if (cols.length === 0 && this.quickViewOrder && this.quickViewOrder.length > 0) {
+            cols = this.quickViewOrder.map(id => [String(id)]);
+        }
+
+        cols = cols.map(c => c.filter(id => pinnedList.includes(id))).filter(c => c.length > 0);
+
+        const allInCols = cols.flat();
+        for (const pid of pinnedList) {
+            if (!allInCols.includes(pid)) {
+                cols.push([pid]);
+            }
+        }
+
+        this.quickViewColumns = cols;
+        this.quickViewOrder = cols.flat();
+        return cols;
+    }
+
+    moveQuickViewCardPosition(fromId, toId, action = "bottom") {
         const fromStr = String(fromId);
         const toStr = String(toId);
         if (!fromStr || !toStr || fromStr === toStr) return;
 
-        let order = (this.quickViewOrder || []).map(String);
-        for (const nid of this.quickViewNodeIds) {
-            const s = String(nid);
-            if (!order.includes(s)) order.push(s);
+        let cols = this.getQuickViewColumns();
+
+        // 1. Remove fromStr from current column
+        for (let c = 0; c < cols.length; c++) {
+            const idx = cols[c].indexOf(fromStr);
+            if (idx !== -1) {
+                cols[c].splice(idx, 1);
+                break;
+            }
+        }
+        cols = cols.filter(col => col.length > 0);
+
+        // 2. Find toStr position
+        let targetCol = -1;
+        let targetRow = -1;
+        for (let c = 0; c < cols.length; c++) {
+            const r = cols[c].indexOf(toStr);
+            if (r !== -1) {
+                targetCol = c;
+                targetRow = r;
+                break;
+            }
         }
 
-        const fromIdx = order.indexOf(fromStr);
-        if (fromIdx !== -1) {
-            order.splice(fromIdx, 1);
-        }
-        let toIdx = order.indexOf(toStr);
-        if (toIdx === -1) {
-            order.push(fromStr);
-        } else {
-            if (after) toIdx++;
-            order.splice(toIdx, 0, fromStr);
+        if (targetCol === -1) {
+            cols.push([fromStr]);
+        } else if (action === "bottom") {
+            cols[targetCol].splice(targetRow + 1, 0, fromStr);
+        } else if (action === "top") {
+            cols[targetCol].splice(targetRow, 0, fromStr);
+        } else if (action === "left") {
+            cols.splice(targetCol, 0, [fromStr]);
+        } else if (action === "right") {
+            cols.splice(targetCol + 1, 0, [fromStr]);
         }
 
-        this.quickViewOrder = order;
+        this.quickViewColumns = cols;
+        this.quickViewOrder = cols.flat();
         try {
+            localStorage.setItem("zds_quick_view_columns", JSON.stringify(this.quickViewColumns));
+            localStorage.setItem("zds_quick_view_order", JSON.stringify(this.quickViewOrder));
+        } catch (_) {}
+        this.syncCards();
+    }
+
+    nudgeQuickViewCard(nodeId, direction) {
+        const sId = String(nodeId);
+        let cols = this.getQuickViewColumns();
+
+        let cIdx = -1;
+        let rIdx = -1;
+        for (let c = 0; c < cols.length; c++) {
+            const r = cols[c].indexOf(sId);
+            if (r !== -1) {
+                cIdx = c;
+                rIdx = r;
+                break;
+            }
+        }
+        if (cIdx === -1) return;
+
+        if (direction === "up") {
+            if (rIdx > 0) {
+                const above = cols[cIdx][rIdx - 1];
+                cols[cIdx][rIdx - 1] = sId;
+                cols[cIdx][rIdx] = above;
+            } else if (cols[cIdx].length > 1) {
+                cols[cIdx].splice(rIdx, 1);
+                cols.splice(cIdx, 0, [sId]);
+            }
+        } else if (direction === "down") {
+            if (rIdx < cols[cIdx].length - 1) {
+                const below = cols[cIdx][rIdx + 1];
+                cols[cIdx][rIdx + 1] = sId;
+                cols[cIdx][rIdx] = below;
+            } else if (cIdx > 0) {
+                cols[cIdx].splice(rIdx, 1);
+                cols[cIdx - 1].push(sId);
+            }
+        } else if (direction === "left") {
+            if (cols[cIdx].length > 1) {
+                cols[cIdx].splice(rIdx, 1);
+                cols.splice(cIdx, 0, [sId]);
+            } else if (cIdx > 0) {
+                const prev = cols[cIdx - 1];
+                cols[cIdx - 1] = cols[cIdx];
+                cols[cIdx] = prev;
+            }
+        } else if (direction === "right") {
+            if (cols[cIdx].length > 1) {
+                cols[cIdx].splice(rIdx, 1);
+                cols.splice(cIdx + 1, 0, [sId]);
+            } else if (cIdx < cols.length - 1) {
+                const next = cols[cIdx + 1];
+                cols[cIdx + 1] = cols[cIdx];
+                cols[cIdx] = next;
+            }
+        }
+
+        cols = cols.filter(c => c.length > 0);
+        this.quickViewColumns = cols;
+        this.quickViewOrder = cols.flat();
+        try {
+            localStorage.setItem("zds_quick_view_columns", JSON.stringify(this.quickViewColumns));
             localStorage.setItem("zds_quick_view_order", JSON.stringify(this.quickViewOrder));
         } catch (_) {}
         this.syncCards();
@@ -2642,34 +2793,45 @@ class ZombiehausDeckStudio {
             ro.observe(card);
         }
 
-        // Focus Dashboard Drag-and-Drop Reordering Event Handlers
+        // Focus Dashboard Drag-and-Drop Reordering Event Handlers (2D: Stack Under/Above or Column Left/Right)
         if (this.viewMode === "quickview") {
             card.addEventListener("dragover", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
                 const rect = card.getBoundingClientRect();
-                const isRow = this.quickViewLayout !== "grid";
-                const mid = isRow ? (rect.left + rect.width / 2) : (rect.top + rect.height / 2);
-                const pos = isRow ? e.clientX : e.clientY;
-                if (pos < mid) {
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                const relX = x / rect.width;
+                const relY = y / rect.height;
+
+                card.classList.remove("zds-qv-drop-before", "zds-qv-drop-after", "zds-qv-drop-top", "zds-qv-drop-bottom");
+
+                if (relY > 0.65) {
+                    card.classList.add("zds-qv-drop-bottom");
+                    card.dataset.dropAction = "bottom";
+                } else if (relY < 0.35) {
+                    card.classList.add("zds-qv-drop-top");
+                    card.dataset.dropAction = "top";
+                } else if (relX < 0.5) {
                     card.classList.add("zds-qv-drop-before");
-                    card.classList.remove("zds-qv-drop-after");
+                    card.dataset.dropAction = "left";
                 } else {
                     card.classList.add("zds-qv-drop-after");
-                    card.classList.remove("zds-qv-drop-before");
+                    card.dataset.dropAction = "right";
                 }
             });
 
             card.addEventListener("dragleave", (e) => {
                 if (card.contains(e.relatedTarget)) return;
-                card.classList.remove("zds-qv-drop-before", "zds-qv-drop-after");
+                card.classList.remove("zds-qv-drop-before", "zds-qv-drop-after", "zds-qv-drop-top", "zds-qv-drop-bottom");
             });
 
             card.addEventListener("drop", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                card.classList.remove("zds-qv-drop-before", "zds-qv-drop-after");
+                const action = card.dataset.dropAction || "bottom";
+                card.classList.remove("zds-qv-drop-before", "zds-qv-drop-after", "zds-qv-drop-top", "zds-qv-drop-bottom");
                 let rawId = null;
                 try {
                     rawId = e.dataTransfer.getData("text/zds-qv-node-id") ||
@@ -2680,13 +2842,7 @@ class ZombiehausDeckStudio {
                 const toId = String(node.id);
                 if (!fromId || fromId === toId) return;
 
-                const rect = card.getBoundingClientRect();
-                const isRow = this.quickViewLayout !== "grid";
-                const mid = isRow ? (rect.left + rect.width / 2) : (rect.top + rect.height / 2);
-                const pos = isRow ? e.clientX : e.clientY;
-                const after = pos >= mid;
-
-                this.moveQuickViewCard(fromId, toId, after);
+                this.moveQuickViewCardPosition(fromId, toId, action);
             });
         }
 
@@ -2803,37 +2959,45 @@ class ZombiehausDeckStudio {
         const headerActions = document.createElement("div");
         headerActions.className = "zds-card-header-actions";
 
-        // In Quick View: add Move Left ◀, Move Right ▶, and Cycle Width ↔
+        // In Quick View: add Move Column Left ◀, Move Up in Column ▲, Stack Under / Move Down ▼, Move Column Right ▶, and Cycle Width ↔
         if (this.viewMode === "quickview") {
             const moveLeftBtn = document.createElement("button");
             moveLeftBtn.className = "zds-card-btn zds-card-btn-move";
             moveLeftBtn.innerHTML = "◀";
-            moveLeftBtn.title = "Move Card Earlier / Left in Focus Dashboard";
+            moveLeftBtn.title = "Move Column Left (or unstack into column to the left)";
             moveLeftBtn.onclick = (e) => {
                 e.stopPropagation();
-                const order = (this.quickViewOrder || []).map(String);
-                const sId = String(node.id);
-                const idx = order.indexOf(sId);
-                if (idx > 0) {
-                    const targetId = order[idx - 1];
-                    this.moveQuickViewCard(sId, targetId, false);
-                }
+                this.nudgeQuickViewCard(node.id, "left");
             };
             headerActions.appendChild(moveLeftBtn);
+
+            const moveUpBtn = document.createElement("button");
+            moveUpBtn.className = "zds-card-btn zds-card-btn-move";
+            moveUpBtn.innerHTML = "▲";
+            moveUpBtn.title = "Move Up in Column (or unstack into own column)";
+            moveUpBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.nudgeQuickViewCard(node.id, "up");
+            };
+            headerActions.appendChild(moveUpBtn);
+
+            const moveDownBtn = document.createElement("button");
+            moveDownBtn.className = "zds-card-btn zds-card-btn-move";
+            moveDownBtn.innerHTML = "▼";
+            moveDownBtn.title = "Stack Under card on the left / Move Down in Column";
+            moveDownBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.nudgeQuickViewCard(node.id, "down");
+            };
+            headerActions.appendChild(moveDownBtn);
 
             const moveRightBtn = document.createElement("button");
             moveRightBtn.className = "zds-card-btn zds-card-btn-move";
             moveRightBtn.innerHTML = "▶";
-            moveRightBtn.title = "Move Card Later / Right in Focus Dashboard";
+            moveRightBtn.title = "Move Column Right (or unstack into column to the right)";
             moveRightBtn.onclick = (e) => {
                 e.stopPropagation();
-                const order = (this.quickViewOrder || []).map(String);
-                const sId = String(node.id);
-                const idx = order.indexOf(sId);
-                if (idx !== -1 && idx < order.length - 1) {
-                    const targetId = order[idx + 1];
-                    this.moveQuickViewCard(sId, targetId, true);
-                }
+                this.nudgeQuickViewCard(node.id, "right");
             };
             headerActions.appendChild(moveRightBtn);
 

@@ -107,10 +107,15 @@ Easily decipher how nodes connect without spaghetti cables:
 Cut out all extraneous noise and focus exclusively on the cards you need (e.g. Prompt Editor, List Curator, KSampler, Hi-Res Fix, All-in-One Detailer):
 
 - **Pin Any Card (`☆` / `★`)**: Click the star icon on any card header to pin it to your Focus Dashboard. You can also click `➕ Pin Cards ▾` in the dashboard sub-header to search and toggle nodes without leaving the view.
-- **Custom Card Ordering**:
-  - **Drag-and-Drop Reordering**: Grab any card by its header and drag it anywhere on the dashboard; an orange glow bar shows the exact insertion point.
-  - **Header Nudge Buttons**: Click `◀` (Move Left/Earlier) or `▶` (Move Right/Later) on the card header to swap card positions with a single click.
-  - Custom card order automatically persists in `localStorage`.
+- **Custom Card Ordering & 2D Column Stacking (Row Flow)**:
+  - **Stack Under / Above**: Drag any card by its header onto the bottom edge of another card to stack directly under it in the same column, or drag onto the top edge to stack above. A glowing orange bottom/top bar indicates the stack location.
+  - **Column Left / Right**: Drag toward the left or right side of a card/column to create or move into a separate column.
+  - **Header Nudge Buttons**:
+    - `◀` Move Column Left (or unstack into the column to the left)
+    - `▲` Move Up in Column (or pop out into its own column)
+    - `▼` Stack Under (or move down in column)
+    - `▶` Move Column Right (or unstack into the column to the right)
+  - Custom 2D column layouts and card sequences automatically persist in `localStorage`.
 - **All Resize Options**:
   - **Free 2D Resizing with Zero Caps**: Drag the tactile glowing orange corner handle at the bottom-right of any card to freely resize width and height with zero artificial caps or ceilings. The workspace scrolls smoothly in both directions if cards exceed the viewport.
   - **Native Resizing**: CSS `resize: both` corner is fully supported without conflicting with dragging or card controls.

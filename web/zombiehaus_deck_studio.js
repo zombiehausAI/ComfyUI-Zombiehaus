@@ -202,11 +202,19 @@ class ZombiehausDeckStudio {
             if (raw) this.cardSizes = JSON.parse(raw);
         } catch (_) {}
 
+        this.bayWidths = {};
+        try {
+            const rawBay = localStorage.getItem("zds_bay_widths");
+            if (rawBay) this.bayWidths = JSON.parse(rawBay);
+        } catch (_) {}
+
         this.enableWireTracing = false;
         try {
             const rawTrace = localStorage.getItem("zds_trace_wires");
             if (rawTrace !== null) this.enableWireTracing = rawTrace === "true";
         } catch (_) {}
+
+        this._currentBlobUrl = null;
 
         this.initDOM();
         this.setupEventListeners();
@@ -227,6 +235,21 @@ class ZombiehausDeckStudio {
             overrideStyle.textContent = `
                 .zds-card.zds-card-dimmed { opacity: 1 !important; filter: none !important; }
                 .zds-btn-active { background: rgba(168, 85, 247, 0.3) !important; border-color: rgba(168, 85, 247, 0.7) !important; color: #ffffff !important; }
+                .zds-bay { position: relative; }
+                .zds-bay-resizer {
+                    position: absolute;
+                    top: 0;
+                    right: -4px;
+                    width: 8px;
+                    height: 100%;
+                    cursor: col-resize;
+                    z-index: 25;
+                    background: transparent;
+                    transition: background 0.15s ease;
+                }
+                .zds-bay-resizer:hover, .zds-bay-resizer.is-resizing {
+                    background: rgba(168, 85, 247, 0.6);
+                }
             `;
             document.head.appendChild(overrideStyle);
         }
@@ -333,6 +356,9 @@ class ZombiehausDeckStudio {
             bay.className = `zds-bay ${stage.colorClass}`;
             bay.id = `zds-bay-${stage.id}`;
             bay.dataset.stageId = stage.id;
+            if (this.bayWidths[stage.id]) {
+                bay.style.width = `${this.bayWidths[stage.id]}px`;
+            }
 
             bay.innerHTML = `
                 <div class="zds-bay-header">
@@ -360,8 +386,52 @@ class ZombiehausDeckStudio {
                 </div>
             `;
 
+            const resizer = document.createElement("div");
+            resizer.className = "zds-bay-resizer";
+            resizer.title = "Drag to resize column width";
+            this.setupBayResizer(resizer, bay, stage.id);
+            bay.appendChild(resizer);
+
             this.workspace.appendChild(bay);
         }
+    }
+
+    setupBayResizer(resizer, bay, stageId) {
+        let startX = 0;
+        let startWidth = 0;
+
+        const onPointerMove = (e) => {
+            const dx = e.clientX - startX;
+            const newWidth = Math.max(320, Math.min(1200, Math.round(startWidth + dx)));
+            bay.style.width = `${newWidth}px`;
+            this.bayWidths[stageId] = newWidth;
+        };
+
+        const onPointerUp = () => {
+            resizer.classList.remove("is-resizing");
+            window.removeEventListener("pointermove", onPointerMove);
+            window.removeEventListener("pointerup", onPointerUp);
+            try {
+                localStorage.setItem("zds_bay_widths", JSON.stringify(this.bayWidths));
+            } catch (_) {}
+            if (this.enableWireTracing && this.svgOverlay) {
+                const focusedCard = this.overlay.querySelector(".zds-card-focused");
+                if (focusedCard) {
+                    const nid = parseInt(focusedCard.dataset.nodeId, 10);
+                    if (!isNaN(nid)) this.drawConnectionWires(nid, this.getNodeConnections(nid));
+                }
+            }
+        };
+
+        resizer.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            startX = e.clientX;
+            startWidth = bay.offsetWidth;
+            resizer.classList.add("is-resizing");
+            window.addEventListener("pointermove", onPointerMove);
+            window.addEventListener("pointerup", onPointerUp);
+        });
     }
 
     // ── Setup UI Event Listeners ──────────────────────────────────────────────
@@ -380,6 +450,7 @@ class ZombiehausDeckStudio {
             trayToggleBtn.onclick = () => {
                 if (window.zombiehausImageTray) {
                     window.zombiehausImageTray.toggleCollapse();
+                    setTimeout(() => this.updateTrayOffset(), 150);
                 }
             };
         }
@@ -482,6 +553,18 @@ class ZombiehausDeckStudio {
             }
         });
 
+        // Live Real-Time Step-by-Step Preview during KSampler / Generation
+        api?.addEventListener?.("b_index", (e) => {
+            if (this.executingNodeId && e.detail instanceof Blob) {
+                const blobUrl = URL.createObjectURL(e.detail);
+                if (this._currentBlobUrl) {
+                    try { URL.revokeObjectURL(this._currentBlobUrl); } catch (_) {}
+                }
+                this._currentBlobUrl = blobUrl;
+                this.updateCardPreview(this.executingNodeId, blobUrl);
+            }
+        });
+
         api?.addEventListener?.("executed", (e) => {
             const { node, output } = e.detail || {};
             if (node && output?.images && output.images.length > 0) {
@@ -494,6 +577,10 @@ class ZombiehausDeckStudio {
                 this.executingNodeId = null;
                 this.updateExecutionState();
             }
+        });
+
+        window.addEventListener("resize", () => {
+            if (this.isOpen) this.updateTrayOffset();
         });
     }
 
@@ -538,10 +625,21 @@ class ZombiehausDeckStudio {
         }
     }
 
+    updateTrayOffset() {
+        if (!this.overlay) return;
+        let trayH = 0;
+        const tray = window.zombiehausImageTray?.trayEl || document.getElementById("zombiehaus-image-tray");
+        if (tray && tray.style.display !== "none") {
+            trayH = Math.round(tray.offsetHeight) || 0;
+        }
+        this.overlay.style.bottom = `${trayH}px`;
+    }
+
     open() {
         this.isOpen = true;
         this.overlay.classList.add("zds-active");
         document.body.classList.add("zombiehaus-deck-active");
+        this.updateTrayOffset();
         if (window.zombiehausImageTray) {
             window.zombiehausImageTray.updateBottomOffset();
         }
@@ -997,11 +1095,16 @@ class ZombiehausDeckStudio {
 
         card.appendChild(widgetsBody);
 
-        // 5. Image Preview Output (for Save/Preview nodes)
-        if (this.lastExecutedImages[node.id]) {
+        // 5. Image Preview Output (for Save/Preview/Detailer/KSampler nodes)
+        let imgUrl = this.lastExecutedImages[node.id];
+        if (!imgUrl && node.imgs && node.imgs.length > 0) {
+            const imgObj = node.imgs[node.imageIndex || 0] || node.imgs[0];
+            if (imgObj && imgObj.src) imgUrl = imgObj.src;
+        }
+        if (imgUrl) {
             const preview = document.createElement("div");
             preview.className = "zds-card-preview";
-            preview.innerHTML = `<img src="${this.lastExecutedImages[node.id]}" class="zds-preview-img" alt="Result" />`;
+            preview.innerHTML = `<img src="${imgUrl}" class="zds-preview-img" alt="Result" />`;
             card.appendChild(preview);
         }
 
@@ -1294,15 +1397,21 @@ class ZombiehausDeckStudio {
 
         const tryOpenNativePopout = (n) => {
             if (!n) return false;
-            window._popoutZIndex = Math.max(window._popoutZIndex || 10001, 10025);
+            window._popoutZIndex = Math.max(window._popoutZIndex || 10001, 100050);
 
             if (typeof n.showPopOutStudio === "function") {
                 n.showPopOutStudio();
-                return true;
+                if (n._popoutStudioEl && document.body.contains(n._popoutStudioEl)) {
+                    n._popoutStudioEl.style.zIndex = String(++window._popoutZIndex);
+                    return true;
+                }
             }
             if (typeof window.zombiehausShowPopOutStudio === "function" && n.type === "ZombiehausTextEditor") {
                 window.zombiehausShowPopOutStudio(n);
-                return true;
+                if (n._popoutStudioEl && document.body.contains(n._popoutStudioEl)) {
+                    n._popoutStudioEl.style.zIndex = String(++window._popoutZIndex);
+                    return true;
+                }
             }
             const popoutBtn = n.widgets?.find(w => {
                 const wn = (w.name || "").toLowerCase();
@@ -1310,7 +1419,10 @@ class ZombiehausDeckStudio {
             });
             if (popoutBtn && typeof popoutBtn.callback === "function") {
                 popoutBtn.callback();
-                return true;
+                if (n._popoutStudioEl && document.body.contains(n._popoutStudioEl)) {
+                    n._popoutStudioEl.style.zIndex = String(++window._popoutZIndex);
+                    return true;
+                }
             }
             return false;
         };

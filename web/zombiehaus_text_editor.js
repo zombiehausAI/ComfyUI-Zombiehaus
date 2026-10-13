@@ -2306,13 +2306,13 @@ function resolveVariableOrigin(varName, fullContext, depth = 0) {
         return null;
     }
 
-    const wcMatch = rhs.match(/__(?:[a-zA-Z0-9_\\-*$]+?\\$\\$)?([a-zA-Z0-9_\\-/]+)__/i);
+    const wcMatch = rhs.match(/__(?:[-a-zA-Z0-9_*$]+?\$\$)?([a-zA-Z0-9_/-]+)__/i);
     if (wcMatch) {
         const wcClean = wcMatch[1].replace(/\.txt$/i, "").trim().toLowerCase();
         return { wildcardName: wcClean, isDirectList: true };
     }
 
-    const funcWcMatch = rhs.match(/(?:all|any|one|choose)\s*[\(\{]\s*['"]?([a-zA-Z0-9_\\-/]+)['"]?\s*[\)\}]/i);
+    const funcWcMatch = rhs.match(/(?:all|any|one|choose)\s*[\({]\s*['"]?([a-zA-Z0-9_/-]+)['"]?\s*[\)}]/i);
     if (funcWcMatch && !funcWcMatch[1].startsWith("$")) {
         const cand = funcWcMatch[1].replace(/\.txt$/i, "").trim().toLowerCase();
         return { wildcardName: cand, isDirectList: true };

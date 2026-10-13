@@ -186,6 +186,106 @@ function getNodeRoleDescription(node) {
     return node.type || "Workflow Processor";
 }
 
+// ── HTML Escape & Syntax Highlighting Engine ──────────────────────────────────
+function escapeHtml(str) {
+    if (!str) return "";
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function highlightPromptSyntax(text, theme = null) {
+    if (!text) return "";
+    const themeName = theme || (typeof localStorage !== "undefined" ? localStorage.getItem("zombiehaus_syntax_theme") : "") || "Zombiehaus Neon";
+    if (themeName === "Off (Plain Text)" || themeName === "Off") {
+        return escapeHtml(text);
+    }
+
+    const colors = {
+        weight: "#38bdf8",          // (word:1.2), (word) -> sky cyan
+        lora: "#c084fc",            // <lora:...> -> light purple / magenta
+        wildcard: "#facc15",        // __wildcard__ -> golden yellow
+        curator: "#4ade80",         // {curator}, {curator2} -> emerald green
+        variable: "#fb923c",        // $var -> orange
+        comment: "#94a3b8",         // /* ... */, // ..., # ... -> slate gray
+        section: "#f472b6",         // [Section] -> pink
+        keyword: "#a78bfa",         // embedding:..., break, etc.
+        text: "#f8fafc"             // default
+    };
+
+    const intervals = [];
+    const addMatches = (regex, type) => {
+        let m;
+        regex.lastIndex = 0;
+        while ((m = regex.exec(text)) !== null) {
+            const start = m.index;
+            const end = start + m[0].length;
+            if (start === end) {
+                regex.lastIndex++;
+                continue;
+            }
+            const collides = intervals.some(iv => (start < iv.end && end > iv.start));
+            if (!collides) {
+                intervals.push({ start, end, type });
+            }
+        }
+    };
+
+    // Priority tokens:
+    // 0. Section Banners: // [Section] or standalone [Section]
+    addMatches(/(?:\/\/|#|\/\*)\s*\[[^\]\r\n]+\](?:\s*\*\/)?/g, "section");
+    addMatches(/(?:^|(?<=[\r\n]))\s*\[[^\]\r\n]+\](?=\s*(?:[\r\n]|$))/g, "section");
+
+    // 1. Comments: /* ... */ or // ... or # ...
+    addMatches(/\/\*[\s\S]*?\*\//g, "comment");
+    addMatches(/\/\/[^\r\n]*/g, "comment");
+    addMatches(/(?:^|(?<=[\r\n]))\s*#[^\r\n]*/g, "comment");
+
+    // 2. LoRA / Hypernetwork: <lora:...>, <hypernet:...>, <lyco:...>
+    addMatches(/<(?:lora|hypernet|lyco):[^>]+>/gi, "lora");
+
+    // 3. Wildcards: __wildcard_name__
+    addMatches(/__[a-zA-Z0-9_\-\/\\]+__/g, "wildcard");
+
+    // 4. Curator placeholders: {curator}, {curator2}, etc.
+    addMatches(/\{curator\d*\}/gi, "curator");
+
+    // 5. Variables: $var or ${var}
+    addMatches(/\$(?:[a-zA-Z0-9_]+|\{[a-zA-Z0-9_]+\})/g, "variable");
+
+    // 6. Embeddings: embedding:name
+    addMatches(/\b(?:embedding|embed):[a-zA-Z0-9_\-\.]+/gi, "keyword");
+
+    // 7. Attention Weights: (word:weight) or (word)
+    addMatches(/\((?:[^():\r\n]+):[-+]?\d*\.?\d+\)/g, "weight");
+    addMatches(/\([a-zA-Z0-9_\s\-,.]+\)/g, "weight");
+
+    intervals.sort((a, b) => a.start - b.start);
+
+    let html = "";
+    let cursor = 0;
+    for (const iv of intervals) {
+        if (iv.start > cursor) {
+            html += escapeHtml(text.substring(cursor, iv.start));
+        }
+        const tokenText = text.substring(iv.start, iv.end);
+        const color = colors[iv.type] || colors.text;
+        const fontStyle = iv.type === "comment" ? "font-style: italic;" : (iv.type === "section" ? "font-weight: 700;" : "");
+        html += `<span style="color: ${color}; ${fontStyle}">${escapeHtml(tokenText)}</span>`;
+        cursor = iv.end;
+    }
+    if (cursor < text.length) {
+        html += escapeHtml(text.substring(cursor));
+    }
+    if (text.endsWith("\n")) {
+        html += "<br/>";
+    }
+    return html;
+}
+
 // ── Deck Studio Master Controller ─────────────────────────────────────────────
 class ZombiehausDeckStudio {
     constructor() {
@@ -196,7 +296,11 @@ class ZombiehausDeckStudio {
         this.executingNodeId = null;
         this.samplerProgress = {}; // { [nodeId]: { step, max_steps } }
         this.lastExecutedImages = {}; // { [nodeId]: url }
-        this.cardOverrides = {}; // user custom column assignments: { [nodeId]: stageId }
+        this.cardOverrides = {}; // user custom column assignments: { [nodeId]: { stage, lane } }
+        try {
+            const rawCO = localStorage.getItem("zds_card_overrides");
+            if (rawCO) this.cardOverrides = JSON.parse(rawCO);
+        } catch (_) {}
 
         this.cardSizes = {};
         try {
@@ -222,11 +326,82 @@ class ZombiehausDeckStudio {
             if (rawTrace !== null) this.enableWireTracing = rawTrace === "true";
         } catch (_) {}
 
+        this.viewMode = "all"; // "all" | "quickview"
+
+        this.quickViewNodeIds = new Set();
+        try {
+            const rawQV = localStorage.getItem("zds_quick_view_nodes");
+            if (rawQV) {
+                const arr = JSON.parse(rawQV);
+                if (Array.isArray(arr)) this.quickViewNodeIds = new Set(arr);
+            }
+        } catch (_) {}
+
+        this.quickViewOrder = [];
+        try {
+            const rawQVO = localStorage.getItem("zds_quick_view_order");
+            if (rawQVO) {
+                const arr = JSON.parse(rawQVO);
+                if (Array.isArray(arr)) this.quickViewOrder = arr;
+            }
+        } catch (_) {}
+        this.quickViewOrder = this.quickViewOrder.filter(id => this.quickViewNodeIds.has(id));
+        for (const id of this.quickViewNodeIds) {
+            if (!this.quickViewOrder.includes(id)) {
+                this.quickViewOrder.push(id);
+            }
+        }
+
+        this.quickViewLayout = "row"; // "row" | "grid"
+        try {
+            const rawQVL = localStorage.getItem("zds_quick_view_layout");
+            if (rawQVL === "grid" || rawQVL === "row") this.quickViewLayout = rawQVL;
+        } catch (_) {}
+
+        this.quickViewCardSizes = {};
+        try {
+            const rawQVCS = localStorage.getItem("zds_quick_view_card_sizes");
+            if (rawQVCS) this.quickViewCardSizes = JSON.parse(rawQVCS);
+        } catch (_) {}
+
+        this.quickViewCardWidth = null;
+        try {
+            const rawQVW = localStorage.getItem("zds_quick_view_card_width");
+            if (rawQVW) {
+                const w = parseInt(rawQVW, 10);
+                if (!isNaN(w) && w > 100) this.quickViewCardWidth = w;
+            }
+        } catch (_) {}
+
+        this.quickViewHeightMode = "full"; // "full" | "auto"
+        try {
+            const rawQVHM = localStorage.getItem("zds_quick_view_height_mode");
+            if (rawQVHM === "auto" || rawQVHM === "full") this.quickViewHeightMode = rawQVHM;
+        } catch (_) {}
+
+        this.collapsedCardIds = new Set();
+        try {
+            const rawColl = localStorage.getItem("zds_collapsed_cards");
+            if (rawColl) {
+                const arr = JSON.parse(rawColl);
+                if (Array.isArray(arr)) this.collapsedCardIds = new Set(arr);
+            }
+        } catch (_) {}
+
         this._currentBlobUrl = null;
 
         this.initDOM();
+        this.updateQuickViewCount();
         this.setupEventListeners();
         this.setupKeyboardShortcuts();
+    }
+
+    updateQuickViewCount() {
+        if (!this.overlay) return;
+        const badge = this.overlay.querySelector("#zds-quickview-badge");
+        if (badge) {
+            badge.textContent = this.quickViewNodeIds.size;
+        }
     }
 
     // ── Inject Stylesheet & Structure ──────────────────────────────────────────
@@ -364,6 +539,64 @@ class ZombiehausDeckStudio {
                 .zds-card::-webkit-resizer {
                     background: linear-gradient(135deg, transparent 50%, rgba(168, 85, 247, 0.8) 50%) !important;
                     cursor: nwse-resize !important;
+                }
+                .zds-lane-cards .zds-card {
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    min-width: 0 !important;
+                    resize: vertical !important;
+                }
+                .zds-syntax-wrapper {
+                    position: relative !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    flex: 1 1 auto !important;
+                    width: 100% !important;
+                    min-height: 70px !important;
+                    height: 100% !important;
+                    box-sizing: border-box !important;
+                    overflow: hidden !important;
+                    border-radius: 6px !important;
+                }
+                .zds-syntax-backdrop {
+                    position: absolute !important;
+                    top: 0 !important;
+                    left: 0 !important;
+                    width: 100% !important;
+                    height: 100% !important;
+                    box-sizing: border-box !important;
+                    padding: 8px 10px !important;
+                    font-family: Consolas, 'SF Mono', Monaco, 'Liberation Mono', monospace !important;
+                    font-size: 12px !important;
+                    line-height: 1.45 !important;
+                    white-space: pre-wrap !important;
+                    word-break: break-word !important;
+                    overflow-wrap: break-word !important;
+                    overflow-y: hidden !important;
+                    overflow-x: hidden !important;
+                    pointer-events: none !important;
+                    user-select: none !important;
+                    -webkit-user-select: none !important;
+                    color: #f8fafc !important;
+                    background: transparent !important;
+                    z-index: 1 !important;
+                }
+                .zds-textarea.zds-syntax-ta {
+                    position: relative !important;
+                    z-index: 2 !important;
+                    color: transparent !important;
+                    caret-color: #ffffff !important;
+                    -webkit-text-fill-color: transparent !important;
+                    background: rgba(0, 0, 0, 0.65) !important;
+                }
+                .zds-textarea.zds-syntax-ta::selection {
+                    background: rgba(168, 85, 247, 0.45) !important;
+                    -webkit-text-fill-color: #ffffff !important;
+                    color: #ffffff !important;
+                }
+                .zds-textarea.zds-syntax-ta::-moz-selection {
+                    background: rgba(168, 85, 247, 0.45) !important;
+                    color: #ffffff !important;
                 }
                 .zds-widgets-body {
                     flex: 1 1 auto !important;
@@ -703,6 +936,446 @@ class ZombiehausDeckStudio {
                     flex: 1;
                     min-width: 0;
                 }
+                /* Collapsed Card State */
+                .zds-card.zds-card-collapsed {
+                    height: auto !important;
+                    min-height: 0 !important;
+                    max-height: none !important;
+                    resize: none !important;
+                    padding-bottom: 0 !important;
+                }
+                .zds-card.zds-card-collapsed .zds-card-lineage-bar,
+                .zds-card.zds-card-collapsed .zds-card-connections-drawer,
+                .zds-card.zds-card-collapsed .zds-ports-section,
+                .zds-card.zds-card-collapsed .zds-progress-container,
+                .zds-card.zds-card-collapsed .zds-widgets-body,
+                .zds-card.zds-card-collapsed .zds-card-preview {
+                    display: none !important;
+                }
+                /* Disconnected Node Warning State */
+                .zds-card.zds-card-disconnected {
+                    border: 1px dashed rgba(239, 68, 68, 0.7) !important;
+                    box-shadow: inset 0 0 12px rgba(239, 68, 68, 0.1) !important;
+                }
+                .zds-badge-disconnected {
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    gap: 3px !important;
+                    padding: 1px 6px !important;
+                    border-radius: 4px !important;
+                    background: rgba(239, 68, 68, 0.22) !important;
+                    border: 1px solid rgba(239, 68, 68, 0.55) !important;
+                    color: #fca5a5 !important;
+                    font-size: 10px !important;
+                    font-weight: 700 !important;
+                    letter-spacing: 0.4px !important;
+                    white-space: nowrap !important;
+                    animation: zds-pulse-warn 2s infinite ease-in-out !important;
+                }
+                .zds-badge-unfed {
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    gap: 3px !important;
+                    padding: 1px 6px !important;
+                    border-radius: 4px !important;
+                    background: rgba(245, 158, 11, 0.22) !important;
+                    border: 1px solid rgba(245, 158, 11, 0.55) !important;
+                    color: #fcd34d !important;
+                    font-size: 10px !important;
+                    font-weight: 700 !important;
+                    letter-spacing: 0.4px !important;
+                    white-space: nowrap !important;
+                }
+                @keyframes zds-pulse-warn {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.6; }
+                }
+                /* Always-Visible Connection Lineage Bar */
+                .zds-card-lineage-bar {
+                    display: flex !important;
+                    flex-direction: column !important;
+                    gap: 4px !important;
+                    padding: 6px 10px !important;
+                    background: rgba(0, 0, 0, 0.38) !important;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+                    box-sizing: border-box !important;
+                    flex-shrink: 0 !important;
+                }
+                .zds-lineage-row {
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 6px !important;
+                    font-size: 11px !important;
+                    overflow-x: auto !important;
+                    overflow-y: hidden !important;
+                    scrollbar-width: none !important;
+                }
+                .zds-lineage-row::-webkit-scrollbar {
+                    display: none !important;
+                }
+                .zds-lineage-label {
+                    font-size: 9.5px !important;
+                    font-weight: 800 !important;
+                    color: #94a3b8 !important;
+                    letter-spacing: 0.6px !important;
+                    flex-shrink: 0 !important;
+                    min-width: 38px !important;
+                    text-transform: uppercase !important;
+                }
+                .zds-lineage-chips {
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 4px !important;
+                    flex-wrap: nowrap !important;
+                }
+                .zds-lineage-chip {
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    gap: 3px !important;
+                    padding: 2px 7px !important;
+                    border-radius: 4px !important;
+                    font-size: 10px !important;
+                    font-weight: 600 !important;
+                    cursor: pointer !important;
+                    white-space: nowrap !important;
+                    transition: all 0.15s ease !important;
+                    border: 1px solid transparent !important;
+                    line-height: 1.2 !important;
+                }
+                .zds-lineage-chip.zds-chip-in {
+                    background: rgba(59, 130, 246, 0.18) !important;
+                    color: #93c5fd !important;
+                    border-color: rgba(59, 130, 246, 0.35) !important;
+                }
+                .zds-lineage-chip.zds-chip-in:hover {
+                    background: rgba(59, 130, 246, 0.38) !important;
+                    border-color: #3b82f6 !important;
+                    color: #ffffff !important;
+                    box-shadow: 0 0 8px rgba(59, 130, 246, 0.45) !important;
+                    transform: translateY(-1px) !important;
+                }
+                .zds-lineage-chip.zds-chip-out {
+                    background: rgba(16, 185, 129, 0.18) !important;
+                    color: #6ee7b7 !important;
+                    border-color: rgba(16, 185, 129, 0.35) !important;
+                }
+                .zds-lineage-chip.zds-chip-out:hover {
+                    background: rgba(16, 185, 129, 0.38) !important;
+                    border-color: #10b981 !important;
+                    color: #ffffff !important;
+                    box-shadow: 0 0 8px rgba(16, 185, 129, 0.45) !important;
+                    transform: translateY(-1px) !important;
+                }
+                .zds-lineage-empty {
+                    font-size: 10px !important;
+                    color: rgba(255, 255, 255, 0.35) !important;
+                    font-style: italic !important;
+                }
+                .zds-lineage-empty-warn {
+                    color: #f59e0b !important;
+                    font-weight: 600 !important;
+                }
+                /* Header Quick View & Delete Buttons */
+                .zds-card-btn-star {
+                    font-size: 12px !important;
+                    color: #94a3b8 !important;
+                }
+                .zds-card-btn-star:hover {
+                    color: #fbbf24 !important;
+                    background: rgba(251, 191, 36, 0.15) !important;
+                    border-color: rgba(251, 191, 36, 0.4) !important;
+                }
+                .zds-card-btn-star.zds-btn-active-star {
+                    color: #fbbf24 !important;
+                    background: rgba(251, 191, 36, 0.25) !important;
+                    border-color: rgba(251, 191, 36, 0.7) !important;
+                    box-shadow: 0 0 8px rgba(251, 191, 36, 0.4) !important;
+                }
+                .zds-card-btn-delete {
+                    font-size: 11px !important;
+                    color: #94a3b8 !important;
+                }
+                .zds-card-btn-delete:hover {
+                    color: #ef4444 !important;
+                    background: rgba(239, 68, 68, 0.2) !important;
+                    border-color: rgba(239, 68, 68, 0.5) !important;
+                }
+                .zds-quickview-badge {
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    min-width: 16px !important;
+                    height: 16px !important;
+                    padding: 0 4px !important;
+                    border-radius: 8px !important;
+                    background: rgba(251, 191, 36, 0.25) !important;
+                    border: 1px solid rgba(251, 191, 36, 0.6) !important;
+                    color: #fde68a !important;
+                    font-size: 10px !important;
+                    font-weight: 700 !important;
+                    margin-left: 4px !important;
+                }
+                /* Focus Dashboard (Quick View) Workspace */
+                .zds-quickview-workspace {
+                    flex: 1 1 0px !important;
+                    min-height: 0 !important;
+                    max-height: calc(100% - 64px) !important;
+                    height: calc(100% - 64px) !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    overflow: hidden !important;
+                    background: radial-gradient(circle at 50% 0%, rgba(245, 158, 11, 0.05), transparent 75%) !important;
+                }
+                .zds-quickview-header {
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: space-between !important;
+                    padding: 8px 18px !important;
+                    background: rgba(14, 17, 28, 0.95) !important;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+                    flex-shrink: 0 !important;
+                    gap: 12px !important;
+                    flex-wrap: wrap !important;
+                    backdrop-filter: blur(12px) !important;
+                }
+                .zds-quickview-title-group {
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 10px !important;
+                }
+                .zds-quickview-title {
+                    font-size: 14px !important;
+                    font-weight: 700 !important;
+                    color: #f8fafc !important;
+                    letter-spacing: -0.2px !important;
+                }
+                .zds-quickview-subtitle {
+                    font-size: 11.5px !important;
+                    color: #94a3b8 !important;
+                    margin-left: 8px !important;
+                }
+                .zds-quickview-actions {
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 8px !important;
+                    flex-wrap: wrap !important;
+                }
+                .zds-qv-btn-group {
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    background: rgba(0, 0, 0, 0.35) !important;
+                    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+                    border-radius: 6px !important;
+                    padding: 2px !important;
+                    gap: 2px !important;
+                }
+                .zds-qv-subbtn {
+                    background: transparent !important;
+                    border: none !important;
+                    color: #94a3b8 !important;
+                    font-size: 11px !important;
+                    font-weight: 600 !important;
+                    padding: 3px 8px !important;
+                    border-radius: 4px !important;
+                    cursor: pointer !important;
+                    transition: all 0.15s ease !important;
+                }
+                .zds-qv-subbtn:hover {
+                    color: #f8fafc !important;
+                    background: rgba(255, 255, 255, 0.08) !important;
+                }
+                .zds-qv-subbtn.zds-btn-active {
+                    color: #ffffff !important;
+                    background: rgba(245, 158, 11, 0.3) !important;
+                    box-shadow: 0 0 8px rgba(245, 158, 11, 0.35) !important;
+                }
+                .zds-quickview-lane {
+                    flex: 1 1 0px !important;
+                    min-height: 0 !important;
+                    max-height: 100% !important;
+                    gap: 16px !important;
+                    padding: 16px 20px 32px 20px !important;
+                    box-sizing: border-box !important;
+                }
+                .zds-quickview-lane.zds-qv-lane-row {
+                    overflow-x: auto !important;
+                    overflow-y: hidden !important;
+                    display: flex !important;
+                    flex-direction: row !important;
+                    align-items: stretch !important;
+                }
+                .zds-quickview-lane.zds-qv-lane-grid {
+                    overflow-x: hidden !important;
+                    overflow-y: auto !important;
+                    display: flex !important;
+                    flex-direction: row !important;
+                    flex-wrap: wrap !important;
+                    align-items: flex-start !important;
+                    align-content: flex-start !important;
+                }
+                .zds-quickview-lane .zds-card {
+                    position: relative !important;
+                    flex: 0 0 auto !important;
+                    min-width: 280px !important;
+                    max-width: none !important;
+                    min-height: 140px !important;
+                    max-height: none !important;
+                    resize: both !important;
+                    border: 1px solid rgba(245, 158, 11, 0.3) !important;
+                    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55), 0 0 16px rgba(245, 158, 11, 0.08) !important;
+                    transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+                }
+                .zds-quickview-lane .zds-card:hover {
+                    border-color: rgba(245, 158, 11, 0.6) !important;
+                    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.65), 0 0 20px rgba(245, 158, 11, 0.18) !important;
+                }
+                .zds-quickview-lane.zds-qv-lane-row .zds-card {
+                    height: 100% !important;
+                }
+                .zds-quickview-lane.zds-qv-lane-grid .zds-card {
+                    height: 520px;
+                }
+                .zds-card.zds-qv-drop-before {
+                    border-left: 4px solid #f59e0b !important;
+                    box-shadow: -4px 0 16px rgba(245, 158, 11, 0.7) !important;
+                    transform: scale(1.01) !important;
+                }
+                .zds-card.zds-qv-drop-after {
+                    border-right: 4px solid #f59e0b !important;
+                    box-shadow: 4px 0 16px rgba(245, 158, 11, 0.7) !important;
+                    transform: scale(1.01) !important;
+                }
+                .zds-card-btn-move {
+                    font-size: 10px !important;
+                    padding: 2px 5px !important;
+                    color: #94a3b8 !important;
+                }
+                .zds-card-btn-move:hover {
+                    color: #f59e0b !important;
+                    background: rgba(245, 158, 11, 0.2) !important;
+                }
+                .zds-card-btn-width {
+                    font-size: 11px !important;
+                    padding: 2px 5px !important;
+                    color: #94a3b8 !important;
+                }
+                .zds-card-btn-width:hover {
+                    color: #38bdf8 !important;
+                    background: rgba(56, 189, 248, 0.2) !important;
+                }
+                /* Node Picker Dropdown */
+                .zds-qv-picker-dropdown {
+                    background: #111422 !important;
+                    border: 1px solid rgba(245, 158, 11, 0.35) !important;
+                    border-radius: 8px !important;
+                    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75), 0 0 20px rgba(245, 158, 11, 0.15) !important;
+                    width: 340px !important;
+                    max-height: 480px !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    overflow: hidden !important;
+                }
+                .zds-qv-picker-header {
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: space-between !important;
+                    padding: 8px 12px !important;
+                    background: rgba(0, 0, 0, 0.4) !important;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+                }
+                .zds-qv-picker-list {
+                    flex: 1 1 auto !important;
+                    overflow-y: auto !important;
+                    max-height: 380px !important;
+                    padding: 4px !important;
+                }
+                .zds-qv-picker-item {
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 8px !important;
+                    padding: 6px 10px !important;
+                    border-radius: 6px !important;
+                    cursor: pointer !important;
+                    transition: background 0.15s ease !important;
+                }
+                .zds-qv-picker-item:hover {
+                    background: rgba(255, 255, 255, 0.08) !important;
+                }
+                .zds-qv-picker-item.is-pinned {
+                    background: rgba(245, 158, 11, 0.12) !important;
+                }
+                .zds-qv-picker-item.is-pinned:hover {
+                    background: rgba(245, 158, 11, 0.22) !important;
+                }
+                .zds-qv-picker-star {
+                    font-size: 13px !important;
+                    color: #94a3b8 !important;
+                    width: 16px !important;
+                    text-align: center !important;
+                }
+                .zds-qv-picker-item.is-pinned .zds-qv-picker-star {
+                    color: #fbbf24 !important;
+                }
+                .zds-qv-picker-icon {
+                    font-size: 14px !important;
+                }
+                .zds-qv-picker-info {
+                    flex: 1 1 auto !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    overflow: hidden !important;
+                }
+                .zds-qv-picker-title {
+                    font-size: 12px !important;
+                    font-weight: 600 !important;
+                    color: #f8fafc !important;
+                    white-space: nowrap !important;
+                    overflow: hidden !important;
+                    text-overflow: ellipsis !important;
+                }
+                .zds-qv-picker-type {
+                    font-size: 10px !important;
+                    color: #94a3b8 !important;
+                }
+                .zds-quickview-empty {
+                    margin: auto !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    align-items: center !important;
+                    text-align: center !important;
+                    max-width: 540px !important;
+                    padding: 40px 28px !important;
+                    background: rgba(18, 22, 36, 0.85) !important;
+                    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                    border-radius: 12px !important;
+                    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6) !important;
+                }
+                .zds-quickview-empty-icon {
+                    font-size: 44px !important;
+                    margin-bottom: 12px !important;
+                    filter: drop-shadow(0 0 16px rgba(251, 191, 36, 0.5)) !important;
+                }
+                .zds-quickview-empty h3 {
+                    margin: 0 0 8px 0 !important;
+                    font-size: 17px !important;
+                    color: #ffffff !important;
+                    font-weight: 700 !important;
+                }
+                .zds-quickview-empty p {
+                    margin: 0 0 14px 0 !important;
+                    font-size: 13px !important;
+                    color: #94a3b8 !important;
+                    line-height: 1.5 !important;
+                }
+                .zds-quickview-empty-tip {
+                    background: rgba(251, 191, 36, 0.1) !important;
+                    border: 1px solid rgba(251, 191, 36, 0.3) !important;
+                    padding: 8px 14px !important;
+                    border-radius: 6px !important;
+                    color: #fde68a !important;
+                    font-size: 12px !important;
+                    margin-bottom: 18px !important;
+                }
             `;
             document.head.appendChild(overrideStyle);
         }
@@ -724,8 +1397,11 @@ class ZombiehausDeckStudio {
                         <button type="button" class="zds-view-btn" id="zds-btn-canvas-view" title="Switch to Canvas Plane (Alt+D / Esc)">
                             <span>⊞</span> Canvas
                         </button>
-                        <button type="button" class="zds-view-btn zds-active-view" id="zds-btn-deck-view" title="Stay in Deck Studio (F9)">
-                            <span>▥</span> Deck Studio
+                        <button type="button" class="zds-view-btn zds-active-view" id="zds-btn-deck-view" title="All Cards View (F9)">
+                            <span>▥</span> All Cards
+                        </button>
+                        <button type="button" class="zds-view-btn" id="zds-btn-quick-view" title="Focus Dashboard (Quick View): Work on your curated cards with custom layout and zero distraction (Alt+Q)">
+                            <span>⭐</span> Focus Dashboard <span class="zds-quickview-badge" id="zds-quickview-badge">0</span>
                         </button>
                     </div>
                 </div>
@@ -932,6 +1608,31 @@ class ZombiehausDeckStudio {
         // Toggle back to Canvas
         overlay.querySelector("#zds-btn-canvas-view").onclick = () => this.close();
 
+        // View Toggles: All Cards vs Quick View
+        const deckViewBtn = overlay.querySelector("#zds-btn-deck-view");
+        const quickViewBtn = overlay.querySelector("#zds-btn-quick-view");
+
+        if (deckViewBtn) {
+            deckViewBtn.onclick = () => {
+                if (this.viewMode === "all") return;
+                this.viewMode = "all";
+                deckViewBtn.classList.add("zds-active-view");
+                if (quickViewBtn) quickViewBtn.classList.remove("zds-active-view");
+                this.renderColumnsSkeleton();
+                this.syncCards();
+            };
+        }
+
+        if (quickViewBtn) {
+            quickViewBtn.onclick = () => {
+                if (this.viewMode === "quickview") return;
+                this.viewMode = "quickview";
+                quickViewBtn.classList.add("zds-active-view");
+                if (deckViewBtn) deckViewBtn.classList.remove("zds-active-view");
+                this.syncCards();
+            };
+        }
+
         // Refresh button
         overlay.querySelector("#zds-btn-refresh-deck").onclick = () => this.syncCards();
 
@@ -1098,6 +1799,19 @@ class ZombiehausDeckStudio {
                 return;
             }
 
+            // Alt + Q to toggle Quick View Cockpit
+            if ((e.altKey && e.code === "KeyQ") && this.isOpen) {
+                e.preventDefault();
+                if (this.viewMode === "quickview") {
+                    const btn = this.overlay.querySelector("#zds-btn-deck-view");
+                    if (btn) btn.click();
+                } else {
+                    const btn = this.overlay.querySelector("#zds-btn-quick-view");
+                    if (btn) btn.click();
+                }
+                return;
+            }
+
             // Alt + P to pop out Prompt Studio
             if ((e.altKey && e.code === "KeyP") && this.isOpen) {
                 e.preventDefault();
@@ -1169,6 +1883,11 @@ class ZombiehausDeckStudio {
     // ── Sync All Cards from Active Graph with Execution Priority ────────────
     syncCards() {
         if (!app.graph || !app.graph._nodes) return;
+
+        if (this.viewMode === "quickview") {
+            this.renderQuickViewWorkspace();
+            return;
+        }
 
         const nodes = app.graph._nodes;
         const buckets = {
@@ -1301,6 +2020,9 @@ class ZombiehausDeckStudio {
                     if (nodeIdStr) {
                         const nodeId = parseInt(nodeIdStr, 10);
                         this.cardOverrides[nodeId] = { stage: stage.id, lane: laneIdx };
+                        try {
+                            localStorage.setItem("zds_card_overrides", JSON.stringify(this.cardOverrides));
+                        } catch (_) {}
                         this.syncCards();
                     }
                 });
@@ -1320,6 +2042,356 @@ class ZombiehausDeckStudio {
 
         this.applyFilter();
         this.updateExecutionState();
+    }
+
+    renderQuickViewWorkspace() {
+        if (!this.workspace || !app.graph || !app.graph._nodes) return;
+        this.clearConnectionHighlights();
+        this.workspace.innerHTML = "";
+
+        const allNodes = app.graph._nodes;
+        const nodeMap = new Map(allNodes.map(n => [n.id, n]));
+
+        // Reconcile and order pinned nodes based on this.quickViewOrder
+        const orderedNodes = [];
+        for (const id of this.quickViewOrder) {
+            if (this.quickViewNodeIds.has(id) && nodeMap.has(id)) {
+                orderedNodes.push(nodeMap.get(id));
+            }
+        }
+        for (const id of this.quickViewNodeIds) {
+            if (!this.quickViewOrder.includes(id) && nodeMap.has(id)) {
+                orderedNodes.push(nodeMap.get(id));
+                this.quickViewOrder.push(id);
+            }
+        }
+
+        const qvContainer = document.createElement("div");
+        qvContainer.className = "zds-quickview-workspace";
+
+        // Focus Dashboard Sub-header
+        const header = document.createElement("div");
+        header.className = "zds-quickview-header";
+        const isGrid = this.quickViewLayout === "grid";
+        const isAutoH = this.quickViewHeightMode === "auto";
+
+        header.innerHTML = `
+            <div class="zds-quickview-title-group">
+                <span style="font-size: 16px;">⭐</span>
+                <div>
+                    <span class="zds-quickview-title">Focus Dashboard</span>
+                    <span class="zds-quickview-subtitle">${orderedNodes.length} cards • Drag cards or use ◀ ▶ to arrange in any order</span>
+                </div>
+            </div>
+            <div class="zds-quickview-actions">
+                <div class="zds-qv-btn-group" title="Dashboard Flow Layout">
+                    <button type="button" class="zds-qv-subbtn ${!isGrid ? "zds-btn-active" : ""}" id="zds-qv-layout-row" title="Horizontal Board: side-by-side workstation columns">
+                        <span>⇥</span> Row Flow
+                    </button>
+                    <button type="button" class="zds-qv-subbtn ${isGrid ? "zds-btn-active" : ""}" id="zds-qv-layout-grid" title="Wrap Grid: tiles wrap across the dashboard">
+                        <span>⊞</span> Grid Wrap
+                    </button>
+                </div>
+
+                <div class="zds-qv-btn-group" title="Card Width Sizing Presets">
+                    <span style="font-size: 10px; color: #94a3b8; padding: 0 4px; font-weight: 600;">Width:</span>
+                    <button type="button" class="zds-qv-subbtn" id="zds-qv-w-380" title="Compact (380px)">380</button>
+                    <button type="button" class="zds-qv-subbtn" id="zds-qv-w-520" title="Standard (520px)">520</button>
+                    <button type="button" class="zds-qv-subbtn" id="zds-qv-w-720" title="Wide (720px)">720</button>
+                    <button type="button" class="zds-qv-subbtn" id="zds-qv-w-960" title="Studio (960px)">960</button>
+                    <button type="button" class="zds-qv-subbtn" id="zds-qv-w-reset" title="Reset all custom widths & heights">↺ Reset</button>
+                </div>
+
+                <button type="button" class="zds-btn ${isAutoH ? "zds-btn-active" : ""}" id="zds-qv-toggle-height" title="Toggle Card Height: Full Workspace Height vs Content Auto-Height">
+                    <span>↕</span> ${isAutoH ? "Auto Height" : "Full Height"}
+                </button>
+
+                <button type="button" class="zds-btn zds-btn-secondary" id="zds-btn-qv-manage" title="Add / remove cards from Focus Dashboard">
+                    <span>➕</span> Pin Cards ▾
+                </button>
+
+                ${orderedNodes.length > 0 ? `
+                    <button type="button" class="zds-btn" id="zds-btn-qv-clear-all" title="Unpin all nodes from Focus Dashboard">
+                        <span>✕</span> Clear All
+                    </button>
+                ` : ""}
+
+                <button type="button" class="zds-btn zds-btn-primary" id="zds-btn-qv-all-cards" title="Return to All Cards View (Full 5-Stage Grid)">
+                    <span>▥</span> All Cards
+                </button>
+            </div>
+        `;
+
+        // Layout toggles
+        const rowBtn = header.querySelector("#zds-qv-layout-row");
+        const gridBtn = header.querySelector("#zds-qv-layout-grid");
+        if (rowBtn) {
+            rowBtn.onclick = () => {
+                this.quickViewLayout = "row";
+                try { localStorage.setItem("zds_quick_view_layout", "row"); } catch (_) {}
+                this.syncCards();
+            };
+        }
+        if (gridBtn) {
+            gridBtn.onclick = () => {
+                this.quickViewLayout = "grid";
+                try { localStorage.setItem("zds_quick_view_layout", "grid"); } catch (_) {}
+                this.syncCards();
+            };
+        }
+
+        // Width presets
+        const applyWidthPreset = (w) => {
+            this.quickViewCardWidth = w;
+            try { localStorage.setItem("zds_quick_view_card_width", String(w)); } catch (_) {}
+            orderedNodes.forEach(n => {
+                if (!this.quickViewCardSizes) this.quickViewCardSizes = {};
+                const prev = this.quickViewCardSizes[n.id] || {};
+                this.quickViewCardSizes[n.id] = { width: w, height: prev.height || (isGrid ? 520 : undefined) };
+            });
+            try { localStorage.setItem("zds_quick_view_card_sizes", JSON.stringify(this.quickViewCardSizes)); } catch (_) {}
+            this.syncCards();
+        };
+
+        const w380 = header.querySelector("#zds-qv-w-380");
+        const w520 = header.querySelector("#zds-qv-w-520");
+        const w720 = header.querySelector("#zds-qv-w-720");
+        const w960 = header.querySelector("#zds-qv-w-960");
+        const wReset = header.querySelector("#zds-qv-w-reset");
+        if (w380) w380.onclick = () => applyWidthPreset(380);
+        if (w520) w520.onclick = () => applyWidthPreset(520);
+        if (w720) w720.onclick = () => applyWidthPreset(720);
+        if (w960) w960.onclick = () => applyWidthPreset(960);
+        if (wReset) {
+            wReset.onclick = () => {
+                this.quickViewCardWidth = null;
+                this.quickViewCardSizes = {};
+                try {
+                    localStorage.removeItem("zds_quick_view_card_width");
+                    localStorage.removeItem("zds_quick_view_card_sizes");
+                } catch (_) {}
+                this.syncCards();
+            };
+        }
+
+        // Height toggle
+        const hBtn = header.querySelector("#zds-qv-toggle-height");
+        if (hBtn) {
+            hBtn.onclick = () => {
+                this.quickViewHeightMode = this.quickViewHeightMode === "auto" ? "full" : "auto";
+                try { localStorage.setItem("zds_quick_view_height_mode", this.quickViewHeightMode); } catch (_) {}
+                this.syncCards();
+            };
+        }
+
+        // Manage Cards picker
+        const manageBtn = header.querySelector("#zds-btn-qv-manage");
+        if (manageBtn) {
+            manageBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.openQuickViewNodePicker(manageBtn);
+            };
+        }
+
+        const clearBtn = header.querySelector("#zds-btn-qv-clear-all");
+        if (clearBtn) {
+            clearBtn.onclick = () => {
+                if (confirm("Unpin all nodes from Focus Dashboard?")) {
+                    this.quickViewNodeIds.clear();
+                    this.quickViewOrder = [];
+                    try {
+                        localStorage.setItem("zds_quick_view_nodes", JSON.stringify([]));
+                        localStorage.setItem("zds_quick_view_order", JSON.stringify([]));
+                    } catch (_) {}
+                    this.updateQuickViewCount();
+                    this.syncCards();
+                }
+            };
+        }
+
+        const allCardsBtn = header.querySelector("#zds-btn-qv-all-cards");
+        if (allCardsBtn) {
+            allCardsBtn.onclick = () => {
+                const btn = this.overlay.querySelector("#zds-btn-deck-view");
+                if (btn) btn.click();
+            };
+        }
+
+        qvContainer.appendChild(header);
+
+        if (orderedNodes.length === 0) {
+            const emptyDiv = document.createElement("div");
+            emptyDiv.className = "zds-quickview-empty";
+            emptyDiv.innerHTML = `
+                <div class="zds-quickview-empty-icon">⭐</div>
+                <h3>Your Focus Dashboard is Empty</h3>
+                <p>Pin only the essential cards you want to focus on (e.g. Prompt Editor, List Curator, KSampler, Hi-Res Fix, All-in-One Detailer). Arrange them in any order and resize freely without clutter.</p>
+                <div class="zds-quickview-empty-tip">💡 Click <strong>➕ Pin Cards</strong> above or click the <strong>☆</strong> star icon on any card header in Deck Studio.</div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" class="zds-btn zds-btn-primary" id="zds-btn-qv-empty-pin">
+                        <span>➕</span> Choose Cards to Pin
+                    </button>
+                    <button type="button" class="zds-btn" id="zds-btn-qv-return">
+                        <span>▥</span> Return to All Cards
+                    </button>
+                </div>
+            `;
+            const emptyPinBtn = emptyDiv.querySelector("#zds-btn-qv-empty-pin");
+            if (emptyPinBtn) {
+                emptyPinBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    this.openQuickViewNodePicker(emptyPinBtn);
+                };
+            }
+            const retBtn = emptyDiv.querySelector("#zds-btn-qv-return");
+            if (retBtn) {
+                retBtn.onclick = () => {
+                    const btn = this.overlay.querySelector("#zds-btn-deck-view");
+                    if (btn) btn.click();
+                };
+            }
+            qvContainer.appendChild(emptyDiv);
+        } else {
+            const lane = document.createElement("div");
+            lane.className = `zds-quickview-lane ${isGrid ? "zds-qv-lane-grid" : "zds-qv-lane-row"}`;
+            orderedNodes.forEach(node => {
+                try {
+                    const card = this.renderCard(node);
+                    if (card) {
+                        lane.appendChild(card);
+                    }
+                } catch (err) {
+                    console.error(`[Deck Studio] Error rendering Quick View card #${node?.id}:`, err);
+                }
+            });
+            qvContainer.appendChild(lane);
+        }
+
+        this.workspace.appendChild(qvContainer);
+        this.updateQuickViewCount();
+        this.updateExecutionState();
+    }
+
+    moveQuickViewCard(fromId, toId, after = false) {
+        const fromIdx = this.quickViewOrder.indexOf(fromId);
+        if (fromIdx !== -1) {
+            this.quickViewOrder.splice(fromIdx, 1);
+        }
+        let toIdx = this.quickViewOrder.indexOf(toId);
+        if (toIdx === -1) {
+            this.quickViewOrder.push(fromId);
+        } else {
+            if (after) toIdx++;
+            this.quickViewOrder.splice(toIdx, 0, fromId);
+        }
+        try {
+            localStorage.setItem("zds_quick_view_order", JSON.stringify(this.quickViewOrder));
+        } catch (_) {}
+        this.syncCards();
+    }
+
+    openQuickViewNodePicker(anchorBtn) {
+        const existing = document.querySelector(".zds-qv-picker-dropdown");
+        if (existing) {
+            existing.remove();
+            return;
+        }
+
+        const dropdown = document.createElement("div");
+        dropdown.className = "zds-qv-picker-dropdown";
+        dropdown.innerHTML = `
+            <div class="zds-qv-picker-header">
+                <span style="font-weight: 700; color: #f8fafc; font-size: 12px;">Pin Cards to Focus Dashboard</span>
+                <button type="button" class="zds-card-btn" id="zds-qv-picker-close">✕</button>
+            </div>
+            <div style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+                <input type="text" class="zds-modal-input" id="zds-qv-picker-search" placeholder="Filter graph nodes..." style="font-size: 11px; padding: 5px 8px;" autofocus />
+            </div>
+            <div class="zds-qv-picker-list" id="zds-qv-picker-list"></div>
+        `;
+
+        document.body.appendChild(dropdown);
+
+        if (anchorBtn) {
+            const rect = anchorBtn.getBoundingClientRect();
+            dropdown.style.position = "fixed";
+            dropdown.style.top = `${rect.bottom + 6}px`;
+            dropdown.style.left = `${Math.max(10, Math.min(window.innerWidth - 350, rect.left))}px`;
+            dropdown.style.zIndex = "100005";
+        }
+
+        const close = () => dropdown.remove();
+        dropdown.querySelector("#zds-qv-picker-close").onclick = close;
+
+        const onDocClick = (e) => {
+            if (!dropdown.contains(e.target) && e.target !== anchorBtn && !anchorBtn.contains(e.target)) {
+                close();
+                document.removeEventListener("pointerdown", onDocClick);
+            }
+        };
+        setTimeout(() => document.addEventListener("pointerdown", onDocClick), 50);
+
+        const listEl = dropdown.querySelector("#zds-qv-picker-list");
+        const searchInput = dropdown.querySelector("#zds-qv-picker-search");
+
+        const allNodes = (app.graph && app.graph._nodes) ? [...app.graph._nodes] : [];
+
+        const renderItems = (filter = "") => {
+            listEl.innerHTML = "";
+            const q = filter.toLowerCase();
+            const filtered = allNodes.filter(n => {
+                const title = (n.title || n.type || "").toLowerCase();
+                const type = (n.type || "").toLowerCase();
+                return title.includes(q) || type.includes(q) || String(n.id).includes(q);
+            });
+
+            if (filtered.length === 0) {
+                listEl.innerHTML = `<div style="text-align: center; color: var(--zds-text-muted); padding: 16px; font-size: 11px;">No nodes match filter</div>`;
+                return;
+            }
+
+            for (const node of filtered) {
+                const isPinned = this.quickViewNodeIds.has(node.id);
+                const item = document.createElement("div");
+                item.className = `zds-qv-picker-item ${isPinned ? "is-pinned" : ""}`;
+                const stageId = classifyNode(node);
+                const stageObj = STAGES.find(s => s.id === stageId) || STAGES[2];
+
+                item.innerHTML = `
+                    <span class="zds-qv-picker-star">${isPinned ? "★" : "☆"}</span>
+                    <span class="zds-qv-picker-icon">${stageObj.icon}</span>
+                    <div class="zds-qv-picker-info">
+                        <span class="zds-qv-picker-title">#${node.id}: ${escapeHtml(node.title || node.type)}</span>
+                        <span class="zds-qv-picker-type">${escapeHtml(node.type)}</span>
+                    </div>
+                `;
+
+                item.onclick = (e) => {
+                    e.stopPropagation();
+                    if (this.quickViewNodeIds.has(node.id)) {
+                        this.quickViewNodeIds.delete(node.id);
+                        this.quickViewOrder = this.quickViewOrder.filter(id => id !== node.id);
+                    } else {
+                        this.quickViewNodeIds.add(node.id);
+                        if (!this.quickViewOrder.includes(node.id)) {
+                            this.quickViewOrder.push(node.id);
+                        }
+                    }
+                    try {
+                        localStorage.setItem("zds_quick_view_nodes", JSON.stringify([...this.quickViewNodeIds]));
+                        localStorage.setItem("zds_quick_view_order", JSON.stringify(this.quickViewOrder));
+                    } catch (_) {}
+                    this.updateQuickViewCount();
+                    renderItems(searchInput.value);
+                    this.syncCards();
+                };
+
+                listEl.appendChild(item);
+            }
+        };
+
+        renderItems();
+        searchInput.oninput = () => renderItems(searchInput.value);
     }
 
     // ── Render Individual Node Card ───────────────────────────────────────────
@@ -1344,26 +2416,38 @@ class ZombiehausDeckStudio {
             card.classList.remove("zds-card-dragging");
         });
 
-        // Connection Tracing on Hover (when enabled)
+        // Connection Tracing on Hover (when enabled and not in Quick View)
         card.addEventListener("mouseenter", () => {
-            if (this.enableWireTracing) {
+            if (this.viewMode !== "quickview" && this.enableWireTracing) {
                 this.highlightNodeConnections(node.id);
             }
         });
         card.addEventListener("mouseleave", () => {
-            if (this.enableWireTracing) {
+            if (this.viewMode !== "quickview" && this.enableWireTracing) {
                 this.clearConnectionHighlights();
             }
         });
 
-        // Restore Saved Card Width & Height (Bidirectional Resizability)
-        if (this.cardSizes[node.id]) {
-            const sz = this.cardSizes[node.id];
-            if (typeof sz === "number") {
-                card.style.height = `${sz}px`;
-            } else if (sz && typeof sz === "object") {
-                if (sz.height) card.style.height = `${sz.height}px`;
-                if (sz.width) card.style.width = `${sz.width}px`;
+        // Restore Saved Card Height (and width only in Quick View so cards fit column lanes)
+        if (!this.collapsedCardIds.has(node.id)) {
+            if (this.viewMode === "quickview") {
+                const qsz = this.quickViewCardSizes && this.quickViewCardSizes[node.id];
+                if (qsz) {
+                    if (qsz.width) card.style.width = `${qsz.width}px`;
+                    if (qsz.height) card.style.height = `${qsz.height}px`;
+                } else if (this.quickViewCardWidth) {
+                    card.style.width = `${this.quickViewCardWidth}px`;
+                }
+                if (this.quickViewHeightMode === "auto" && (!qsz || !qsz.height)) {
+                    card.style.height = "auto";
+                }
+            } else if (this.cardSizes[node.id]) {
+                const sz = this.cardSizes[node.id];
+                if (typeof sz === "number") {
+                    card.style.height = `${sz}px`;
+                } else if (sz && typeof sz === "object") {
+                    if (sz.height) card.style.height = `${sz.height}px`;
+                }
             }
         }
 
@@ -1371,22 +2455,94 @@ class ZombiehausDeckStudio {
         if (typeof ResizeObserver !== "undefined") {
             let resizeDebounce = null;
             const ro = new ResizeObserver(() => {
+                if (card.classList.contains("zds-card-collapsed")) return;
                 clearTimeout(resizeDebounce);
                 resizeDebounce = setTimeout(() => {
-                    const w = Math.round(card.offsetWidth);
                     const h = Math.round(card.offsetHeight);
-                    if ((w && w > 120) || (h && h > 80)) {
-                        this.cardSizes[node.id] = { width: w, height: h };
-                        try {
-                            localStorage.setItem("zds_card_sizes", JSON.stringify(this.cardSizes));
-                        } catch (_) {}
+                    const w = Math.round(card.offsetWidth);
+                    if (this.viewMode === "quickview") {
+                        if (w > 100 && h > 80) {
+                            if (!this.quickViewCardSizes) this.quickViewCardSizes = {};
+                            this.quickViewCardSizes[node.id] = { width: w, height: h };
+                            try {
+                                localStorage.setItem("zds_quick_view_card_sizes", JSON.stringify(this.quickViewCardSizes));
+                            } catch (_) {}
+                        }
+                    } else {
+                        if (h && h > 80) {
+                            const existing = this.cardSizes[node.id] || {};
+                            this.cardSizes[node.id] = { width: existing.width, height: h };
+                            try {
+                                localStorage.setItem("zds_card_sizes", JSON.stringify(this.cardSizes));
+                            } catch (_) {}
+                        }
                     }
                 }, 200);
             });
             ro.observe(card);
         }
 
+        // Quick View Drag-and-Drop Reordering Event Handlers
+        if (this.viewMode === "quickview") {
+            card.addEventListener("dragstart", (e) => {
+                e.dataTransfer.setData("text/zds-qv-node-id", String(node.id));
+                card.classList.add("zds-card-dragging");
+                e.stopPropagation();
+            });
+
+            card.addEventListener("dragover", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const rect = card.getBoundingClientRect();
+                const isRow = this.quickViewLayout !== "grid";
+                const mid = isRow ? (rect.left + rect.width / 2) : (rect.top + rect.height / 2);
+                const pos = isRow ? e.clientX : e.clientY;
+                if (pos < mid) {
+                    card.classList.add("zds-qv-drop-before");
+                    card.classList.remove("zds-qv-drop-after");
+                } else {
+                    card.classList.add("zds-qv-drop-after");
+                    card.classList.remove("zds-qv-drop-before");
+                }
+            });
+
+            card.addEventListener("dragleave", () => {
+                card.classList.remove("zds-qv-drop-before", "zds-qv-drop-after");
+            });
+
+            card.addEventListener("drop", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                card.classList.remove("zds-qv-drop-before", "zds-qv-drop-after");
+                const rawId = e.dataTransfer.getData("text/zds-qv-node-id");
+                const fromId = parseInt(rawId, 10);
+                if (isNaN(fromId) || fromId === node.id) return;
+
+                const rect = card.getBoundingClientRect();
+                const isRow = this.quickViewLayout !== "grid";
+                const mid = isRow ? (rect.left + rect.width / 2) : (rect.top + rect.height / 2);
+                const pos = isRow ? e.clientX : e.clientY;
+                const after = pos >= mid;
+
+                this.moveQuickViewCard(fromId, node.id, after);
+            });
+        }
+
         const conns = this.getNodeConnections(node.id);
+        const hasInputs = Array.isArray(node.inputs) && node.inputs.length > 0;
+        const hasOutputs = Array.isArray(node.outputs) && node.outputs.length > 0;
+        const totalConns = conns.feeders.length + conns.consumers.length;
+        const isTotallyDisconnected = (hasInputs || hasOutputs) && totalConns === 0;
+        const isUnfed = hasInputs && conns.feeders.length === 0;
+
+        if (isTotallyDisconnected) {
+            card.classList.add("zds-card-disconnected");
+        }
+
+        const isCollapsed = this.collapsedCardIds.has(node.id);
+        if (isCollapsed) {
+            card.classList.add("zds-card-collapsed");
+        }
 
         // Connection Links Drawer (collapsible details)
         const drawer = document.createElement("div");
@@ -1472,6 +2628,95 @@ class ZombiehausDeckStudio {
         const headerActions = document.createElement("div");
         headerActions.className = "zds-card-header-actions";
 
+        // In Quick View: add Move Left ◀, Move Right ▶, and Cycle Width ↔
+        if (this.viewMode === "quickview") {
+            const moveLeftBtn = document.createElement("button");
+            moveLeftBtn.className = "zds-card-btn zds-card-btn-move";
+            moveLeftBtn.innerHTML = "◀";
+            moveLeftBtn.title = "Move Card Earlier / Left in Focus Dashboard";
+            moveLeftBtn.onclick = (e) => {
+                e.stopPropagation();
+                const idx = this.quickViewOrder.indexOf(node.id);
+                if (idx > 0) {
+                    const targetId = this.quickViewOrder[idx - 1];
+                    this.moveQuickViewCard(node.id, targetId, false);
+                }
+            };
+            headerActions.appendChild(moveLeftBtn);
+
+            const moveRightBtn = document.createElement("button");
+            moveRightBtn.className = "zds-card-btn zds-card-btn-move";
+            moveRightBtn.innerHTML = "▶";
+            moveRightBtn.title = "Move Card Later / Right in Focus Dashboard";
+            moveRightBtn.onclick = (e) => {
+                e.stopPropagation();
+                const idx = this.quickViewOrder.indexOf(node.id);
+                if (idx !== -1 && idx < this.quickViewOrder.length - 1) {
+                    const targetId = this.quickViewOrder[idx + 1];
+                    this.moveQuickViewCard(node.id, targetId, true);
+                }
+            };
+            headerActions.appendChild(moveRightBtn);
+
+            const widthCycleBtn = document.createElement("button");
+            widthCycleBtn.className = "zds-card-btn zds-card-btn-width";
+            widthCycleBtn.innerHTML = "↔";
+            widthCycleBtn.title = "Step Width (380px ➔ 540px ➔ 760px ➔ 1000px)";
+            widthCycleBtn.onclick = (e) => {
+                e.stopPropagation();
+                const curW = card.offsetWidth;
+                let nextW = 540;
+                if (curW < 440) nextW = 560;
+                else if (curW < 640) nextW = 760;
+                else if (curW < 850) nextW = 1000;
+                else nextW = 380;
+                card.style.width = `${nextW}px`;
+                if (!this.quickViewCardSizes) this.quickViewCardSizes = {};
+                this.quickViewCardSizes[node.id] = {
+                    width: nextW,
+                    height: card.offsetHeight
+                };
+                try {
+                    localStorage.setItem("zds_quick_view_card_sizes", JSON.stringify(this.quickViewCardSizes));
+                } catch (_) {}
+            };
+            headerActions.appendChild(widthCycleBtn);
+        }
+
+        // Quick View Pin / Star Button
+        const isPinned = this.quickViewNodeIds.has(node.id);
+        const starBtn = document.createElement("button");
+        starBtn.className = `zds-card-btn zds-card-btn-star ${isPinned ? "zds-btn-active-star" : ""}`;
+        starBtn.innerHTML = isPinned ? "★" : "☆";
+        starBtn.title = isPinned ? "Remove from Focus Dashboard" : "Pin to Focus Dashboard";
+        starBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (this.quickViewNodeIds.has(node.id)) {
+                this.quickViewNodeIds.delete(node.id);
+                this.quickViewOrder = this.quickViewOrder.filter(id => id !== node.id);
+                starBtn.classList.remove("zds-btn-active-star");
+                starBtn.innerHTML = "☆";
+                starBtn.title = "Pin to Focus Dashboard";
+            } else {
+                this.quickViewNodeIds.add(node.id);
+                if (!this.quickViewOrder.includes(node.id)) {
+                    this.quickViewOrder.push(node.id);
+                }
+                starBtn.classList.add("zds-btn-active-star");
+                starBtn.innerHTML = "★";
+                starBtn.title = "Remove from Focus Dashboard";
+            }
+            try {
+                localStorage.setItem("zds_quick_view_nodes", JSON.stringify([...this.quickViewNodeIds]));
+                localStorage.setItem("zds_quick_view_order", JSON.stringify(this.quickViewOrder));
+            } catch (_) {}
+            this.updateQuickViewCount();
+            if (this.viewMode === "quickview") {
+                this.syncCards();
+            }
+        };
+        headerActions.appendChild(starBtn);
+
         // Prompt Popout Button (for prompt/text/function/song nodes)
         const isPromptNode = (node.type || "").toLowerCase().includes("text") ||
             (node.type || "").toLowerCase().includes("prompt") ||
@@ -1537,22 +2782,57 @@ class ZombiehausDeckStudio {
         // Collapse / Expand
         const collapseBtn = document.createElement("button");
         collapseBtn.className = "zds-card-btn";
-        collapseBtn.innerHTML = "▾";
-        collapseBtn.title = "Collapse Card Body";
-        collapseBtn.onclick = () => {
-            card.classList.toggle("zds-card-collapsed");
-            collapseBtn.innerHTML = card.classList.contains("zds-card-collapsed") ? "▸" : "▾";
+        collapseBtn.innerHTML = isCollapsed ? "▸" : "▾";
+        collapseBtn.title = isCollapsed ? "Expand Card Body" : "Collapse Card Body";
+        collapseBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (this.collapsedCardIds.has(node.id)) {
+                this.collapsedCardIds.delete(node.id);
+                card.classList.remove("zds-card-collapsed");
+                collapseBtn.innerHTML = "▾";
+                collapseBtn.title = "Collapse Card Body";
+            } else {
+                this.collapsedCardIds.add(node.id);
+                card.classList.add("zds-card-collapsed");
+                collapseBtn.innerHTML = "▸";
+                collapseBtn.title = "Expand Card Body";
+            }
+            try {
+                localStorage.setItem("zds_collapsed_cards", JSON.stringify([...this.collapsedCardIds]));
+            } catch (_) {}
+        };
+
+        // Delete / Remove Node button
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "zds-card-btn zds-card-btn-delete";
+        deleteBtn.innerHTML = "✕";
+        deleteBtn.title = `Delete Node #${node.id} from Graph`;
+        deleteBtn.onclick = (e) => {
+            e.stopPropagation();
+            const nodeTitle = node.title || node.type || `#${node.id}`;
+            if (confirm(`Remove node #${node.id} ("${nodeTitle}") from the graph?`)) {
+                this.quickViewNodeIds.delete(node.id);
+                this.collapsedCardIds.delete(node.id);
+                try {
+                    localStorage.setItem("zds_quick_view_nodes", JSON.stringify([...this.quickViewNodeIds]));
+                    localStorage.setItem("zds_collapsed_cards", JSON.stringify([...this.collapsedCardIds]));
+                } catch (_) {}
+                app.graph.remove(node);
+                app.graph.setDirtyCanvas(true, true);
+                this.syncCards();
+            }
         };
 
         headerActions.appendChild(bypassBtn);
         headerActions.appendChild(muteBtn);
         headerActions.appendChild(locateBtn);
         headerActions.appendChild(collapseBtn);
+        headerActions.appendChild(deleteBtn);
 
         titleRow.appendChild(titleLeft);
         titleRow.appendChild(headerActions);
 
-        // 2. Meta Sub-row (Priority Step, Node Role, Connection Pills)
+        // 2. Meta Sub-row (Priority Step, Node Role, Disconnected Warning, Connection Pills)
         const metaRow = document.createElement("div");
         metaRow.className = "zds-card-meta-row";
 
@@ -1566,6 +2846,24 @@ class ZombiehausDeckStudio {
         roleTag.className = "zds-card-role";
         roleTag.textContent = getNodeRoleDescription(node);
 
+        metaRow.appendChild(stepBadge);
+        metaRow.appendChild(roleTag);
+
+        // Disconnected warning badge
+        if (isTotallyDisconnected) {
+            const discBadge = document.createElement("span");
+            discBadge.className = "zds-badge-disconnected";
+            discBadge.textContent = "⚠️ DISCONNECTED";
+            discBadge.title = "This node has 0 connections in the graph (isolated)";
+            metaRow.appendChild(discBadge);
+        } else if (isUnfed) {
+            const unfedBadge = document.createElement("span");
+            unfedBadge.className = "zds-badge-unfed";
+            unfedBadge.textContent = "⚠️ UNFED";
+            unfedBadge.title = "This node has inputs but no feeder nodes connected";
+            metaRow.appendChild(unfedBadge);
+        }
+
         // Connection Summary Pill (Click to toggle Link Drawer)
         const linksSummary = document.createElement("span");
         linksSummary.className = "zds-card-links-summary";
@@ -1575,14 +2873,75 @@ class ZombiehausDeckStudio {
             e.stopPropagation();
             drawer.style.display = drawer.style.display === "none" ? "flex" : "none";
         };
-
-        metaRow.appendChild(stepBadge);
-        metaRow.appendChild(roleTag);
         metaRow.appendChild(linksSummary);
 
         header.appendChild(titleRow);
         header.appendChild(metaRow);
         card.appendChild(header);
+
+        // 3. Always-Visible Connection Lineage Bar
+        const lineageBar = document.createElement("div");
+        lineageBar.className = "zds-card-lineage-bar";
+
+        // Input Lineage Row
+        const inLineageRow = document.createElement("div");
+        inLineageRow.className = "zds-lineage-row";
+        inLineageRow.innerHTML = `<span class="zds-lineage-label">IN ◀</span>`;
+        const inChips = document.createElement("div");
+        inChips.className = "zds-lineage-chips";
+
+        if (conns.feeders.length > 0) {
+            conns.feeders.forEach(fn => {
+                const chip = document.createElement("span");
+                chip.className = "zds-lineage-chip zds-chip-in";
+                const fnTitle = fn.title || fn.type || `#${fn.id}`;
+                const shortTitle = fnTitle.length > 16 ? fnTitle.substring(0, 14) + "..." : fnTitle;
+                chip.textContent = `#${fn.id} ${shortTitle}`;
+                chip.title = `Feeds into this node from #${fn.id} (${fnTitle}). Click to scroll to card.`;
+                chip.onclick = (e) => {
+                    e.stopPropagation();
+                    this.scrollToCard(fn.id);
+                };
+                inChips.appendChild(chip);
+            });
+        } else if (hasInputs) {
+            inChips.innerHTML = `<span class="zds-lineage-empty zds-lineage-empty-warn">No inputs wired</span>`;
+        } else {
+            inChips.innerHTML = `<span class="zds-lineage-empty">Source / Loader</span>`;
+        }
+        inLineageRow.appendChild(inChips);
+        lineageBar.appendChild(inLineageRow);
+
+        // Output Lineage Row
+        const outLineageRow = document.createElement("div");
+        outLineageRow.className = "zds-lineage-row";
+        outLineageRow.innerHTML = `<span class="zds-lineage-label">▶ OUT</span>`;
+        const outChips = document.createElement("div");
+        outChips.className = "zds-lineage-chips";
+
+        if (conns.consumers.length > 0) {
+            conns.consumers.forEach(cn => {
+                const chip = document.createElement("span");
+                chip.className = "zds-lineage-chip zds-chip-out";
+                const cnTitle = cn.title || cn.type || `#${cn.id}`;
+                const shortTitle = cnTitle.length > 16 ? cnTitle.substring(0, 14) + "..." : cnTitle;
+                chip.textContent = `#${cn.id} ${shortTitle}`;
+                chip.title = `Feeds out to #${cn.id} (${cnTitle}). Click to scroll to card.`;
+                chip.onclick = (e) => {
+                    e.stopPropagation();
+                    this.scrollToCard(cn.id);
+                };
+                outChips.appendChild(chip);
+            });
+        } else if (hasOutputs) {
+            outChips.innerHTML = `<span class="zds-lineage-empty">No outputs wired</span>`;
+        } else {
+            outChips.innerHTML = `<span class="zds-lineage-empty">Terminal / Output</span>`;
+        }
+        outLineageRow.appendChild(outChips);
+        lineageBar.appendChild(outLineageRow);
+
+        card.appendChild(lineageBar);
 
         if (conns.feeders.length > 0) {
             const inRow = document.createElement("div");
@@ -2254,6 +3613,42 @@ class ZombiehausDeckStudio {
         this.syncCards();
     }
 
+    // ── Syntax Highlighter Attachment Helper ──────────────────────────────────
+    attachSyntaxHighlighterToTextarea(ta, container, currentTheme = null) {
+        if (!ta || ta._hasZdsHighlighter) return;
+        ta._hasZdsHighlighter = true;
+
+        const wrapper = document.createElement("div");
+        wrapper.className = "zds-syntax-wrapper";
+
+        const backdrop = document.createElement("div");
+        backdrop.className = "zds-syntax-backdrop";
+
+        if (ta.parentNode) {
+            ta.parentNode.insertBefore(wrapper, ta);
+        } else if (container) {
+            container.appendChild(wrapper);
+        }
+        wrapper.appendChild(backdrop);
+        wrapper.appendChild(ta);
+
+        ta.classList.add("zds-syntax-ta");
+
+        const updateHighlight = () => {
+            backdrop.innerHTML = highlightPromptSyntax(ta.value, currentTheme);
+            backdrop.scrollTop = ta.scrollTop;
+            backdrop.scrollLeft = ta.scrollLeft;
+        };
+
+        ta.addEventListener("input", updateHighlight);
+        ta.addEventListener("scroll", () => {
+            backdrop.scrollTop = ta.scrollTop;
+            backdrop.scrollLeft = ta.scrollLeft;
+        });
+
+        updateHighlight();
+    }
+
     // ── Dedicated Structured Layout for Text Studio Nodes ─────────────────────
     renderTextStudioWidgets(node, container) {
         const findW = (name) => node.widgets?.find((w) => w.name === name);
@@ -2376,6 +3771,7 @@ class ZombiehausDeckStudio {
 
             updateCounter(posTa, counter);
             posBox.appendChild(posTa);
+            this.attachSyntaxHighlighterToTextarea(posTa, posBox);
             container.appendChild(posBox);
         }
 
@@ -2490,6 +3886,7 @@ class ZombiehausDeckStudio {
 
             updateCounter(negTa, counter);
             negBox.appendChild(negTa);
+            this.attachSyntaxHighlighterToTextarea(negTa, negBox);
             container.appendChild(negBox);
         }
 
@@ -3008,6 +4405,7 @@ class ZombiehausDeckStudio {
                 };
 
                 row.appendChild(ta);
+                this.attachSyntaxHighlighterToTextarea(ta, row);
             } else {
                 const inp = document.createElement("input");
                 inp.type = "text";

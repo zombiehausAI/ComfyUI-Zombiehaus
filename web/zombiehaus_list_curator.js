@@ -1559,41 +1559,167 @@ app.registerExtension({
                     };
                 }
 
+                // ── Sleek Non-Blocking Toast Notification System ───────────────────
+                function showCuratorToast(message, type = "success", duration = 2800) {
+                    let container = document.getElementById("zombiehaus-studio-toast-container");
+                    if (!container) {
+                        container = document.createElement("div");
+                        container.id = "zombiehaus-studio-toast-container";
+                        container.style.cssText = "position: fixed; top: 24px; right: 28px; z-index: 100100; display: flex; flex-direction: column; gap: 8px; pointer-events: none; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;";
+                        document.body.appendChild(container);
+                    }
+
+                    const toast = document.createElement("div");
+                    toast.className = `zombiehaus-studio-toast toast-${type}`;
+                    const icon = type === "error" ? "❌" : (type === "warning" ? "⚠️" : (type === "info" ? "ℹ️" : "✓"));
+                    const borderColor = type === "error" ? "#f38ba8" : (type === "warning" ? "#fab387" : (type === "info" ? "#89dceb" : "#4ade80"));
+                    const glowColor = type === "error" ? "rgba(243,139,168,0.25)" : (type === "warning" ? "rgba(250,179,135,0.25)" : "rgba(74,222,128,0.25)");
+
+                    toast.style.cssText = `
+                        background: rgba(24, 24, 37, 0.95);
+                        border: 1px solid ${borderColor};
+                        border-radius: 8px;
+                        padding: 9px 15px;
+                        color: #cdd6f4;
+                        font-size: 12.5px;
+                        font-weight: 500;
+                        display: flex;
+                        align-items: center;
+                        gap: 9px;
+                        box-shadow: 0 4px 18px rgba(0,0,0,0.45), 0 0 10px ${glowColor};
+                        opacity: 0;
+                        transform: translateY(-8px);
+                        transition: opacity 0.2s ease, transform 0.2s ease;
+                        max-width: 380px;
+                        pointer-events: auto;
+                    `;
+                    toast.innerHTML = `<span style="font-size: 14px;">${icon}</span><span>${escapeHtml(message)}</span>`;
+                    container.appendChild(toast);
+
+                    requestAnimationFrame(() => {
+                        toast.style.opacity = "1";
+                        toast.style.transform = "translateY(0)";
+                    });
+
+                    setTimeout(() => {
+                        toast.style.opacity = "0";
+                        toast.style.transform = "translateY(-6px)";
+                        setTimeout(() => toast.remove(), 250);
+                    }, duration);
+                }
+
+                // ── Sleek Save Modal (matching Text Editor Studio) ──────────────────
+                function showCuratorSaveModal(currentVal, onSave) {
+                    const existing = document.getElementById("zombiehaus-curator-save-modal");
+                    if (existing) existing.remove();
+
+                    const overlay = document.createElement("div");
+                    overlay.id = "zombiehaus-curator-save-modal";
+                    overlay.style.cssText = "position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.65); z-index: 100050; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;";
+
+                    const modal = document.createElement("div");
+                    modal.style.cssText = "background: #181825; border: 1px solid #313244; border-radius: 10px; width: 400px; box-shadow: 0 12px 36px rgba(0,0,0,0.7); overflow: hidden; color: #cdd6f4;";
+
+                    const hdr = document.createElement("div");
+                    hdr.style.cssText = "padding: 12px 16px; background: #11111b; border-bottom: 1px solid #313244; display: flex; align-items: center; justify-content: space-between;";
+                    hdr.innerHTML = `<span style="font-weight: 700; font-size: 13px; color: #4ade80; display: flex; align-items: center; gap: 6px;">💾 Save New Wildcard List</span>`;
+                    const closeBtn = document.createElement("button");
+                    closeBtn.innerHTML = "✕";
+                    closeBtn.style.cssText = "background: none; border: none; color: #6c7086; font-size: 14px; cursor: pointer; padding: 2px 6px;";
+                    closeBtn.onclick = () => overlay.remove();
+                    hdr.appendChild(closeBtn);
+                    modal.appendChild(hdr);
+
+                    const body = document.createElement("div");
+                    body.style.cssText = "padding: 16px; display: flex; flex-direction: column; gap: 12px;";
+
+                    const fnGroup = document.createElement("div");
+                    fnGroup.innerHTML = `<label style="display: block; font-size: 11px; font-weight: 600; color: #a6adc8; margin-bottom: 4px;">List Filename</label>`;
+                    const fnInput = document.createElement("input");
+                    fnInput.type = "text";
+                    fnInput.placeholder = "e.g. hair_colors or clothing/jackets";
+                    fnInput.value = currentVal ? currentVal.replace(/\.txt$/i, "") : "";
+                    fnInput.style.cssText = "width: 100%; box-sizing: border-box; background: #11111b; border: 1px solid #313244; border-radius: 6px; padding: 8px 10px; color: #cdd6f4; font-size: 12px; outline: none;";
+                    fnGroup.appendChild(fnInput);
+                    body.appendChild(fnGroup);
+
+                    const tip = document.createElement("div");
+                    tip.style.cssText = "font-size: 11px; color: #6c7086; line-height: 1.4;";
+                    tip.textContent = "Saved as .txt file. Subfolders allowed (e.g. styles/cinematic). Reference in prompts as __filename__";
+                    body.appendChild(tip);
+
+                    const footer = document.createElement("div");
+                    footer.style.cssText = "display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;";
+
+                    const cancelBtn = document.createElement("button");
+                    cancelBtn.textContent = "Cancel";
+                    cancelBtn.style.cssText = "background: #313244; border: none; border-radius: 6px; padding: 6px 14px; color: #cdd6f4; font-size: 12px; cursor: pointer;";
+                    cancelBtn.onclick = () => overlay.remove();
+
+                    const saveBtn = document.createElement("button");
+                    saveBtn.textContent = "Save List";
+                    saveBtn.style.cssText = "background: #22c55e; border: none; border-radius: 6px; padding: 6px 16px; color: #ffffff; font-size: 12px; font-weight: 600; cursor: pointer;";
+
+                    const doSave = () => {
+                        let name = fnInput.value.trim();
+                        if (!name) {
+                            fnInput.focus();
+                            return;
+                        }
+                        if (name.startsWith("__") && name.endsWith("__") && name.length > 4) {
+                            name = name.slice(2, -2).trim();
+                        }
+                        if (name.toLowerCase().endsWith(".txt")) {
+                            name = name.slice(0, -4).trim();
+                        }
+                        overlay.remove();
+                        onSave(name);
+                    };
+
+                    saveBtn.onclick = doSave;
+                    fnInput.onkeydown = (e) => {
+                        if (e.key === "Enter") {
+                            e.preventDefault();
+                            doSave();
+                        } else if (e.key === "Escape") {
+                            overlay.remove();
+                        }
+                    };
+
+                    footer.appendChild(cancelBtn);
+                    footer.appendChild(saveBtn);
+                    body.appendChild(footer);
+                    modal.appendChild(body);
+                    overlay.appendChild(modal);
+                    document.body.appendChild(overlay);
+
+                    requestAnimationFrame(() => fnInput.focus());
+                }
+
                 // ── Save as a new list ─────────────────────────────────────────────
                 function saveAsNewList() {
                     if (!entriesWidget) return;
-                    let filename = prompt("Enter new list name (e.g. hair_colors):");
-                    if (!filename || !filename.trim()) return;
-
-                    filename = filename.trim();
-                    // Strip leading/trailing underscores if entered out of habit (e.g. __hair_colors__ -> hair_colors)
-                    if (filename.startsWith("__") && filename.endsWith("__") && filename.length > 4) {
-                        filename = filename.slice(2, -2).trim();
-                    }
-                    // Strip .txt if user entered it
-                    if (filename.toLowerCase().endsWith(".txt")) {
-                        filename = filename.slice(0, -4).trim();
-                    }
-                    if (!filename) return;
-
-                    fetch("/zombiehaus/wildcards/save", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            filename: filename,
-                            content: entriesWidget.value || ""
+                    const current = listWidget?.value;
+                    showCuratorSaveModal(current, (filename) => {
+                        fetch("/zombiehaus/wildcards/save", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                filename: filename,
+                                content: entriesWidget.value || ""
+                            })
                         })
-                    })
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert("Saved: " + data.filename + ".txt\n(Reference in prompts as __" + data.filename + "__)");
-                            refreshWildcards(data.filename);
-                        } else {
-                            alert("Save failed: " + data.message);
-                        }
-                    })
-                    .catch(err => alert("Save error: " + err.message));
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.success) {
+                                showCuratorToast(`Saved: ${data.filename}.txt (__${data.filename}__)`, "success");
+                                refreshWildcards(data.filename);
+                            } else {
+                                showCuratorToast("Save failed: " + data.message, "error");
+                            }
+                        })
+                        .catch(err => showCuratorToast("Save error: " + err.message, "error"));
+                    });
                 }
 
                 // ── Update the currently selected list ─────────────────────────────
@@ -1601,11 +1727,9 @@ app.registerExtension({
                     if (!listWidget || !entriesWidget) return;
                     const current = listWidget.value;
                     if (!current || current === "--no wildcards found--") {
-                        alert("Please select a list from the dropdown or click 'Save As New' first.");
+                        showCuratorToast("Please select a list from the dropdown or click 'Save As New' first.", "warning");
                         return;
                     }
-
-                    if (!confirm('Overwrite "' + current + '.txt" with the current lines?')) return;
 
                     fetch("/zombiehaus/wildcards/save", {
                         method: "POST",
@@ -1618,12 +1742,12 @@ app.registerExtension({
                     .then(res => res.json())
                     .then(data => {
                         if (data.success) {
-                            alert('"' + current + '.txt" updated successfully.');
+                            showCuratorToast('"' + current + '.txt" updated successfully.', "success");
                         } else {
-                            alert("Update failed: " + data.message);
+                            showCuratorToast("Update failed: " + data.message, "error");
                         }
                     })
-                    .catch(err => alert("Update error: " + err.message));
+                    .catch(err => showCuratorToast("Update error: " + err.message, "error"));
                 }
 
                 // ── Delete the currently selected list ─────────────────────────────
@@ -1631,7 +1755,7 @@ app.registerExtension({
                     if (!listWidget) return;
                     const current = listWidget.value;
                     if (!current || current === "--no wildcards found--") {
-                        alert("No list selected to delete.");
+                        showCuratorToast("No list selected to delete.", "warning");
                         return;
                     }
 
@@ -1645,14 +1769,14 @@ app.registerExtension({
                     .then(res => res.json())
                     .then(data => {
                         if (data.success) {
-                            alert('Deleted: "' + current + '.txt"');
+                            showCuratorToast('Deleted: "' + current + '.txt"', "info");
                             setTextareaValue(entriesWidget, "");
                             refreshWildcards();
                         } else {
-                            alert("Delete failed: " + data.message);
+                            showCuratorToast("Delete failed: " + data.message, "error");
                         }
                     })
-                    .catch(err => alert("Delete error: " + err.message));
+                    .catch(err => showCuratorToast("Delete error: " + err.message, "error"));
                 }
 
                 // ── Action Buttons ─────────────────────────────────────────────────

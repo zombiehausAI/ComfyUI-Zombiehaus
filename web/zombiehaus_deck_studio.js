@@ -202,6 +202,12 @@ class ZombiehausDeckStudio {
             if (raw) this.cardSizes = JSON.parse(raw);
         } catch (_) {}
 
+        this.enableWireTracing = false;
+        try {
+            const rawTrace = localStorage.getItem("zds_trace_wires");
+            if (rawTrace !== null) this.enableWireTracing = rawTrace === "true";
+        } catch (_) {}
+
         this.initDOM();
         this.setupEventListeners();
         this.setupKeyboardShortcuts();
@@ -215,6 +221,14 @@ class ZombiehausDeckStudio {
             link.rel = "stylesheet";
             link.href = new URL("./zombiehaus_deck_studio.css", import.meta.url).href;
             document.head.appendChild(link);
+
+            const overrideStyle = document.createElement("style");
+            overrideStyle.id = "zds-tracing-override";
+            overrideStyle.textContent = `
+                .zds-card.zds-card-dimmed { opacity: 1 !important; filter: none !important; }
+                .zds-btn-active { background: rgba(168, 85, 247, 0.3) !important; border-color: rgba(168, 85, 247, 0.7) !important; color: #ffffff !important; }
+            `;
+            document.head.appendChild(overrideStyle);
         }
 
         let overlay = document.getElementById("zombiehaus-deck-studio-overlay");
@@ -260,6 +274,10 @@ class ZombiehausDeckStudio {
 
                     <button type="button" class="zds-btn" id="zds-btn-refresh-deck" title="Re-sync all cards with graph">
                         <span>🔄</span> Refresh
+                    </button>
+
+                    <button type="button" class="zds-btn" id="zds-btn-toggle-tracing" title="Toggle Connection Cable Tracing on Hover">
+                        <span>⚡</span> Trace Wires
                     </button>
                 </div>
 
@@ -370,6 +388,30 @@ class ZombiehausDeckStudio {
         const promptStudioBtn = overlay.querySelector("#zds-btn-prompt-studio");
         if (promptStudioBtn) {
             promptStudioBtn.onclick = () => this.openPromptStudio();
+        }
+
+        // Trace Wires Toggle Button
+        const traceBtn = overlay.querySelector("#zds-btn-toggle-tracing");
+        const updateTraceBtnUI = () => {
+            if (!traceBtn) return;
+            if (this.enableWireTracing) {
+                traceBtn.classList.add("zds-btn-active");
+            } else {
+                traceBtn.classList.remove("zds-btn-active");
+            }
+        };
+        updateTraceBtnUI();
+        if (traceBtn) {
+            traceBtn.onclick = () => {
+                this.enableWireTracing = !this.enableWireTracing;
+                try {
+                    localStorage.setItem("zds_trace_wires", this.enableWireTracing ? "true" : "false");
+                } catch (_) {}
+                updateTraceBtnUI();
+                if (!this.enableWireTracing) {
+                    this.clearConnectionHighlights();
+                }
+            };
         }
 
         // Queue Prompt
@@ -519,6 +561,7 @@ class ZombiehausDeckStudio {
             window.zombiehausImageTray.updateBottomOffset();
         }
         this.cancelConnectingMode();
+        this.clearConnectionHighlights();
     }
 
     // ── Sync All Cards from Active Graph with Execution Priority ────────────
@@ -682,12 +725,16 @@ class ZombiehausDeckStudio {
             card.classList.remove("zds-card-dragging");
         });
 
-        // Connection Tracing on Hover
+        // Connection Tracing on Hover (when enabled)
         card.addEventListener("mouseenter", () => {
-            this.highlightNodeConnections(node.id);
+            if (this.enableWireTracing) {
+                this.highlightNodeConnections(node.id);
+            }
         });
         card.addEventListener("mouseleave", () => {
-            this.clearConnectionHighlights();
+            if (this.enableWireTracing) {
+                this.clearConnectionHighlights();
+            }
         });
 
         // Restore Saved Card Height (Resizability)
@@ -1024,7 +1071,7 @@ class ZombiehausDeckStudio {
     }
 
     highlightNodeConnections(nodeId) {
-        if (!app.graph) return;
+        if (!this.enableWireTracing || !app.graph) return;
         const conns = this.getNodeConnections(nodeId);
         const feederIds = new Set(conns.feeders.map(n => n.id));
         const consumerIds = new Set(conns.consumers.map(n => n.id));
@@ -1034,15 +1081,15 @@ class ZombiehausDeckStudio {
             const nid = parseInt(card.dataset.nodeId, 10);
             if (nid === nodeId) {
                 card.classList.add("zds-card-focused");
-                card.classList.remove("zds-card-dimmed");
+                card.classList.remove("zds-card-feeder", "zds-card-consumer", "zds-card-dimmed");
             } else if (feederIds.has(nid)) {
                 card.classList.add("zds-card-feeder");
-                card.classList.remove("zds-card-dimmed");
+                card.classList.remove("zds-card-focused", "zds-card-consumer", "zds-card-dimmed");
             } else if (consumerIds.has(nid)) {
                 card.classList.add("zds-card-consumer");
-                card.classList.remove("zds-card-dimmed");
+                card.classList.remove("zds-card-focused", "zds-card-feeder", "zds-card-dimmed");
             } else {
-                card.classList.add("zds-card-dimmed");
+                card.classList.remove("zds-card-focused", "zds-card-feeder", "zds-card-consumer", "zds-card-dimmed");
             }
         });
 

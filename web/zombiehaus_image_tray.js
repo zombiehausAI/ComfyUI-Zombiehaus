@@ -90,10 +90,6 @@ class ZombiehausImageTray {
                 </div>
 
                 <div class="zit-header-right">
-                    <button type="button" class="zit-action-btn zit-deck-btn" id="zit-btn-deck-studio" title="Switch to Deck Studio Interface (Alt+D / F9)" style="background: rgba(168, 85, 247, 0.25); border-color: rgba(168, 85, 247, 0.5); font-weight: 700; color: #f8fafc;">
-                        <span>▥</span> Deck Studio
-                    </button>
-
                     <button type="button" class="zit-action-btn" id="zit-btn-size" title="Toggle Thumbnail Size">
                         <span>📐</span> <span id="zit-size-label">Medium</span>
                     </button>
@@ -311,16 +307,6 @@ class ZombiehausImageTray {
             };
         }
 
-        // Deck Studio Toggle Button in Tray Header
-        const deckBtn = this.trayEl.querySelector("#zit-btn-deck-studio");
-        if (deckBtn) {
-            deckBtn.onclick = (e) => {
-                e.stopPropagation();
-                if (window.zombiehausDeckStudio) {
-                    window.zombiehausDeckStudio.toggle();
-                }
-            };
-        }
 
         // ComfyUI Real-time Execution Listener
         api.addEventListener("executed", (e) => {

@@ -294,6 +294,9 @@ class ZombiehausDeckStudio {
         this.filterQuery = "";
         this.activeConnectingSource = null; // { nodeId, slotIndex, type }
         this.executingNodeId = null;
+        this.currentProgressNodeId = null;
+        this._currentBlobUrls = {};
+        this._lastPreviewBlob = null;
         this.samplerProgress = {}; // { [nodeId]: { step, max_steps } }
         this.lastExecutedImages = {}; // { [nodeId]: url }
         this.cardOverrides = {}; // user custom column assignments: { [nodeId]: { stage, lane } }
@@ -1814,50 +1817,91 @@ class ZombiehausDeckStudio {
         overlay.querySelector("#zds-btn-add-card").onclick = () => this.openAddCardModal();
 
         // ComfyUI WebSocket & Execution Listeners
-        api?.addEventListener?.("execution_start", () => {
-            this.executingNodeId = null;
-            this.updateExecutionState();
-        });
+        const apis = new Set();
+        if (typeof api !== "undefined" && api) apis.add(api);
+        if (typeof app !== "undefined" && app?.api) apis.add(app.api);
 
-        api?.addEventListener?.("executing", (e) => {
-            const nodeId = e.detail;
-            this.executingNodeId = nodeId ? parseInt(nodeId, 10) : null;
-            this.updateExecutionState();
-        });
+        const handlePreviewBlob = (blob, explicitNodeId) => {
+            if (!blob) return;
+            if (blob === this._lastPreviewBlob) return;
+            this._lastPreviewBlob = blob;
 
-        api?.addEventListener?.("progress", (e) => {
-            const { value, max, node } = e.detail || {};
-            if (node) {
-                const nid = parseInt(node, 10);
-                this.samplerProgress[nid] = { value, max };
-                this.updateProgressBar(nid, value, max);
+            const nid = explicitNodeId != null
+                ? parseInt(explicitNodeId, 10)
+                : (this.executingNodeId || this.currentProgressNodeId || (app?.runningNodeId ? parseInt(app.runningNodeId, 10) : null));
+
+            if (!nid || isNaN(nid)) return;
+
+            const blobUrl = URL.createObjectURL(blob);
+            if (!this._currentBlobUrls) this._currentBlobUrls = {};
+            const oldUrl = this._currentBlobUrls[nid];
+            this._currentBlobUrls[nid] = blobUrl;
+            this.lastExecutedImages[nid] = blobUrl;
+
+            this.updateCardPreview(nid, blobUrl);
+
+            if (oldUrl && oldUrl.startsWith("blob:")) {
+                setTimeout(() => {
+                    try { URL.revokeObjectURL(oldUrl); } catch (_) {}
+                }, 1500);
             }
-        });
+        };
 
-        // Live Real-Time Step-by-Step Preview during KSampler / Generation
-        api?.addEventListener?.("b_index", (e) => {
-            if (this.executingNodeId && e.detail instanceof Blob) {
-                const blobUrl = URL.createObjectURL(e.detail);
-                if (this._currentBlobUrl) {
-                    try { URL.revokeObjectURL(this._currentBlobUrl); } catch (_) {}
-                }
-                this._currentBlobUrl = blobUrl;
-                this.updateCardPreview(this.executingNodeId, blobUrl);
-            }
-        });
-
-        api?.addEventListener?.("executed", (e) => {
-            const { node, output } = e.detail || {};
-            if (node && output?.images && output.images.length > 0) {
-                const img = output.images[0];
-                const url = `/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder || "")}&type=${encodeURIComponent(img.type || "output")}`;
-                this.lastExecutedImages[parseInt(node, 10)] = url;
-                this.updateCardPreview(parseInt(node, 10), url);
-            }
-            if (parseInt(node, 10) === this.executingNodeId) {
+        apis.forEach((apiTarget) => {
+            apiTarget?.addEventListener?.("execution_start", () => {
                 this.executingNodeId = null;
+                this.currentProgressNodeId = null;
                 this.updateExecutionState();
-            }
+            });
+
+            apiTarget?.addEventListener?.("executing", (e) => {
+                const rawNodeId = (e.detail && typeof e.detail === "object")
+                    ? (e.detail.display_node || e.detail.node || e.detail.nodeId)
+                    : e.detail;
+                this.executingNodeId = rawNodeId ? parseInt(rawNodeId, 10) : null;
+                this.updateExecutionState();
+            });
+
+            apiTarget?.addEventListener?.("progress", (e) => {
+                const { value, max, node } = e.detail || {};
+                if (node != null) {
+                    const nid = parseInt(node, 10);
+                    this.currentProgressNodeId = nid;
+                    if (!this.executingNodeId) this.executingNodeId = nid;
+                    this.samplerProgress[nid] = { value, max };
+                    this.updateProgressBar(nid, value, max);
+                }
+            });
+
+            // Live Real-Time Step-by-Step Preview during KSampler / Generation
+            apiTarget?.addEventListener?.("b_preview", (e) => {
+                const blob = (e.detail instanceof Blob) ? e.detail : (e.detail?.blob instanceof Blob ? e.detail.blob : null);
+                if (blob) {
+                    handlePreviewBlob(blob, e.detail?.nodeId || e.detail?.displayNodeId);
+                }
+            });
+
+            apiTarget?.addEventListener?.("b_preview_with_metadata", (e) => {
+                const blob = (e.detail?.blob instanceof Blob) ? e.detail.blob : (e.detail instanceof Blob ? e.detail : null);
+                const nid = e.detail?.displayNodeId || e.detail?.nodeId || e.detail?.realNodeId;
+                if (blob) {
+                    handlePreviewBlob(blob, nid);
+                }
+            });
+
+            apiTarget?.addEventListener?.("executed", (e) => {
+                const { node, output } = e.detail || {};
+                if (node && output?.images && output.images.length > 0) {
+                    const img = output.images[0];
+                    const url = `/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder || "")}&type=${encodeURIComponent(img.type || "output")}`;
+                    this.lastExecutedImages[parseInt(node, 10)] = url;
+                    this.updateCardPreview(parseInt(node, 10), url);
+                }
+                if (parseInt(node, 10) === this.executingNodeId) {
+                    this.executingNodeId = null;
+                    this.updateExecutionState();
+                }
+            });
         });
 
         window.addEventListener("resize", () => {
@@ -3403,11 +3447,19 @@ class ZombiehausDeckStudio {
             const imgObj = node.imgs[node.imageIndex || 0] || node.imgs[0];
             if (imgObj && imgObj.src) imgUrl = imgObj.src;
         }
+        if (!imgUrl && app?.nodePreviewImages && app.nodePreviewImages[node.id]?.length > 0) {
+            imgUrl = app.nodePreviewImages[node.id][0];
+        }
         if (imgUrl) {
             const preview = document.createElement("div");
             preview.className = "zds-card-preview";
             preview.innerHTML = `<img src="${imgUrl}" class="zds-preview-img" alt="Result" />`;
-            card.appendChild(preview);
+            const prog = card.querySelector(".zds-progress-container");
+            if (prog) {
+                prog.after(preview);
+            } else {
+                card.appendChild(preview);
+            }
         }
 
         // 6. Tactile 2D Corner Resizer (Zero Limitations)
@@ -4836,9 +4888,35 @@ class ZombiehausDeckStudio {
     }
 
     updateProgressBar(nodeId, step, max) {
-        const container = this.overlay.querySelector(`#zds-progress-${nodeId}`);
-        const fill = this.overlay.querySelector(`#zds-progress-fill-${nodeId}`);
-        const text = this.overlay.querySelector(`#zds-progress-text-${nodeId}`);
+        let container = this.overlay.querySelector(`#zds-progress-${nodeId}`);
+        let fill = this.overlay.querySelector(`#zds-progress-fill-${nodeId}`);
+        let text = this.overlay.querySelector(`#zds-progress-text-${nodeId}`);
+
+        if (!container) {
+            const card = this.overlay.querySelector(`#zds-card-${nodeId}`);
+            if (card) {
+                container = document.createElement("div");
+                container.className = "zds-progress-container";
+                container.id = `zds-progress-${nodeId}`;
+                container.innerHTML = `
+                    <div class="zds-progress-bar-bg">
+                        <div class="zds-progress-bar-fill" id="zds-progress-fill-${nodeId}"></div>
+                    </div>
+                    <div class="zds-progress-text" id="zds-progress-text-${nodeId}">Step 0/0</div>
+                `;
+                const ports = card.querySelector(".zds-ports-section");
+                const drawer = card.querySelector(".zds-drawer");
+                if (ports) {
+                    ports.after(container);
+                } else if (drawer) {
+                    drawer.after(container);
+                } else {
+                    card.prepend(container);
+                }
+                fill = container.querySelector(`#zds-progress-fill-${nodeId}`);
+                text = container.querySelector(`#zds-progress-text-${nodeId}`);
+            }
+        }
 
         if (container && fill && text) {
             container.style.display = "flex";
@@ -4856,10 +4934,29 @@ class ZombiehausDeckStudio {
         if (!preview) {
             preview = document.createElement("div");
             preview.className = "zds-card-preview";
-            card.appendChild(preview);
+            const prog = card.querySelector(".zds-progress-container");
+            if (prog) {
+                prog.after(preview);
+            } else {
+                const cornerResizer = card.querySelector(".zds-card-corner-resizer");
+                if (cornerResizer) {
+                    card.insertBefore(preview, cornerResizer);
+                } else {
+                    card.appendChild(preview);
+                }
+            }
         }
 
-        preview.innerHTML = `<img src="${url}" class="zds-preview-img" alt="Result" />`;
+        let img = preview.querySelector(".zds-preview-img");
+        if (!img) {
+            img = document.createElement("img");
+            img.className = "zds-preview-img";
+            img.alt = "Preview";
+            preview.appendChild(img);
+        }
+        if (img.src !== url) {
+            img.src = url;
+        }
     }
 
     // ── Search & Filter ───────────────────────────────────────────────────────
@@ -5010,28 +5107,17 @@ app.registerExtension({
 
         // Multi-Surface Toggle Button Injection
         const attachMenuToggle = () => {
-            // 1. Direct Tray Header Injection (Left side next to Clear)
-            const trayLeft = document.querySelector(".zit-header-left");
-            if (trayLeft) {
-                let trayBtn = document.getElementById("zds-tray-header-btn");
-                if (!trayBtn) {
-                    trayBtn = document.createElement("button");
-                    trayBtn.id = "zds-tray-header-btn";
-                    trayBtn.type = "button";
-                    trayBtn.className = "zit-action-btn";
-                    trayBtn.title = "Switch to Deck Studio Interface (Alt+D / F9)";
-                    trayBtn.style.cssText = "display: inline-flex; align-items: center; gap: 5px; background: linear-gradient(135deg, rgba(168, 85, 247, 0.4), rgba(6, 182, 212, 0.35)); border: 1px solid rgba(168, 85, 247, 0.7); border-radius: 6px; padding: 2px 10px; color: #ffffff; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: 8px;";
-                    trayBtn.innerHTML = "<span>▥</span> Deck Studio";
-                    trayBtn.onclick = (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        window.zombiehausToggleDeckStudio();
-                    };
-                    trayLeft.appendChild(trayBtn);
-                }
-            }
+            // Remove duplicate/extra Deck Studio buttons if present
+            const oldTrayLeft = document.getElementById("zds-tray-header-btn");
+            if (oldTrayLeft) oldTrayLeft.remove();
+            const oldTrayRight = document.getElementById("zit-btn-deck-studio");
+            if (oldTrayRight) oldTrayRight.remove();
+            const oldToggleBtn = document.getElementById("zombiehaus-deck-studio-toggle-btn");
+            if (oldToggleBtn) oldToggleBtn.remove();
+            const oldFloatPill = document.getElementById("zds-floating-launcher-pill");
+            if (oldFloatPill) oldFloatPill.remove();
 
-            // 2. Modern ComfyUI Sidebar (Help, Console, Shortcuts, Settings or Templates)
+            // 1. Modern ComfyUI Sidebar (Help, Console, Shortcuts, Settings or Templates)
             let sideBar = document.querySelector(".side-tool-bar-container") ||
                 document.querySelector("nav.side-tool-bar-container") ||
                 document.querySelector(".side-tool-bar") ||
@@ -5081,7 +5167,7 @@ app.registerExtension({
                 }
             }
 
-            // 3. Top View Bar (next to "Graph" dropdown)
+            // 2. Top View Bar (next to "Graph" dropdown)
             const allBtns = Array.from(document.querySelectorAll("button, div[role='button']"));
             const graphBtn = allBtns.find(b => b.textContent?.trim().startsWith("Graph") || b.title?.includes("Graph"));
             if (graphBtn && graphBtn.parentElement) {
@@ -5101,61 +5187,6 @@ app.registerExtension({
                     };
                     parent.appendChild(topViewBtn);
                 }
-            }
-
-            // 4. Visible Menu Bar / Bottom Action Bar Button
-            const menuBarCandidates = [
-                document.querySelector(".comfyui-body-bottom .comfyui-menu"),
-                document.querySelector(".comfyui-body-bottom"),
-                document.querySelector("header.comfyui-menu"),
-                document.querySelector(".comfyui-menu:not(.comfyui-body-bottom)"),
-                document.querySelector(".comfyui-action-bar"),
-                document.querySelector(".comfy-menu")
-            ];
-            const visibleMenuBar = menuBarCandidates.find(mb => mb && isElementVisible(mb));
-
-            if (visibleMenuBar) {
-                let btn = document.getElementById("zombiehaus-deck-studio-toggle-btn");
-                if (!btn) {
-                    btn = document.createElement("button");
-                    btn.id = "zombiehaus-deck-studio-toggle-btn";
-                    btn.type = "button";
-                    btn.className = "comfy-btn zds-menu-toggle-btn";
-                    btn.innerHTML = "<span>▥</span> Deck Studio";
-                    btn.title = "Switch to Zombiehaus Deck Studio Workstation (Alt+D / F9)";
-                    btn.onclick = (e) => {
-                        e.preventDefault();
-                        window.zombiehausToggleDeckStudio();
-                    };
-                }
-                btn.style.cssText = "display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; max-width: fit-content; align-self: flex-start; background: linear-gradient(135deg, rgba(168, 85, 247, 0.45), rgba(6, 182, 212, 0.4)); border: 1px solid rgba(168, 85, 247, 0.8); border-radius: 6px; padding: 6px 14px; color: #ffffff; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); margin: 3px 6px; z-index: 1000;";
-                if (btn.parentElement !== visibleMenuBar) {
-                    const firstBtn = visibleMenuBar.querySelector("button");
-                    if (firstBtn && firstBtn.parentElement === visibleMenuBar && firstBtn !== btn) {
-                        visibleMenuBar.insertBefore(btn, firstBtn);
-                    } else {
-                        visibleMenuBar.appendChild(btn);
-                    }
-                }
-            }
-
-            // 5. Unconditional Floating Launcher Pill (Always Available)
-            let floatPill = document.getElementById("zds-floating-launcher-pill");
-            if (!floatPill) {
-                floatPill = document.createElement("button");
-                floatPill.id = "zds-floating-launcher-pill";
-                floatPill.type = "button";
-                floatPill.className = "comfy-btn";
-                floatPill.title = "Switch to Zombiehaus Deck Studio Workstation (Alt+D / F9)";
-                floatPill.style.cssText = "position: fixed; top: 12px; right: 180px; z-index: 99990; display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(135deg, #7c3aed, #06b6d4); border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 8px; padding: 5px 12px; color: #ffffff; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6); transition: transform 0.15s ease;";
-                floatPill.onmouseenter = () => { floatPill.style.transform = "scale(1.05)"; };
-                floatPill.onmouseleave = () => { floatPill.style.transform = "scale(1)"; };
-                floatPill.innerHTML = "<span>▥</span> Deck Studio";
-                floatPill.onclick = (e) => {
-                    e.preventDefault();
-                    window.zombiehausToggleDeckStudio();
-                };
-                document.body.appendChild(floatPill);
             }
         };
 

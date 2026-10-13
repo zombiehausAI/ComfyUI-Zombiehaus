@@ -217,9 +217,11 @@ class ZombiehausDeckStudio {
             document.head.appendChild(link);
         }
 
-        const overlay = document.createElement("div");
-        overlay.id = "zombiehaus-deck-studio-overlay";
-        overlay.innerHTML = `
+        let overlay = document.getElementById("zombiehaus-deck-studio-overlay");
+        if (!overlay) {
+            overlay = document.createElement("div");
+            overlay.id = "zombiehaus-deck-studio-overlay";
+            overlay.innerHTML = `
             <div class="zds-toolbar">
                 <div class="zds-toolbar-left">
                     <div class="zds-brand">
@@ -283,16 +285,24 @@ class ZombiehausDeckStudio {
             <div class="zds-workspace" id="zds-columns-workspace">
                 <!-- 5 Stage Bays injected dynamically -->
             </div>
-        `;
+            `;
 
-        document.body.appendChild(overlay);
+            const target = document.body || document.documentElement;
+            if (target) {
+                target.appendChild(overlay);
+            }
+        }
+
         this.overlay = overlay;
         this.workspace = overlay.querySelector("#zds-columns-workspace");
 
-        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        svg.className = "zds-connections-svg";
-        svg.id = "zds-connections-svg";
-        this.workspace.appendChild(svg);
+        let svg = this.workspace ? this.workspace.querySelector("#zds-connections-svg") : null;
+        if (!svg && this.workspace) {
+            svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.className = "zds-connections-svg";
+            svg.id = "zds-connections-svg";
+            this.workspace.appendChild(svg);
+        }
         this.svgOverlay = svg;
 
         this.renderColumnsSkeleton();
@@ -979,10 +989,25 @@ class ZombiehausDeckStudio {
 
         // 2. Downstream consumers (out of node.outputs)
         if (node.outputs) {
-            for (const output of node.outputs) {
-                if (output.links) {
-                    for (const linkId of output.links) {
-                        const link = app.graph.links[linkId];
+            node.outputs.forEach((output, slotIdx) => {
+                if (typeof node.getOutputNodes === "function") {
+                    try {
+                        const targetNodes = node.getOutputNodes(slotIdx);
+                        if (Array.isArray(targetNodes)) {
+                            targetNodes.forEach(tn => {
+                                if (tn && !seenConsumers.has(tn.id)) {
+                                    seenConsumers.add(tn.id);
+                                    consumers.push(tn);
+                                }
+                            });
+                            return;
+                        }
+                    } catch (_) {}
+                }
+                const links = output.links || [];
+                if (Array.isArray(links)) {
+                    for (const linkId of links) {
+                        const link = app.graph.links ? app.graph.links[linkId] : null;
                         if (link) {
                             const targetNode = app.graph.getNodeById(link.target_id);
                             if (targetNode && !seenConsumers.has(targetNode.id)) {
@@ -992,7 +1017,7 @@ class ZombiehausDeckStudio {
                         }
                     }
                 }
-            }
+            });
         }
 
         return { feeders, consumers };
@@ -1177,7 +1202,7 @@ class ZombiehausDeckStudio {
         if (hasOutputs) {
             node.outputs.forEach((output, slotIdx) => {
                 const chip = document.createElement("span");
-                const isConnected = output.links && output.links.length > 0;
+                const isConnected = typeof node.isOutputConnected === "function" ? node.isOutputConnected(slotIdx) : (output.links && output.links.length > 0);
                 const typeClass = getTypeClass(output.type);
                 chip.className = `zds-port-chip ${typeClass} ${isConnected ? "zds-port-connected" : ""}`;
                 chip.dataset.nodeId = node.id;
@@ -1841,26 +1866,38 @@ function getOrCreateDeckStudio() {
             window.zombiehausDeckStudio = studioInstance;
         } catch (err) {
             console.error("[Deck Studio] Initialization Error:", err);
+            return null;
         }
     }
     return studioInstance;
 }
 
 window.zombiehausToggleDeckStudio = () => {
-    const s = getOrCreateDeckStudio();
-    if (s) s.toggle();
+    let s = studioInstance || window.zombiehausDeckStudio || getOrCreateDeckStudio();
+    if (s && typeof s.toggle === "function") {
+        s.toggle();
+    } else {
+        try {
+            studioInstance = new ZombiehausDeckStudio();
+            window.zombiehausDeckStudio = studioInstance;
+            studioInstance.toggle();
+        } catch (err) {
+            console.error("[Deck Studio] Failed to toggle:", err);
+        }
+    }
 };
 
 app.registerExtension({
     name: "zombiehaus.DeckStudio",
 
     async init() {
-        getOrCreateDeckStudio();
+        if (document.body) {
+            getOrCreateDeckStudio();
+        }
     },
 
     async setup() {
-        const studio = getOrCreateDeckStudio();
-        window.zombiehausDeckStudio = studio;
+        getOrCreateDeckStudio();
 
         // Helper to check element visibility
         const isElementVisible = (el) => {
@@ -1891,7 +1928,7 @@ app.registerExtension({
                     trayBtn.onclick = (e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        studio.toggle();
+                        window.zombiehausToggleDeckStudio();
                     };
                     trayLeft.appendChild(trayBtn);
                 }
@@ -1934,7 +1971,7 @@ app.registerExtension({
                     `;
                     sideBtn.onclick = (e) => {
                         e.preventDefault();
-                        studio.toggle();
+                        window.zombiehausToggleDeckStudio();
                     };
 
                     const settingsEl = Array.from(sideBar.querySelectorAll("button, div[role='button']"))
@@ -1963,7 +2000,7 @@ app.registerExtension({
                     topViewBtn.innerHTML = "<span>▥</span> Deck";
                     topViewBtn.onclick = (e) => {
                         e.preventDefault();
-                        studio.toggle();
+                        window.zombiehausToggleDeckStudio();
                     };
                     parent.appendChild(topViewBtn);
                 }
@@ -1991,7 +2028,7 @@ app.registerExtension({
                     btn.title = "Switch to Zombiehaus Deck Studio Workstation (Alt+D / F9)";
                     btn.onclick = (e) => {
                         e.preventDefault();
-                        studio.toggle();
+                        window.zombiehausToggleDeckStudio();
                     };
                 }
                 btn.style.cssText = "display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; max-width: fit-content; align-self: flex-start; background: linear-gradient(135deg, rgba(168, 85, 247, 0.45), rgba(6, 182, 212, 0.4)); border: 1px solid rgba(168, 85, 247, 0.8); border-radius: 6px; padding: 6px 14px; color: #ffffff; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); margin: 3px 6px; z-index: 1000;";
@@ -2019,7 +2056,7 @@ app.registerExtension({
                 floatPill.innerHTML = "<span>▥</span> Deck Studio";
                 floatPill.onclick = (e) => {
                     e.preventDefault();
-                    studio.toggle();
+                    window.zombiehausToggleDeckStudio();
                 };
                 document.body.appendChild(floatPill);
             }

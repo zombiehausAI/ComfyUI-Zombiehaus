@@ -120,25 +120,58 @@ class ZombiehausImageTray {
         // Set safe initial docking and z-index below ComfyUI popups/menus
         this.trayEl.style.zIndex = "995";
         this.trayEl.style.bottom = "var(--zit-bottom-offset, 0px)";
+        this.trayEl.style.left = "var(--zit-left-offset, 0px)";
     }
 
-    // ── Dynamic ComfyUI Bottom Menu Bar Docking ──────────────────────────────
+    // ── Dynamic ComfyUI Docking (Bottom Menu Bar & Left Sidebar) ──────────────
     updateBottomOffset() {
         if (!this.trayEl) return;
 
-        // If Deck Studio full-screen overlay is active, dock at bottom 0 with elevated z-index
+        // If Deck Studio full-screen overlay is active, dock at bottom 0 and left 0 with elevated z-index
         const isDeckActive = document.body.classList.contains("zombiehaus-deck-active") ||
             !!document.querySelector("#zombiehaus-deck-studio.zds-active");
 
         if (isDeckActive) {
             this.trayEl.style.bottom = "0px";
+            this.trayEl.style.left = "0px";
             this.trayEl.style.zIndex = "99992";
             this.trayEl.style.setProperty("--zit-bottom-offset", "0px");
+            this.trayEl.style.setProperty("--zit-left-offset", "0px");
             return;
         }
 
         this.trayEl.style.zIndex = "995";
 
+        const vh = window.innerHeight;
+
+        // ── 1. Detect Left Sidebar (Help, Console, Shortcuts, Settings) ────────
+        let leftOffset = 0;
+        const leftSidebarCandidates = [
+            ".side-tool-bar-container",
+            "nav.side-tool-bar-container",
+            ".side-tool-bar",
+            "aside.comfyui-nav",
+            ".comfyui-nav",
+            "aside"
+        ];
+        for (const sel of leftSidebarCandidates) {
+            const els = document.querySelectorAll(sel);
+            for (const el of els) {
+                if (!el || !el.isConnected) continue;
+                if (el.closest("#zombiehaus-image-tray") || el.closest("#zombiehaus-deck-studio")) continue;
+                const rect = el.getBoundingClientRect();
+                if (rect.width > 0 && rect.left <= 8 && rect.height > vh * 0.4) {
+                    const w = Math.round(rect.right);
+                    if (w >= 30 && w <= 250 && w > leftOffset) {
+                        leftOffset = w;
+                    }
+                }
+            }
+        }
+        this.trayEl.style.left = `${leftOffset}px`;
+        this.trayEl.style.setProperty("--zit-left-offset", `${leftOffset}px`);
+
+        // ── 2. Detect Bottom Elements (Resize Feed / Comfy Menu Bars) ──────────
         let offset = 0;
 
         // Check manual override if user configured one
@@ -164,16 +197,16 @@ class ZombiehausImageTray {
             "footer.comfyui-footer",
             ".comfy-menu.bottom",
             ".comfyui-action-bar",
-            ".side-tool-bar-container",
             ".comfyui-menu",
             ".comfy-menu",
             "#comfy-menu",
             "header.comfyui-menu",
             "footer",
-            ".comfyui-nav"
+            ".comfyui-nav",
+            "[class*='image-feed']",
+            ".pysssss-image-feed"
         ];
 
-        const vh = window.innerHeight;
         for (const sel of candidates) {
             const els = document.querySelectorAll(sel);
             for (const el of els) {

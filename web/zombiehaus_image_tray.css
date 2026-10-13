@@ -28,7 +28,7 @@
 #zombiehaus-image-tray {
   position: fixed;
   bottom: var(--zit-bottom-offset, 0px);
-  left: 0;
+  left: var(--zit-left-offset, 0px);
   right: 0;
   z-index: 995;
   background: var(--zit-bg);
@@ -40,7 +40,7 @@
   font-family: var(--zit-font);
   display: flex;
   flex-direction: column;
-  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), height 0.2s ease, bottom 0.2s ease;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), height 0.2s ease, bottom 0.2s ease, left 0.2s ease;
   user-select: none;
 }
 
@@ -49,6 +49,7 @@ body.zombiehaus-deck-active #zombiehaus-image-tray,
 #zombiehaus-deck-studio.zds-active ~ #zombiehaus-image-tray {
   z-index: 99992;
   bottom: 0px !important;
+  left: 0px !important;
 }
 
 #zombiehaus-image-tray.zit-collapsed {

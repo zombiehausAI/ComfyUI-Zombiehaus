@@ -1799,12 +1799,60 @@ app.registerExtension({
         const studio = new ZombiehausDeckStudio();
         window.zombiehausDeckStudio = studio;
 
-        // Persistent Menu / Sidebar / Floating Button Injection
+        // Helper to check element visibility
+        const isElementVisible = (el) => {
+            if (!el) return false;
+            try {
+                const style = window.getComputedStyle(el);
+                if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+                return el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0;
+            } catch (_) {
+                return false;
+            }
+        };
+
+        // Multi-Surface Toggle Button Injection
         const attachMenuToggle = () => {
-            // 1. Modern ComfyUI: inject into the left sidebar (Help, Console, Shortcuts, Settings)
-            const sideBar = document.querySelector(".side-tool-bar-container") ||
+            // 1. Direct Tray Header Injection (Left side next to Clear)
+            const trayLeft = document.querySelector(".zit-header-left");
+            if (trayLeft) {
+                let trayBtn = document.getElementById("zds-tray-header-btn");
+                if (!trayBtn) {
+                    trayBtn = document.createElement("button");
+                    trayBtn.id = "zds-tray-header-btn";
+                    trayBtn.type = "button";
+                    trayBtn.className = "zit-action-btn";
+                    trayBtn.title = "Switch to Deck Studio Interface (Alt+D / F9)";
+                    trayBtn.style.cssText = "display: inline-flex; align-items: center; gap: 5px; background: linear-gradient(135deg, rgba(168, 85, 247, 0.4), rgba(6, 182, 212, 0.35)); border: 1px solid rgba(168, 85, 247, 0.7); border-radius: 6px; padding: 2px 10px; color: #ffffff; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: 8px;";
+                    trayBtn.innerHTML = "<span>▥</span> Deck Studio";
+                    trayBtn.onclick = (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        studio.toggle();
+                    };
+                    trayLeft.appendChild(trayBtn);
+                }
+            }
+
+            // 2. Modern ComfyUI Sidebar (Help, Console, Shortcuts, Settings or Templates)
+            let sideBar = document.querySelector(".side-tool-bar-container") ||
                 document.querySelector("nav.side-tool-bar-container") ||
-                document.querySelector(".side-tool-bar");
+                document.querySelector(".side-tool-bar") ||
+                document.querySelector(".side-bar-panel") ||
+                document.querySelector(".comfyui-sidebar");
+
+            if (!sideBar) {
+                const allElements = Array.from(document.querySelectorAll("button, div[role='button'], a[role='button']"));
+                const settingsBtn = allElements.find(b => b.textContent?.includes("Settings") || b.getAttribute("title")?.includes("Settings") || b.getAttribute("aria-label")?.includes("Settings"));
+                if (settingsBtn && settingsBtn.parentElement) {
+                    sideBar = settingsBtn.parentElement;
+                } else {
+                    const templatesBtn = allElements.find(b => b.textContent?.includes("Templates") || b.getAttribute("title")?.includes("Templates"));
+                    if (templatesBtn && templatesBtn.parentElement) {
+                        sideBar = templatesBtn.parentElement;
+                    }
+                }
+            }
 
             if (sideBar) {
                 let sideBtn = document.getElementById("zombiehaus-deck-studio-sidebar-btn");
@@ -1812,10 +1860,10 @@ app.registerExtension({
                     sideBtn = document.createElement("button");
                     sideBtn.id = "zombiehaus-deck-studio-sidebar-btn";
                     sideBtn.type = "button";
-                    sideBtn.className = "side-tool-bar-btn comfy-btn";
+                    sideBtn.className = "side-tool-bar-btn comfy-btn zds-sidebar-btn";
                     sideBtn.title = "Toggle Zombiehaus Deck Studio Workstation (Alt+D / F9)";
                     sideBtn.style.cssText = "display: flex; flex-direction: column; align-items: center; justify-content: center; background: none; border: none; color: #c084fc; cursor: pointer; padding: 8px 4px; width: 100%; gap: 3px; border-radius: 6px; transition: background 0.15s ease;";
-                    sideBtn.onmouseenter = () => { sideBtn.style.background = "rgba(168, 85, 247, 0.15)"; };
+                    sideBtn.onmouseenter = () => { sideBtn.style.background = "rgba(168, 85, 247, 0.2)"; };
                     sideBtn.onmouseleave = () => { sideBtn.style.background = "none"; };
                     sideBtn.innerHTML = `
                         <span style="font-size: 16px; line-height: 1;">▥</span>
@@ -1826,69 +1874,100 @@ app.registerExtension({
                         studio.toggle();
                     };
 
-                    const settingsBtn = sideBar.querySelector("[title*='Settings']") || sideBar.querySelector("button:last-child");
-                    if (settingsBtn && settingsBtn.parentElement === sideBar) {
-                        sideBar.insertBefore(sideBtn, settingsBtn);
+                    const settingsEl = Array.from(sideBar.querySelectorAll("button, div[role='button']"))
+                        .find(b => b.textContent?.includes("Settings") || b.title?.includes("Settings"));
+                    if (settingsEl && settingsEl.parentElement === sideBar) {
+                        sideBar.insertBefore(sideBtn, settingsEl);
                     } else {
                         sideBar.appendChild(sideBtn);
                     }
                 }
             }
 
-            // 2. Primary Menu Bar / Bottom Action Bar Button
-            let btn = document.getElementById("zombiehaus-deck-studio-toggle-btn");
-            if (!btn) {
-                btn = document.createElement("button");
-                btn.id = "zombiehaus-deck-studio-toggle-btn";
-                btn.type = "button";
-                btn.className = "comfy-btn zds-menu-toggle-btn";
-                btn.innerHTML = "<span>▥</span> Deck Studio";
-                btn.title = "Switch to Zombiehaus Deck Studio Workstation (Alt+D / F9)";
+            // 3. Top View Bar (next to "Graph" dropdown)
+            const allBtns = Array.from(document.querySelectorAll("button, div[role='button']"));
+            const graphBtn = allBtns.find(b => b.textContent?.trim().startsWith("Graph") || b.title?.includes("Graph"));
+            if (graphBtn && graphBtn.parentElement) {
+                const parent = graphBtn.parentElement;
+                let topViewBtn = document.getElementById("zds-top-bar-view-btn");
+                if (!topViewBtn) {
+                    topViewBtn = document.createElement("button");
+                    topViewBtn.id = "zds-top-bar-view-btn";
+                    topViewBtn.type = "button";
+                    topViewBtn.className = "comfy-btn zds-top-bar-btn";
+                    topViewBtn.title = "Switch to Zombiehaus Deck Studio Workstation (Alt+D / F9)";
+                    topViewBtn.style.cssText = "display: inline-flex; align-items: center; gap: 4px; background: linear-gradient(135deg, rgba(168, 85, 247, 0.4), rgba(6, 182, 212, 0.3)); border: 1px solid rgba(168, 85, 247, 0.7); border-radius: 6px; padding: 3px 10px; color: #ffffff; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;";
+                    topViewBtn.innerHTML = "<span>▥</span> Deck";
+                    topViewBtn.onclick = (e) => {
+                        e.preventDefault();
+                        studio.toggle();
+                    };
+                    parent.appendChild(topViewBtn);
+                }
+            }
+
+            // 4. Visible Menu Bar / Bottom Action Bar Button
+            const menuBarCandidates = [
+                document.querySelector(".comfyui-body-bottom .comfyui-menu"),
+                document.querySelector(".comfyui-body-bottom"),
+                document.querySelector("header.comfyui-menu"),
+                document.querySelector(".comfyui-menu:not(.comfyui-body-bottom)"),
+                document.querySelector(".comfyui-action-bar"),
+                document.querySelector(".comfy-menu")
+            ];
+            const visibleMenuBar = menuBarCandidates.find(mb => mb && isElementVisible(mb));
+
+            if (visibleMenuBar) {
+                let btn = document.getElementById("zombiehaus-deck-studio-toggle-btn");
+                if (!btn) {
+                    btn = document.createElement("button");
+                    btn.id = "zombiehaus-deck-studio-toggle-btn";
+                    btn.type = "button";
+                    btn.className = "comfy-btn zds-menu-toggle-btn";
+                    btn.innerHTML = "<span>▥</span> Deck Studio";
+                    btn.title = "Switch to Zombiehaus Deck Studio Workstation (Alt+D / F9)";
+                    btn.onclick = (e) => {
+                        e.preventDefault();
+                        studio.toggle();
+                    };
+                }
                 btn.style.cssText = "display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; max-width: fit-content; align-self: flex-start; background: linear-gradient(135deg, rgba(168, 85, 247, 0.45), rgba(6, 182, 212, 0.4)); border: 1px solid rgba(168, 85, 247, 0.8); border-radius: 6px; padding: 6px 14px; color: #ffffff; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); margin: 3px 6px; z-index: 1000;";
-                btn.onclick = (e) => {
+                if (btn.parentElement !== visibleMenuBar) {
+                    const firstBtn = visibleMenuBar.querySelector("button");
+                    if (firstBtn && firstBtn.parentElement === visibleMenuBar && firstBtn !== btn) {
+                        visibleMenuBar.insertBefore(btn, firstBtn);
+                    } else {
+                        visibleMenuBar.appendChild(btn);
+                    }
+                }
+            }
+
+            // 5. Unconditional Floating Launcher Pill (Always Available)
+            let floatPill = document.getElementById("zds-floating-launcher-pill");
+            if (!floatPill) {
+                floatPill = document.createElement("button");
+                floatPill.id = "zds-floating-launcher-pill";
+                floatPill.type = "button";
+                floatPill.className = "comfy-btn";
+                floatPill.title = "Switch to Zombiehaus Deck Studio Workstation (Alt+D / F9)";
+                floatPill.style.cssText = "position: fixed; top: 12px; right: 180px; z-index: 99990; display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(135deg, #7c3aed, #06b6d4); border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 8px; padding: 5px 12px; color: #ffffff; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6); transition: transform 0.15s ease;";
+                floatPill.onmouseenter = () => { floatPill.style.transform = "scale(1.05)"; };
+                floatPill.onmouseleave = () => { floatPill.style.transform = "scale(1)"; };
+                floatPill.innerHTML = "<span>▥</span> Deck Studio";
+                floatPill.onclick = (e) => {
                     e.preventDefault();
                     studio.toggle();
                 };
-            }
-
-            const menuBar = (
-                document.querySelector(".comfyui-body-bottom") ||
-                document.querySelector(".comfyui-body-bottom .comfyui-menu") ||
-                document.querySelector("header.comfyui-menu") ||
-                document.querySelector(".comfyui-menu:not(.comfyui-body-bottom)") ||
-                document.querySelector(".comfy-menu") ||
-                document.querySelector("#comfy-menu") ||
-                document.querySelector(".side-bar-button-selected")?.parentElement ||
-                document.querySelector(".comfyui-action-bar")
-            );
-
-            if (menuBar) {
-                btn.style.cssText = "display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; max-width: fit-content; align-self: flex-start; background: linear-gradient(135deg, rgba(168, 85, 247, 0.45), rgba(6, 182, 212, 0.4)); border: 1px solid rgba(168, 85, 247, 0.8); border-radius: 6px; padding: 6px 14px; color: #ffffff; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); margin: 3px 6px; z-index: 1000;";
-                if (btn.parentElement !== menuBar) {
-                    const firstBtn = menuBar.querySelector("button");
-                    if (firstBtn && firstBtn.parentElement === menuBar && firstBtn !== btn) {
-                        menuBar.insertBefore(btn, firstBtn);
-                    } else {
-                        menuBar.appendChild(btn);
-                    }
-                }
-            } else if (!btn.parentElement) {
-                // 3. Fallback floating launcher pill
-                btn.style.cssText = "position: fixed; bottom: 58px; left: 160px; display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(135deg, rgba(168, 85, 247, 0.5), rgba(6, 182, 212, 0.45)); border: 1px solid rgba(168, 85, 247, 0.85); border-radius: 8px; padding: 6px 14px; color: #ffffff; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.7); z-index: 9998;";
-                document.body.appendChild(btn);
+                document.body.appendChild(floatPill);
             }
         };
 
         attachMenuToggle();
-        let pollAttempts = 0;
-        const timer = setInterval(() => {
-            pollAttempts++;
-            attachMenuToggle();
-            const sideBtn = document.getElementById("zombiehaus-deck-studio-sidebar-btn");
-            const topBtn = document.getElementById("zombiehaus-deck-studio-toggle-btn");
-            if ((sideBtn && topBtn && topBtn.parentElement) || pollAttempts > 30) {
-                clearInterval(timer);
-            }
-        }, 500);
+        const timer = setInterval(attachMenuToggle, 1000);
+        setTimeout(() => {
+            clearInterval(timer);
+            // Long-term polling every 3 seconds to survive workflow reloads
+            setInterval(attachMenuToggle, 3000);
+        }, 15000);
     }
 });

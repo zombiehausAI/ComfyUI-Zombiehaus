@@ -196,6 +196,12 @@ class ZombiehausDeckStudio {
         this.lastExecutedImages = {}; // { [nodeId]: url }
         this.cardOverrides = {}; // user custom column assignments: { [nodeId]: stageId }
 
+        this.cardSizes = {};
+        try {
+            const raw = localStorage.getItem("zds_card_sizes");
+            if (raw) this.cardSizes = JSON.parse(raw);
+        } catch (_) {}
+
         this.initDOM();
         this.setupEventListeners();
         this.setupKeyboardShortcuts();
@@ -282,6 +288,12 @@ class ZombiehausDeckStudio {
         document.body.appendChild(overlay);
         this.overlay = overlay;
         this.workspace = overlay.querySelector("#zds-columns-workspace");
+
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.className = "zds-connections-svg";
+        svg.id = "zds-connections-svg";
+        this.workspace.appendChild(svg);
+        this.svgOverlay = svg;
 
         this.renderColumnsSkeleton();
     }
@@ -652,6 +664,39 @@ class ZombiehausDeckStudio {
             card.classList.remove("zds-card-dragging");
         });
 
+        // Connection Tracing on Hover
+        card.addEventListener("mouseenter", () => {
+            this.highlightNodeConnections(node.id);
+        });
+        card.addEventListener("mouseleave", () => {
+            this.clearConnectionHighlights();
+        });
+
+        // Restore Saved Card Height (Resizability)
+        if (this.cardSizes[node.id]) {
+            card.style.height = `${this.cardSizes[node.id]}px`;
+        }
+
+        // Observe manual vertical resize to persist across sessions
+        if (typeof ResizeObserver !== "undefined") {
+            let resizeDebounce = null;
+            const ro = new ResizeObserver(() => {
+                clearTimeout(resizeDebounce);
+                resizeDebounce = setTimeout(() => {
+                    const h = Math.round(card.offsetHeight);
+                    if (h && h > 80) {
+                        this.cardSizes[node.id] = h;
+                        try {
+                            localStorage.setItem("zds_card_sizes", JSON.stringify(this.cardSizes));
+                        } catch (_) {}
+                    }
+                }, 300);
+            });
+            ro.observe(card);
+        }
+
+        const conns = this.getNodeConnections(node.id);
+
         // 1. Header
         const header = document.createElement("div");
         header.className = "zds-card-header";
@@ -705,20 +750,38 @@ class ZombiehausDeckStudio {
         headerLeft.appendChild(idBadge);
         headerLeft.appendChild(titleGroup);
 
+        // Connection Summary Pill (Click to toggle Link Drawer)
+        const linksSummary = document.createElement("span");
+        linksSummary.className = "zds-card-links-summary";
+        linksSummary.title = `Connections: ${conns.feeders.length} input feeder(s), ${conns.consumers.length} output consumer(s). Click to toggle links drawer.`;
+        linksSummary.innerHTML = `<span class="zds-conn-in-count">◀ ${conns.feeders.length}</span> • <span class="zds-conn-out-count">${conns.consumers.length} ▶</span>`;
+        linksSummary.onclick = (e) => {
+            e.stopPropagation();
+            drawer.style.display = drawer.style.display === "none" ? "flex" : "none";
+        };
+        headerLeft.appendChild(linksSummary);
+
         const headerActions = document.createElement("div");
         headerActions.className = "zds-card-header-actions";
 
-        // Prompt Popout Button (for prompt/text nodes)
+        // Prompt Popout Button (for prompt/text/function/song nodes)
         const isPromptNode = (node.type || "").toLowerCase().includes("text") ||
             (node.type || "").toLowerCase().includes("prompt") ||
             (node.title || "").toLowerCase().includes("prompt") ||
-            node.widgets?.some(w => w.name.toLowerCase().includes("positive") || w.name.toLowerCase().includes("prompt"));
+            (node.type || "").toLowerCase().includes("function") ||
+            (node.type || "").toLowerCase().includes("song") ||
+            node.widgets?.some(w =>
+                (w.name || "").toLowerCase().includes("positive") ||
+                (w.name || "").toLowerCase().includes("prompt") ||
+                (w.name || "").toLowerCase().includes("pop out") ||
+                (w.name || "").toLowerCase().includes("popout")
+            );
 
         if (isPromptNode) {
             const popoutBtn = document.createElement("button");
             popoutBtn.className = "zds-card-btn zds-card-btn-prompt";
             popoutBtn.innerHTML = "🗖";
-            popoutBtn.title = "Expand into Prompt Studio (Alt+P)";
+            popoutBtn.title = "Pop out Full Studio Cockpit (Alt+P)";
             popoutBtn.onclick = (e) => {
                 e.stopPropagation();
                 this.openPromptStudio(node);
@@ -782,6 +845,50 @@ class ZombiehausDeckStudio {
         header.appendChild(headerActions);
         card.appendChild(header);
 
+        // Connection Links Drawer (collapsible details)
+        const drawer = document.createElement("div");
+        drawer.className = "zds-card-connections-drawer";
+        drawer.style.display = "none";
+
+        if (conns.feeders.length > 0) {
+            const inRow = document.createElement("div");
+            inRow.className = "zds-conn-row";
+            inRow.innerHTML = `<span class="zds-conn-label">In from:</span>`;
+            conns.feeders.forEach(fn => {
+                const chip = document.createElement("span");
+                chip.className = "zds-conn-node-chip zds-chip-in";
+                const t = fn.title || fn.type || "";
+                chip.innerHTML = `◀ #${fn.id} ${t.length > 18 ? t.substring(0, 16) + '...' : t}`;
+                chip.title = `Feeds into this card. Click to scroll to #${fn.id} (${t})`;
+                chip.onclick = (e) => {
+                    e.stopPropagation();
+                    this.scrollToCard(fn.id);
+                };
+                inRow.appendChild(chip);
+            });
+            drawer.appendChild(inRow);
+        }
+
+        if (conns.consumers.length > 0) {
+            const outRow = document.createElement("div");
+            outRow.className = "zds-conn-row";
+            outRow.innerHTML = `<span class="zds-conn-label">Out to:</span>`;
+            conns.consumers.forEach(cn => {
+                const chip = document.createElement("span");
+                chip.className = "zds-conn-node-chip zds-chip-out";
+                const t = cn.title || cn.type || "";
+                chip.innerHTML = `▶ #${cn.id} ${t.length > 18 ? t.substring(0, 16) + '...' : t}`;
+                chip.title = `Receives from this card. Click to scroll to #${cn.id} (${t})`;
+                chip.onclick = (e) => {
+                    e.stopPropagation();
+                    this.scrollToCard(cn.id);
+                };
+                outRow.appendChild(chip);
+            });
+            drawer.appendChild(outRow);
+        }
+        card.appendChild(drawer);
+
         // 2. Port Chips Section (Clean, non-cluttered pills)
         const portsSection = this.renderPortsSection(node);
         if (portsSection) {
@@ -830,6 +937,166 @@ class ZombiehausDeckStudio {
         }
 
         return card;
+    }
+
+    // ── Node Connection Intelligence & Wire Tracing ───────────────────────────
+    getNodeConnections(nodeId) {
+        const feeders = [];
+        const consumers = [];
+        if (!app.graph || !app.graph.links) return { feeders, consumers };
+
+        const node = app.graph.getNodeById(nodeId);
+        if (!node) return { feeders, consumers };
+
+        const seenFeeders = new Set();
+        const seenConsumers = new Set();
+
+        // 1. Upstream feeders (into node.inputs)
+        if (node.inputs) {
+            for (const input of node.inputs) {
+                if (input.link != null && app.graph.links[input.link]) {
+                    const link = app.graph.links[input.link];
+                    const originNode = app.graph.getNodeById(link.origin_id);
+                    if (originNode && !seenFeeders.has(originNode.id)) {
+                        seenFeeders.add(originNode.id);
+                        feeders.push(originNode);
+                    }
+                }
+            }
+        }
+
+        // 2. Downstream consumers (out of node.outputs)
+        if (node.outputs) {
+            for (const output of node.outputs) {
+                if (output.links) {
+                    for (const linkId of output.links) {
+                        const link = app.graph.links[linkId];
+                        if (link) {
+                            const targetNode = app.graph.getNodeById(link.target_id);
+                            if (targetNode && !seenConsumers.has(targetNode.id)) {
+                                seenConsumers.add(targetNode.id);
+                                consumers.push(targetNode);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return { feeders, consumers };
+    }
+
+    highlightNodeConnections(nodeId) {
+        if (!app.graph) return;
+        const conns = this.getNodeConnections(nodeId);
+        const feederIds = new Set(conns.feeders.map(n => n.id));
+        const consumerIds = new Set(conns.consumers.map(n => n.id));
+
+        const allCards = this.overlay.querySelectorAll(".zds-card");
+        allCards.forEach(card => {
+            const nid = parseInt(card.dataset.nodeId, 10);
+            if (nid === nodeId) {
+                card.classList.add("zds-card-focused");
+                card.classList.remove("zds-card-dimmed");
+            } else if (feederIds.has(nid)) {
+                card.classList.add("zds-card-feeder");
+                card.classList.remove("zds-card-dimmed");
+            } else if (consumerIds.has(nid)) {
+                card.classList.add("zds-card-consumer");
+                card.classList.remove("zds-card-dimmed");
+            } else {
+                card.classList.add("zds-card-dimmed");
+            }
+        });
+
+        this.drawConnectionWires(nodeId, conns);
+    }
+
+    clearConnectionHighlights() {
+        const allCards = this.overlay.querySelectorAll(".zds-card");
+        allCards.forEach(card => {
+            card.classList.remove("zds-card-focused", "zds-card-feeder", "zds-card-consumer", "zds-card-dimmed");
+        });
+        if (this.svgOverlay) {
+            this.svgOverlay.innerHTML = "";
+        }
+    }
+
+    drawConnectionWires(activeNodeId, conns) {
+        if (!this.svgOverlay || !this.workspace) return;
+        this.svgOverlay.innerHTML = "";
+
+        const activeCard = this.overlay.querySelector(`#zds-card-${activeNodeId}`);
+        if (!activeCard) return;
+
+        const wsRect = this.workspace.getBoundingClientRect();
+        this.svgOverlay.setAttribute("width", `${this.workspace.scrollWidth}`);
+        this.svgOverlay.setAttribute("height", `${this.workspace.scrollHeight}`);
+        this.svgOverlay.style.width = `${this.workspace.scrollWidth}px`;
+        this.svgOverlay.style.height = `${this.workspace.scrollHeight}px`;
+
+        const scrollLeft = this.workspace.scrollLeft;
+        const scrollTop = this.workspace.scrollTop;
+
+        const getCardAnchor = (cardEl, side = "right") => {
+            const r = cardEl.getBoundingClientRect();
+            const x = (side === "right" ? r.right : r.left) - wsRect.left + scrollLeft;
+            const y = r.top + r.height / 2 - wsRect.top + scrollTop;
+            return { x, y };
+        };
+
+        const activeLeft = getCardAnchor(activeCard, "left");
+        const activeRight = getCardAnchor(activeCard, "right");
+
+        // Feeders -> Active (Cyan lines)
+        conns.feeders.forEach(fn => {
+            const fCard = this.overlay.querySelector(`#zds-card-${fn.id}`);
+            if (!fCard) return;
+            const fRight = getCardAnchor(fCard, "right");
+
+            const p1 = fRight;
+            const p2 = activeLeft;
+            const dx = Math.max(40, Math.abs(p2.x - p1.x) * 0.5);
+            const pathData = `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x - dx} ${p2.y}, ${p2.x} ${p2.y}`;
+
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", pathData);
+            path.setAttribute("class", "zds-wire-path");
+            path.setAttribute("stroke", "#06b6d4");
+            path.setAttribute("stroke-width", "3");
+            path.setAttribute("opacity", "0.85");
+            this.svgOverlay.appendChild(path);
+        });
+
+        // Active -> Consumers (Pink/Magenta lines)
+        conns.consumers.forEach(cn => {
+            const cCard = this.overlay.querySelector(`#zds-card-${cn.id}`);
+            if (!cCard) return;
+            const cLeft = getCardAnchor(cCard, "left");
+
+            const p1 = activeRight;
+            const p2 = cLeft;
+            const dx = Math.max(40, Math.abs(p2.x - p1.x) * 0.5);
+            const pathData = `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x - dx} ${p2.y}, ${p2.x} ${p2.y}`;
+
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", pathData);
+            path.setAttribute("class", "zds-wire-path");
+            path.setAttribute("stroke", "#ec4899");
+            path.setAttribute("stroke-width", "3");
+            path.setAttribute("opacity", "0.85");
+            this.svgOverlay.appendChild(path);
+        });
+    }
+
+    scrollToCard(targetNodeId) {
+        const card = this.overlay.querySelector(`#zds-card-${targetNodeId}`);
+        if (!card) return;
+        card.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+        card.classList.add("zds-card-focused");
+        setTimeout(() => {
+            card.classList.remove("zds-card-focused");
+        }, 1800);
     }
 
     // ── Render Port Chips & Smart Wire Connections ────────────────────────────
@@ -940,6 +1207,53 @@ class ZombiehausDeckStudio {
     // ── Dedicated Prompt Studio Popout Modal ──────────────────────────────────
     openPromptStudio(targetNode = null) {
         let node = targetNode;
+
+        const tryOpenNativePopout = (n) => {
+            if (!n) return false;
+            window._popoutZIndex = Math.max(window._popoutZIndex || 10001, 10025);
+
+            if (typeof n.showPopOutStudio === "function") {
+                n.showPopOutStudio();
+                return true;
+            }
+            if (typeof window.zombiehausShowPopOutStudio === "function" && n.type === "ZombiehausTextEditor") {
+                window.zombiehausShowPopOutStudio(n);
+                return true;
+            }
+            const popoutBtn = n.widgets?.find(w => {
+                const wn = (w.name || "").toLowerCase();
+                return wn.includes("pop out") || wn.includes("popout");
+            });
+            if (popoutBtn && typeof popoutBtn.callback === "function") {
+                popoutBtn.callback();
+                return true;
+            }
+            return false;
+        };
+
+        // 1. If target node has native popout (e.g. ZombiehausTextEditor, FunctionEditor, SongWriter)
+        if (node && tryOpenNativePopout(node)) {
+            return;
+        }
+
+        // 2. If no target specified or target lacks popout, find text/function/song editor in graph
+        if (app.graph?._nodes) {
+            const textEditorNode = app.graph._nodes.find(n => n.type === "ZombiehausTextEditor");
+            if (textEditorNode && tryOpenNativePopout(textEditorNode)) {
+                return;
+            }
+
+            const otherEditorNode = app.graph._nodes.find(n =>
+                n.type === "ZombiehausFunctionEditor" ||
+                n.type === "ZombiehausSongWriter" ||
+                n.widgets?.some(w => (w.name || "").toLowerCase().includes("pop out") || (w.name || "").toLowerCase().includes("popout"))
+            );
+            if (otherEditorNode && tryOpenNativePopout(otherEditorNode)) {
+                return;
+            }
+        }
+
+        // 3. Fallback for generic CLIP nodes without ZombiehausTextEditor in graph
         if (!node && app.graph?._nodes) {
             node = app.graph._nodes.find(n =>
                 (n.type || "").toLowerCase().includes("texteditor") ||

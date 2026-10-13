@@ -20,20 +20,24 @@ Active workflow nodes are automatically organized into 5 production bays with ho
 | **Stage 5** | **Output & Gallery** | Save Image, Preview Image, Image Compare, Image Gallery, Save Audio, Save Video, Audio Mixer, Export Card. |
 
 - **Horizontal Scrolling Workspace**: Seamlessly scroll across all 5 bays while keeping large workflows spacious and legible.
-- **Multi-Column Lanes**: Each stage bay dynamically subdivides into parallel 380px columns/lanes (up to 3 cards per lane) to prevent infinite vertical stacking.
+- **Multi-Column Lanes**: Each stage bay dynamically subdivides into parallel columns/lanes (up to 3 cards per lane) to prevent infinite vertical stacking. Lanes are horizontally resizable (320px–720px) to suit your monitor.
 - **Deterministic Run Priority Flow**: Run steps (`▶ 1`, `▶ 2`, `▶ 3`...) are deterministically numbered starting at the top-left, flowing down the lane, advancing to the top of the next lane, and proceeding through the stage bays.
 - *Cards can be freely dragged and dropped between lanes and bays to tailor your layout and execution sequence.*
 
 ---
 
-### 2. Tactile, Interactive Cards & Subtitles
+### 2. Tactile, Resizable Cards & Subtitles
 Each card represents a live node in your active workflow:
+- **Card Resizability**:
+  - Drag the bottom corner of any card to resize its height vertically.
+  - Custom card heights automatically persist across browser refreshes via `localStorage`.
 - **Card Header**:
   - Drag handle (`⋮⋮`) for reordering.
   - **Run Step Badge (`▶ #`)**: Indicates the exact priority step order in the generation pipeline.
   - Node ID badge (`#5`) and editable node title (syncs directly to `node.title`).
   - **Role Subtitle**: Human-readable node role classification (e.g. `Core Base Model Loader`, `Diffusion Denoising Engine`, `Conditioning Semantic Director`, `Latent to Pixel Reconstructor`).
-  - **Prompt Popout (`🗖`)**: Available on text and prompt nodes to open the fullscreen Prompt Studio.
+  - **Connections Summary Pill (`◀ In • Out ▶`)**: Displays live upstream and downstream connection counts; clicking toggles a detailed connection drawer.
+  - **Prompt Popout (`🗖`)**: Available on text, prompt, function, and song nodes to open the full Pop Out Studio cockpit.
   - **Bypass Toggle (`⊘`)**: One-click bypass mode.
   - **Mute Toggle (`🔇`)**: One-click mute mode.
   - **Locate on Canvas (`🎯`)**: Zooms and selects the node on the 2D canvas plane.
@@ -47,33 +51,35 @@ Each card represents a live node in your active workflow:
 
 ---
 
-### 3. Fullscreen Popout Prompt Studio
-For deep prompt engineering without visual clutter:
-- **Trigger**: Click `🗖 Prompt Studio` on the Deck toolbar, click `🗖` on any prompt card, or press `Alt + P`.
-- **Dedicated Split Panes**: Separate high-contrast editing areas for Positive and Negative conditioning prompts.
-- **Real-Time Word & Character Counters**: Live word and token metrics as you type.
-- **Cinematic & Optical Tag Injector**: One-click chips to append professional camera and optical tags (e.g., `35mm photograph`, `85mm f/1.4 portrait`, `cinematic softbox lighting`, `volumetric backlight`, `natural daylight`).
-- **Real-Time Canvas Sync**: All modifications mirror live onto the ComfyUI canvas node.
+### 3. Full-Featured Native Pop Out Studio Integration
+Clicking `🗖 Prompt Studio` on the Deck toolbar or `🗖` on any card header seamlessly launches the full-fledged **Zombiehaus Pop Out Studio**:
+- **Complete Suite Features**:
+  - **Category-Filtered Prompt Selection**: Browse, filter, load, and save prompt presets directly from your library.
+  - **Prompt Style Converter**: Instant one-click conversion between Tags (SDXL/Pony), Expressions (Flux/SD3), and Song Lyrics.
+  - **Studio Tools Menu**: Access Function Editor, Song Lyrics Studio, Tag Studio matrix, Aesthetic Ribbon (optics, films, rigs), Color Spectrum Studio, and Active LoRA Deck.
+  - **AI Prompt Enhancement**: Seamless local Ollama LLM integration for automated refinement.
+  - **Negative Pedalboard Guards**: Dedicated one-click negative prompt guards.
+  - **Full Customization**: Typography font selection, font size zoom (Ctrl+Wheel), syntax themes, undo/redo history, and full-screen maximization.
+  - **Two-Way Live Sync**: All adjustments mirror instantly back to the active ComfyUI node and canvas.
 
 ---
 
-### 4. Smart Port Chips & Connections (No Spaghetti)
-- Inputs are rendered as left-aligned chips; outputs as right-aligned chips.
-- Clean compact badges showing connected upstream node ID (`positive • #3`).
-- Rich, intuitive tooltips on hover detailing the source node and link status.
-- Color-coded by data type:
-  - `MODEL` (Purple)
-  - `CLIP` (Yellow)
-  - `VAE` (Red)
-  - `IMAGE` (Sky Blue)
-  - `LATENT` (Pink)
-  - `CONDITIONING` (Orange)
-  - `MASK` (Cyan)
-- **Connecting Mode**:
-  1. Click any output chip.
-  2. Compatible downstream input chips automatically illuminate with a pulsing beacon highlight.
-  3. Click any highlighted input chip to link the nodes instantly—no cable dragging across the screen.
-- **Connection Badges**: Connected inputs display the source node name and slot. Clicking a connected chip provides a one-click disconnect option.
+### 4. Interactive Connection Tracing & Smart Port Chips
+Easily decipher how nodes connect without spaghetti cables:
+- **Interactive Trace on Hover**:
+  - Hovering over any card immediately highlights the active card (`zds-card-focused`).
+  - **Upstream Feeders**: Glows in vibrant electric cyan with a `◀ FEEDS ACTIVE` badge.
+  - **Downstream Consumers**: Glows in bright neon magenta with a `▶ RECEIVES FROM ACTIVE` badge.
+  - **Focus Isolation**: Unrelated nodes subtly dim so the active data stream stands out instantly.
+- **Dynamic Curved Connection Cables**:
+  - Live animated SVG bezier cables trace data paths from feeder output ports to active input ports, and active output ports to consumer input ports across bays.
+- **Collapsible Connection Drawer**:
+  - Click the header links pill (`◀ In • Out ▶`) to expand a dedicated links panel.
+  - Clickable chips (`◀ #1 CheckpointLoader`, `▶ #5 KSampler`) let you jump and smoothly scroll directly to connected cards across the bays.
+- **Smart Port Chips**:
+  - Compact pills showing connected node IDs (`positive • #3`).
+  - Rich hover tooltips detailing upstream and downstream connections.
+  - Interactive click-to-connect and click-to-disconnect support without dragging wires.
 
 ---
 

@@ -4974,6 +4974,8 @@ app.registerExtension({
 
                 // ── Action buttons ────────────────────────────────────────────────
                 node.addWidget("button", "⛶ Pop Out Studio",        null, () => showPopOutStudio(node));
+                node.showPopOutStudio = () => showPopOutStudio(node);
+                window.zombiehausShowPopOutStudio = showPopOutStudio;
                 const enhanceBtn = node.addWidget("button", "✨ Enhance with Ollama", null, () => {
                     if (window.event?.shiftKey || window.event?.altKey || !_ollamaAvailable) {
                         showOllamaStatusModal(node, enhanceBtn);

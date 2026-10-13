@@ -902,10 +902,31 @@ function attachComfyMenuLauncher() {
         floatBtn.type = "button";
         floatBtn.innerHTML = "🔮 Zombiehaus Oracle";
         floatBtn.title = "Drag anywhere or click to open Zombiehaus Model Scryer Cockpit";
+
+        // Read saved position if available
+        let savedPos = null;
+        try {
+            const raw = localStorage.getItem("zombiehaus_oracle_pill_pos");
+            if (raw) savedPos = JSON.parse(raw);
+        } catch (_) {}
+
+        let initialLeft = "18px";
+        let initialTop = "auto";
+        let initialBottom = "58px";
+
+        if (savedPos && typeof savedPos.left === "number" && typeof savedPos.top === "number") {
+            const boundedLeft = Math.max(4, Math.min(window.innerWidth - 120, savedPos.left));
+            const boundedTop = Math.max(4, Math.min(window.innerHeight - 40, savedPos.top));
+            initialLeft = `${boundedLeft}px`;
+            initialTop = `${boundedTop}px`;
+            initialBottom = "auto";
+        }
+
         floatBtn.style.cssText = `
             position: fixed;
-            bottom: 58px;
-            left: 18px;
+            bottom: ${initialBottom};
+            left: ${initialLeft};
+            top: ${initialTop};
             z-index: 9998;
             background: #111420;
             color: #c084fc;
@@ -944,14 +965,25 @@ function attachComfyMenuLauncher() {
                 const dx = me.clientX - btnStartX;
                 const dy = me.clientY - btnStartY;
                 if (Math.abs(dx) > 3 || Math.abs(dy) > 3) hasMoved = true;
-                floatBtn.style.left = `${Math.max(4, Math.min(window.innerWidth - 120, btnInitialLeft + dx))}px`;
-                floatBtn.style.top = `${Math.max(4, Math.min(window.innerHeight - 40, btnInitialTop + dy))}px`;
+                const nextLeft = Math.max(4, Math.min(window.innerWidth - 120, btnInitialLeft + dx));
+                const nextTop = Math.max(4, Math.min(window.innerHeight - 40, btnInitialTop + dy));
+                floatBtn.style.left = `${nextLeft}px`;
+                floatBtn.style.top = `${nextTop}px`;
             };
 
             const onMouseUp = () => {
                 isDraggingBtn = false;
                 window.removeEventListener("mousemove", onMouseMove);
                 window.removeEventListener("mouseup", onMouseUp);
+                if (hasMoved) {
+                    const rect = floatBtn.getBoundingClientRect();
+                    try {
+                        localStorage.setItem("zombiehaus_oracle_pill_pos", JSON.stringify({
+                            left: Math.round(rect.left),
+                            top: Math.round(rect.top)
+                        }));
+                    } catch (_) {}
+                }
             };
 
             window.addEventListener("mousemove", onMouseMove);

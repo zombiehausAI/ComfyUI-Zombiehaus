@@ -243,7 +243,41 @@ class ZombiehausDeckStudio {
             overrideStyle.textContent = `
                 .zds-card.zds-card-dimmed { opacity: 1 !important; filter: none !important; }
                 .zds-btn-active { background: rgba(168, 85, 247, 0.3) !important; border-color: rgba(168, 85, 247, 0.7) !important; color: #ffffff !important; }
-                .zds-bay { position: relative; width: max-content; }
+                .zds-workspace {
+                    flex: 1 1 0px !important;
+                    min-height: 0 !important;
+                    max-height: calc(100% - 64px) !important;
+                    height: calc(100% - 64px) !important;
+                    display: flex !important;
+                    overflow-x: auto !important;
+                    overflow-y: hidden !important;
+                    align-items: stretch !important;
+                }
+                .zds-bay {
+                    position: relative !important;
+                    width: max-content;
+                    height: 100% !important;
+                    max-height: 100% !important;
+                    min-height: 0 !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    overflow: hidden !important;
+                    flex-shrink: 0 !important;
+                }
+                .zds-bay-header {
+                    flex-shrink: 0 !important;
+                }
+                .zds-bay-lanes {
+                    flex: 1 1 0px !important;
+                    min-height: 0 !important;
+                    max-height: 100% !important;
+                    height: 100% !important;
+                    display: flex !important;
+                    flex-direction: row !important;
+                    overflow-x: auto !important;
+                    overflow-y: hidden !important;
+                    align-items: stretch !important;
+                }
                 .zds-bay-resizer {
                     position: absolute;
                     top: 0;
@@ -264,6 +298,15 @@ class ZombiehausDeckStudio {
                     width: max-content !important;
                     min-width: 320px !important;
                     max-width: none !important;
+                    height: 100% !important;
+                    max-height: 100% !important;
+                    min-height: 0 !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    overflow: hidden !important;
+                }
+                .zds-lane-header {
+                    flex-shrink: 0 !important;
                 }
                 .zds-lane-resizer {
                     position: absolute;
@@ -280,9 +323,31 @@ class ZombiehausDeckStudio {
                     background: rgba(6, 182, 212, 0.6) !important;
                 }
                 .zds-lane-cards {
+                    flex: 1 1 0px !important;
+                    min-height: 0 !important;
+                    max-height: 100% !important;
+                    height: 100% !important;
                     width: 100% !important;
                     min-width: 100% !important;
                     box-sizing: border-box !important;
+                    overflow-y: auto !important;
+                    overflow-x: hidden !important;
+                    overscroll-behavior-y: contain !important;
+                    padding-bottom: 32px !important;
+                }
+                .zds-lane-cards::-webkit-scrollbar {
+                    width: 8px !important;
+                }
+                .zds-lane-cards::-webkit-scrollbar-track {
+                    background: rgba(0, 0, 0, 0.25) !important;
+                    border-radius: 4px !important;
+                }
+                .zds-lane-cards::-webkit-scrollbar-thumb {
+                    background: rgba(168, 85, 247, 0.45) !important;
+                    border-radius: 4px !important;
+                }
+                .zds-lane-cards::-webkit-scrollbar-thumb:hover {
+                    background: rgba(168, 85, 247, 0.8) !important;
                 }
                 .zds-card {
                     resize: both !important;
@@ -293,6 +358,8 @@ class ZombiehausDeckStudio {
                     display: flex !important;
                     flex-direction: column !important;
                     box-sizing: border-box !important;
+                    flex-shrink: 0 !important;
+                    overflow: hidden !important;
                 }
                 .zds-card::-webkit-resizer {
                     background: linear-gradient(135deg, transparent 50%, rgba(168, 85, 247, 0.8) 50%) !important;
@@ -615,6 +682,19 @@ class ZombiehausDeckStudio {
 
         // Refresh button
         overlay.querySelector("#zds-btn-refresh-deck").onclick = () => this.syncCards();
+
+        // Dynamically update wire tracing on workspace / column scroll
+        if (this.workspace) {
+            this.workspace.addEventListener("scroll", () => {
+                if (this.enableWireTracing && this.svgOverlay) {
+                    const focusedCard = this.overlay.querySelector(".zds-card-focused");
+                    if (focusedCard) {
+                        const nid = parseInt(focusedCard.dataset.nodeId, 10);
+                        if (!isNaN(nid)) this.drawConnectionWires(nid, this.getNodeConnections(nid));
+                    }
+                }
+            }, { capture: true, passive: true });
+        }
 
         // Image Tray Toggle in Deck Studio
         const trayToggleBtn = overlay.querySelector("#zds-btn-deck-tray");
@@ -942,6 +1022,13 @@ class ZombiehausDeckStudio {
                 laneEl.appendChild(laneResizer);
 
                 const cardsContainer = laneEl.querySelector(".zds-lane-cards");
+
+                // Forward wheel scrolling from column lane header/border to cards container
+                laneEl.addEventListener("wheel", (e) => {
+                    if (cardsContainer && !cardsContainer.contains(e.target) && e.deltaY) {
+                        cardsContainer.scrollTop += e.deltaY;
+                    }
+                }, { passive: true });
 
                 // Drag & Drop onto specific Lane
                 laneEl.addEventListener("dragover", (e) => {

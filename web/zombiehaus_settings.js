@@ -612,6 +612,29 @@ function buildZombiehausSettingsList(serverConfig = {}) {
                     window.zombiehausImageTray.setEnabled(!!newVal);
                 }
             }
+        },
+        {
+            id: "Zombiehaus.ImageTrayBottomOffset",
+            category: ["Zombiehaus", "Workspaces"],
+            name: "Zombiehaus: Image Tray Bottom Spacing (px)",
+            type: "slider",
+            attrs: {
+                min: 0,
+                max: 150,
+                step: 1
+            },
+            defaultValue: 0,
+            tooltip: "Bottom dock spacing for Image Tray. Set to 0 for automatic detection of ComfyUI's bottom menu bar, or specify custom pixel height.",
+            sortOrder: 51,
+            onChange: (newVal) => {
+                const val = parseInt(newVal, 10) || 0;
+                if (typeof localStorage !== "undefined") {
+                    localStorage.setItem("zombiehaus_image_tray_bottom_offset", val > 0 ? String(val) : "auto");
+                }
+                if (window.zombiehausImageTray) {
+                    window.zombiehausImageTray.updateBottomOffset();
+                }
+            }
         }
     ];
 }

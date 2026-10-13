@@ -27,10 +27,10 @@
 /* Master Fixed Tray Container */
 #zombiehaus-image-tray {
   position: fixed;
-  bottom: 0;
+  bottom: var(--zit-bottom-offset, 0px);
   left: 0;
   right: 0;
-  z-index: 99992;
+  z-index: 995;
   background: var(--zit-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -40,8 +40,15 @@
   font-family: var(--zit-font);
   display: flex;
   flex-direction: column;
-  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), height 0.2s ease;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), height 0.2s ease, bottom 0.2s ease;
   user-select: none;
+}
+
+/* When Deck Studio is active, raise tray above Deck Studio canvas */
+body.zombiehaus-deck-active #zombiehaus-image-tray,
+#zombiehaus-deck-studio.zds-active ~ #zombiehaus-image-tray {
+  z-index: 99992;
+  bottom: 0px !important;
 }
 
 #zombiehaus-image-tray.zit-collapsed {

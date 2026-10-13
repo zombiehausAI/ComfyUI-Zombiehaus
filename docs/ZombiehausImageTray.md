@@ -57,7 +57,15 @@ Clicking an image or the `🔍` button opens the interactive workstation lightbo
 
 ---
 
-### 6. Enable / Disable Flexibility
+### 6. Dynamic ComfyUI Bottom Menu Docking
+- **Smart Bottom Bar Detection**: The tray automatically monitors ComfyUI's layout and detects any bottom menu bar (`.comfyui-body-bottom`, `.comfyui-menu.bottom`, `.comfy-menu`, etc.).
+- **Unobstructed Menu Bar**: Rather than covering the bottom menu bar, the tray docks cleanly directly *above* it with pixel-accurate bottom offset spacing.
+- **Custom Spacing Setting**: Configure **"Zombiehaus: Image Tray Bottom Spacing (px)"** under ComfyUI Settings (`Settings` $\rightarrow$ `Zombiehaus` $\rightarrow$ `Workspaces`). Set to `0` for fully automatic docking, or set a custom pixel offset.
+- **Elevated Context Layering**: Normal canvas mode runs with `z-index: 995`, ensuring all native ComfyUI menus, popups, and dropdown menus render naturally above the tray.
+
+---
+
+### 7. Enable / Disable Flexibility
 The Image Tray can be effortlessly enabled or disabled to suit your personal workflow preference:
 - **One-Click Disable Button**: Click the `✕ Disable` button directly on the right side of the Image Tray header to hide and deactivate it.
 - **ComfyUI Settings Panel**: Toggle **"Zombiehaus: Enable Bottom Image Tray"** under `Settings` $\rightarrow$ `Zombiehaus` $\rightarrow$ `Workspaces`.
@@ -70,6 +78,6 @@ The Image Tray can be effortlessly enabled or disabled to suit your personal wor
 
 | Shortcut | Action |
 |---|---|
-| `Alt + T` | Toggle Image Tray collapse/expand |
-| `F10` | Toggle Image Tray collapse/expand |
+| `Alt + T` | Toggle Image Tray collapse/expand (or re-enable if disabled) |
+| `F10` | Toggle Image Tray collapse/expand (or re-enable if disabled) |
 | `Esc` | Close active Lightbox modal |

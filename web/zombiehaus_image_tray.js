@@ -112,11 +112,121 @@ class ZombiehausImageTray {
         this.filmstripEl = tray.querySelector("#zit-filmstrip-container");
         this.countBadge = tray.querySelector("#zit-count-badge");
         this.sizeLabel = tray.querySelector("#zit-size-label");
+
+        // Set safe initial docking and z-index below ComfyUI popups/menus
+        this.trayEl.style.zIndex = "995";
+        this.trayEl.style.bottom = "var(--zit-bottom-offset, 0px)";
+    }
+
+    // ── Dynamic ComfyUI Bottom Menu Bar Docking ──────────────────────────────
+    updateBottomOffset() {
+        if (!this.trayEl) return;
+
+        // If Deck Studio full-screen overlay is active, dock at bottom 0 with elevated z-index
+        const isDeckActive = document.body.classList.contains("zombiehaus-deck-active") ||
+            !!document.querySelector("#zombiehaus-deck-studio.zds-active");
+
+        if (isDeckActive) {
+            this.trayEl.style.bottom = "0px";
+            this.trayEl.style.zIndex = "99992";
+            this.trayEl.style.setProperty("--zit-bottom-offset", "0px");
+            return;
+        }
+
+        this.trayEl.style.zIndex = "995";
+
+        let offset = 0;
+
+        // Check manual override if user configured one
+        try {
+            const manual = localStorage.getItem("zombiehaus_image_tray_bottom_offset");
+            if (manual !== null && manual !== "auto" && !isNaN(parseInt(manual, 10)) && parseInt(manual, 10) > 0) {
+                offset = parseInt(manual, 10);
+                this.trayEl.style.bottom = `${offset}px`;
+                this.trayEl.style.setProperty("--zit-bottom-offset", `${offset}px`);
+                return;
+            }
+        } catch (_) {}
+
+        // ComfyUI bottom bar / menu selectors across versions
+        const candidates = [
+            ".comfyui-body-bottom",
+            ".comfyui-body-bottom .comfyui-menu",
+            ".comfyui-body-bottom > *",
+            ".comfyui-menu.bottom",
+            ".comfyui-menu[data-position='bottom']",
+            ".comfyui-bottom-bar",
+            ".comfyui-footer",
+            "footer.comfyui-footer",
+            ".comfy-menu.bottom",
+            ".comfyui-action-bar",
+            ".side-tool-bar-container",
+            ".comfyui-menu",
+            ".comfy-menu",
+            "#comfy-menu",
+            "header.comfyui-menu",
+            "footer",
+            ".comfyui-nav"
+        ];
+
+        const vh = window.innerHeight;
+        for (const sel of candidates) {
+            const els = document.querySelectorAll(sel);
+            for (const el of els) {
+                if (!el || !el.isConnected) continue;
+                if (el.closest("#zombiehaus-image-tray") || el.closest("#zombiehaus-deck-studio") || el.closest("#zombiehaus-settings-modal")) {
+                    continue;
+                }
+
+                const style = window.getComputedStyle(el);
+                if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+                    continue;
+                }
+
+                const rect = el.getBoundingClientRect();
+                // Check if element is docked/touching the bottom edge of the viewport
+                if (rect.height > 0 && rect.bottom >= vh - 10 && rect.top > vh * 0.4) {
+                    const h = Math.round(vh - rect.top);
+                    // Standard bottom menu bars range from ~24px to 180px
+                    if (h >= 24 && h <= 180 && h > offset) {
+                        offset = h;
+                    }
+                }
+            }
+        }
+
+        // Also inspect app.ui.menuContainer if available
+        if (window.app?.ui?.menuContainer) {
+            const rect = window.app.ui.menuContainer.getBoundingClientRect();
+            if (rect.height > 0 && rect.bottom >= vh - 10 && rect.top > vh * 0.4) {
+                const h = Math.round(vh - rect.top);
+                if (h >= 24 && h <= 180 && h > offset) offset = h;
+            }
+        }
+
+        this.trayEl.style.bottom = `${offset}px`;
+        this.trayEl.style.setProperty("--zit-bottom-offset", `${offset}px`);
     }
 
     // ── Event Handlers ────────────────────────────────────────────────────────
     setupEventListeners() {
         const header = this.trayEl.querySelector("#zit-header-bar");
+
+        // Initial bottom offset computation
+        this.updateBottomOffset();
+        window.addEventListener("resize", () => this.updateBottomOffset());
+
+        // React dynamically to ComfyUI DOM / style / class changes
+        try {
+            const observer = new MutationObserver(() => {
+                if (this.offsetDebounce) clearTimeout(this.offsetDebounce);
+                this.offsetDebounce = setTimeout(() => this.updateBottomOffset(), 100);
+            });
+            observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
+        } catch (_) {}
+
+        // Periodic check to ensure flawless positioning across async workflow loads
+        setInterval(() => this.updateBottomOffset(), 2000);
 
         // Header click toggles collapse (unless clicking action buttons)
         header.onclick = (e) => {

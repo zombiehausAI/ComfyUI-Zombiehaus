@@ -452,6 +452,10 @@ class ZombiehausDeckStudio {
     open() {
         this.isOpen = true;
         this.overlay.classList.add("zds-active");
+        document.body.classList.add("zombiehaus-deck-active");
+        if (window.zombiehausImageTray) {
+            window.zombiehausImageTray.updateBottomOffset();
+        }
         this.syncCards();
         this.updateExecutionState();
     }
@@ -459,6 +463,10 @@ class ZombiehausDeckStudio {
     close() {
         this.isOpen = false;
         this.overlay.classList.remove("zds-active");
+        document.body.classList.remove("zombiehaus-deck-active");
+        if (window.zombiehausImageTray) {
+            window.zombiehausImageTray.updateBottomOffset();
+        }
         this.cancelConnectingMode();
     }
 

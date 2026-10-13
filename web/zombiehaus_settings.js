@@ -292,12 +292,8 @@ function openZombiehausSettingsDialog() {
     document.body.appendChild(overlay);
 }
 
-const openZombiehausSettingsDialog = openZombiehausSettingsDialog;
 if (!window.zombiehausShowSettings) {
     window.zombiehausShowSettings = openZombiehausSettingsDialog;
-}
-if (!window.zombiehausShowSettings) {
-    openZombiehausSettingsDialog;
 }
 
 // ── Persistent ComfyUI Menu Button ───────────────────────────────────────────
@@ -619,7 +615,6 @@ function buildZombiehausSettingsList(serverConfig = {}) {
         }
     ];
 }
-const buildZombiehausSettingsList = buildZombiehausSettingsList;
 
 // ── Extension Registration ───────────────────────────────────────────────────
 app.registerExtension({

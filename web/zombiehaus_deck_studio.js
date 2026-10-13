@@ -162,6 +162,28 @@ function getTypeClass(type) {
     return "";
 }
 
+// Helper: get human-readable role / description for a node
+function getNodeRoleDescription(node) {
+    const t = (node.type || "").toLowerCase();
+    const title = (node.title || "").toLowerCase();
+    if (t.includes("checkpointloader") || t.includes("unetloader")) return "Core Base Model Loader";
+    if (t.includes("loraloader")) return "LoRA Style / Concept Adapter";
+    if (t.includes("vaeloader")) return "Latent Space Color Decoder";
+    if (t.includes("controlnet")) return "Structural Pose / Depth Guide";
+    if (t.includes("cliptextencode") || t.includes("texteditor") || title.includes("prompt")) return "Conditioning Semantic Director";
+    if (t.includes("ksampler") || t.includes("sampler")) return "Diffusion Denoising Engine";
+    if (t.includes("emptylatent")) return "Initial Latent Space Canvas";
+    if (t.includes("vaedecode")) return "Latent to Pixel Reconstructor";
+    if (t.includes("vaeencode")) return "Pixel to Latent Compressor";
+    if (t.includes("saveimage")) return "Final Master Output Exporter";
+    if (t.includes("previewimage")) return "Real-time Diagnostic Preview";
+    if (t.includes("loadimage")) return "External Image Asset Input";
+    if (t.includes("upscale")) return "Super-Resolution Neural Upscaler";
+    if (t.includes("inpaint") || t.includes("mask")) return "Selective Inpaint & Masking Tool";
+    if (t.includes("zombiehaus")) return "Zombiehaus Custom Node";
+    return node.type || "Workflow Processor";
+}
+
 // ── Deck Studio Master Controller ─────────────────────────────────────────────
 class ZombiehausDeckStudio {
     constructor() {
@@ -220,6 +242,10 @@ class ZombiehausDeckStudio {
                         <span>➕</span> Add Card
                     </button>
 
+                    <button type="button" class="zds-btn" id="zds-btn-prompt-studio" title="Open Fullscreen Prompt Studio (Alt+P)">
+                        <span>🗖</span> Prompt Studio
+                    </button>
+
                     <button type="button" class="zds-btn" id="zds-btn-deck-tray" title="Toggle Dockable Image Tray (Alt+T / F10)">
                         <span>🖼️</span> Image Tray
                     </button>
@@ -249,7 +275,7 @@ class ZombiehausDeckStudio {
             </div>
 
             <div class="zds-workspace" id="zds-columns-workspace">
-                <!-- 5 Stage Columns injected dynamically -->
+                <!-- 5 Stage Bays injected dynamically -->
             </div>
         `;
 
@@ -263,13 +289,13 @@ class ZombiehausDeckStudio {
     renderColumnsSkeleton() {
         this.workspace.innerHTML = "";
         for (const stage of STAGES) {
-            const col = document.createElement("div");
-            col.className = `zds-column ${stage.colorClass}`;
-            col.id = `zds-col-${stage.id}`;
-            col.dataset.stageId = stage.id;
+            const bay = document.createElement("div");
+            bay.className = `zds-bay ${stage.colorClass}`;
+            bay.id = `zds-bay-${stage.id}`;
+            bay.dataset.stageId = stage.id;
 
-            col.innerHTML = `
-                <div class="zds-col-header">
+            bay.innerHTML = `
+                <div class="zds-bay-header">
                     <div class="zds-col-indicator"></div>
                     <div class="zds-col-title-group">
                         <div class="zds-col-icon">${stage.icon}</div>
@@ -279,38 +305,22 @@ class ZombiehausDeckStudio {
                     </div>
                     <span class="zds-col-count" id="zds-count-${stage.id}">0</span>
                 </div>
-                <div class="zds-cards-container" id="zds-cards-${stage.id}">
-                    <div class="zds-empty-col">
-                        <span>No cards in ${stage.name}</span>
+                <div class="zds-bay-lanes" id="zds-lanes-${stage.id}">
+                    <div class="zds-column-lane">
+                        <div class="zds-lane-header">
+                            <span>Lane 1</span>
+                            <span class="zds-lane-priority-tag">Standby</span>
+                        </div>
+                        <div class="zds-lane-cards">
+                            <div class="zds-empty-lane">
+                                <span>No cards in ${stage.name}</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             `;
 
-            // Column Drag & Drop support
-            const cardsContainer = col.querySelector(".zds-cards-container");
-            cardsContainer.addEventListener("dragover", (e) => {
-                e.preventDefault();
-                col.classList.add("zds-drag-over");
-            });
-
-            cardsContainer.addEventListener("dragleave", (e) => {
-                if (!col.contains(e.relatedTarget)) {
-                    col.classList.remove("zds-drag-over");
-                }
-            });
-
-            cardsContainer.addEventListener("drop", (e) => {
-                e.preventDefault();
-                col.classList.remove("zds-drag-over");
-                const nodeIdStr = e.dataTransfer.getData("text/zds-node-id");
-                if (nodeIdStr) {
-                    const nodeId = parseInt(nodeIdStr, 10);
-                    this.cardOverrides[nodeId] = stage.id;
-                    this.syncCards();
-                }
-            });
-
-            this.workspace.appendChild(col);
+            this.workspace.appendChild(bay);
         }
     }
 
@@ -332,6 +342,12 @@ class ZombiehausDeckStudio {
                     window.zombiehausImageTray.toggleCollapse();
                 }
             };
+        }
+
+        // Prompt Studio Popout Button
+        const promptStudioBtn = overlay.querySelector("#zds-btn-prompt-studio");
+        if (promptStudioBtn) {
+            promptStudioBtn.onclick = () => this.openPromptStudio();
         }
 
         // Queue Prompt
@@ -427,9 +443,18 @@ class ZombiehausDeckStudio {
                 return;
             }
 
-            // Esc to exit Deck Studio
+            // Alt + P to pop out Prompt Studio
+            if ((e.altKey && e.code === "KeyP") && this.isOpen) {
+                e.preventDefault();
+                this.openPromptStudio();
+                return;
+            }
+
+            // Esc to exit Deck Studio / modals
             if (e.code === "Escape" && this.isOpen) {
-                if (document.querySelector(".zds-modal-overlay")) {
+                if (document.querySelector(".zds-prompt-modal-overlay")) {
+                    document.querySelector(".zds-prompt-modal-overlay").remove();
+                } else if (document.querySelector(".zds-modal-overlay")) {
                     document.querySelector(".zds-modal-overlay").remove();
                 } else if (this.activeConnectingSource) {
                     this.cancelConnectingMode();
@@ -470,7 +495,7 @@ class ZombiehausDeckStudio {
         this.cancelConnectingMode();
     }
 
-    // ── Sync All Cards from Active Graph ──────────────────────────────────────
+    // ── Sync All Cards from Active Graph with Execution Priority ────────────
     syncCards() {
         if (!app.graph || !app.graph._nodes) return;
 
@@ -484,7 +509,8 @@ class ZombiehausDeckStudio {
         };
 
         for (const node of nodes) {
-            const targetStage = this.cardOverrides[node.id] || classifyNode(node);
+            const ov = this.cardOverrides[node.id];
+            const targetStage = (ov && typeof ov === "object" ? ov.stage : ov) || classifyNode(node);
             if (buckets[targetStage]) {
                 buckets[targetStage].push(node);
             } else {
@@ -492,28 +518,112 @@ class ZombiehausDeckStudio {
             }
         }
 
-        // Render each stage column
+        // Divide each stage into multi-column lanes (up to 3 cards per lane)
+        const stageLanesMap = {};
         for (const stage of STAGES) {
-            const container = this.overlay.querySelector(`#zds-cards-${stage.id}`);
+            const stageNodes = buckets[stage.id] || [];
+            const laneCount = Math.max(1, Math.ceil(stageNodes.length / 3));
+            const lanes = Array.from({ length: laneCount }, () => []);
+
+            stageNodes.forEach((node, idx) => {
+                const ov = this.cardOverrides[node.id];
+                const preferredLane = ov && typeof ov === "object" ? ov.lane : Math.floor(idx / 3);
+                const assignedLane = Math.min(preferredLane, laneCount - 1);
+                lanes[assignedLane].push(node);
+            });
+            stageLanesMap[stage.id] = lanes;
+        }
+
+        // Calculate deterministic run priority: Top-Left -> Down -> Next Column -> Next Bay
+        let globalStepPriority = 1;
+        for (const stage of STAGES) {
+            const lanes = stageLanesMap[stage.id] || [];
+            for (const lane of lanes) {
+                for (const node of lane) {
+                    node._zdsRunStep = globalStepPriority++;
+                }
+            }
+        }
+
+        // Render each Stage Bay with multi-column lanes
+        for (const stage of STAGES) {
+            const bay = this.overlay.querySelector(`#zds-bay-${stage.id}`);
+            const lanesContainer = this.overlay.querySelector(`#zds-lanes-${stage.id}`);
             const countEl = this.overlay.querySelector(`#zds-count-${stage.id}`);
             const stageNodes = buckets[stage.id] || [];
+            const lanes = stageLanesMap[stage.id] || [];
 
-            countEl.textContent = stageNodes.length;
-            container.innerHTML = "";
+            if (countEl) countEl.textContent = stageNodes.length;
+            if (!lanesContainer) continue;
+
+            lanesContainer.innerHTML = "";
 
             if (stageNodes.length === 0) {
-                container.innerHTML = `
-                    <div class="zds-empty-col">
-                        <span>No cards in ${stage.name}</span>
+                lanesContainer.innerHTML = `
+                    <div class="zds-column-lane">
+                        <div class="zds-lane-header">
+                            <span>Lane 1</span>
+                            <span class="zds-lane-priority-tag">Standby</span>
+                        </div>
+                        <div class="zds-lane-cards">
+                            <div class="zds-empty-lane">
+                                <span>No cards in ${stage.name}</span>
+                            </div>
+                        </div>
                     </div>
                 `;
                 continue;
             }
 
-            for (const node of stageNodes) {
-                const card = this.renderCard(node);
-                container.appendChild(card);
-            }
+            lanes.forEach((laneNodes, laneIdx) => {
+                const laneEl = document.createElement("div");
+                laneEl.className = "zds-column-lane";
+                laneEl.dataset.stageId = stage.id;
+                laneEl.dataset.laneIndex = laneIdx;
+
+                const firstStep = laneNodes.length > 0 ? laneNodes[0]._zdsRunStep : "-";
+                const lastStep = laneNodes.length > 0 ? laneNodes[laneNodes.length - 1]._zdsRunStep : "-";
+
+                laneEl.innerHTML = `
+                    <div class="zds-lane-header">
+                        <span>Lane ${laneIdx + 1}</span>
+                        <span class="zds-lane-priority-tag">${laneNodes.length > 0 ? `Steps #${firstStep}-${lastStep}` : "Empty"}</span>
+                    </div>
+                    <div class="zds-lane-cards"></div>
+                `;
+
+                const cardsContainer = laneEl.querySelector(".zds-lane-cards");
+
+                // Drag & Drop onto specific Lane
+                laneEl.addEventListener("dragover", (e) => {
+                    e.preventDefault();
+                    laneEl.style.borderColor = "var(--zds-accent-cyan)";
+                });
+
+                laneEl.addEventListener("dragleave", (e) => {
+                    if (!laneEl.contains(e.relatedTarget)) {
+                        laneEl.style.borderColor = "";
+                    }
+                });
+
+                laneEl.addEventListener("drop", (e) => {
+                    e.preventDefault();
+                    laneEl.style.borderColor = "";
+                    const nodeIdStr = e.dataTransfer.getData("text/zds-node-id");
+                    if (nodeIdStr) {
+                        const nodeId = parseInt(nodeIdStr, 10);
+                        this.cardOverrides[nodeId] = { stage: stage.id, lane: laneIdx };
+                        this.syncCards();
+                    }
+                });
+
+                for (const node of laneNodes) {
+                    const card = this.renderCard(node);
+                    cardsContainer.appendChild(card);
+                }
+
+                lanesContainer.appendChild(laneEl);
+            });
         }
 
         this.applyFilter();
@@ -552,11 +662,20 @@ class ZombiehausDeckStudio {
         const dragHandle = document.createElement("span");
         dragHandle.className = "zds-card-drag-handle";
         dragHandle.innerHTML = "⋮⋮";
-        dragHandle.title = "Drag to reorder";
+        dragHandle.title = "Drag to re-order priority";
+
+        // Execution Priority Step Badge
+        const stepBadge = document.createElement("span");
+        stepBadge.className = "zds-card-step-badge";
+        stepBadge.textContent = `▶ ${node._zdsRunStep || 1}`;
+        stepBadge.title = `Execution Run Priority #${node._zdsRunStep || 1}`;
 
         const idBadge = document.createElement("span");
         idBadge.className = "zds-card-id";
         idBadge.textContent = `#${node.id}`;
+
+        const titleGroup = document.createElement("div");
+        titleGroup.className = "zds-card-title-group";
 
         const title = document.createElement("span");
         title.className = "zds-card-title";
@@ -574,12 +693,38 @@ class ZombiehausDeckStudio {
             }
         };
 
+        const roleTag = document.createElement("span");
+        roleTag.className = "zds-card-role";
+        roleTag.textContent = getNodeRoleDescription(node);
+
+        titleGroup.appendChild(title);
+        titleGroup.appendChild(roleTag);
+
         headerLeft.appendChild(dragHandle);
+        headerLeft.appendChild(stepBadge);
         headerLeft.appendChild(idBadge);
-        headerLeft.appendChild(title);
+        headerLeft.appendChild(titleGroup);
 
         const headerActions = document.createElement("div");
         headerActions.className = "zds-card-header-actions";
+
+        // Prompt Popout Button (for prompt/text nodes)
+        const isPromptNode = (node.type || "").toLowerCase().includes("text") ||
+            (node.type || "").toLowerCase().includes("prompt") ||
+            (node.title || "").toLowerCase().includes("prompt") ||
+            node.widgets?.some(w => w.name.toLowerCase().includes("positive") || w.name.toLowerCase().includes("prompt"));
+
+        if (isPromptNode) {
+            const popoutBtn = document.createElement("button");
+            popoutBtn.className = "zds-card-btn zds-card-btn-prompt";
+            popoutBtn.innerHTML = "🗖";
+            popoutBtn.title = "Expand into Prompt Studio (Alt+P)";
+            popoutBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.openPromptStudio(node);
+            };
+            headerActions.appendChild(popoutBtn);
+        }
 
         // Bypass button
         const bypassBtn = document.createElement("button");
@@ -637,7 +782,7 @@ class ZombiehausDeckStudio {
         header.appendChild(headerActions);
         card.appendChild(header);
 
-        // 2. Port Chips Section (Inputs & Outputs without cable spaghetti)
+        // 2. Port Chips Section (Clean, non-cluttered pills)
         const portsSection = this.renderPortsSection(node);
         if (portsSection) {
             card.appendChild(portsSection);
@@ -699,7 +844,7 @@ class ZombiehausDeckStudio {
         const row = document.createElement("div");
         row.className = "zds-ports-row";
 
-        // Inputs
+        // Inputs (compact, clean pills with origin badges)
         const inGroup = document.createElement("div");
         inGroup.className = "zds-inputs-group";
 
@@ -714,24 +859,26 @@ class ZombiehausDeckStudio {
                 chip.dataset.portType = input.type || "*";
                 chip.dataset.direction = "input";
 
-                let label = input.name;
+                let portLabel = input.name;
+                let originBadge = "";
+                let tooltip = `${input.name} (${input.type || "*"}) — Click to connect`;
+
                 if (isConnected && app.graph.links && app.graph.links[input.link]) {
                     const link = app.graph.links[input.link];
                     const originNode = app.graph.getNodeById(link.origin_id);
                     const originTitle = originNode ? (originNode.title || originNode.type) : `#${link.origin_id}`;
-                    label = `${input.name} ← ${originTitle}`;
+                    originBadge = `<span class="zds-port-origin-badge">#${link.origin_id}</span>`;
+                    tooltip = `${input.name} ← Receives ${input.type || ""} from "${originTitle}" (#${link.origin_id}). Click to disconnect.`;
                 }
 
-                chip.innerHTML = `<span class="zds-port-dot"></span><span>${label}</span>`;
-                chip.title = isConnected ? `Connected to upstream. Click to disconnect.` : `Click to connect to compatible source.`;
+                chip.innerHTML = `<span class="zds-port-dot"></span><span class="zds-port-name">${portLabel}</span>${originBadge}`;
+                chip.title = tooltip;
 
                 chip.onclick = (e) => {
                     e.stopPropagation();
                     if (this.activeConnectingSource) {
-                        // Complete connection
                         this.handleCompleteConnection(node, slotIdx, input);
                     } else if (isConnected) {
-                        // Disconnect prompt
                         if (confirm(`Disconnect ${input.name} on ${node.title || node.type}?`)) {
                             node.disconnectInput(slotIdx);
                             node.setDirtyCanvas(true, true);
@@ -759,8 +906,17 @@ class ZombiehausDeckStudio {
                 chip.dataset.portType = output.type || "*";
                 chip.dataset.direction = "output";
 
-                chip.innerHTML = `<span>${output.name}</span><span class="zds-port-dot"></span>`;
-                chip.title = `Click to connect ${output.name} to another card`;
+                let portLabel = output.name;
+                let countBadge = "";
+                let tooltip = `${output.name} (${output.type || "*"}) — Click to wire`;
+
+                if (isConnected) {
+                    countBadge = `<span class="zds-port-origin-badge">${output.links.length}</span>`;
+                    tooltip = `${output.name} → Feeds ${output.links.length} downstream input(s). Click to wire another connection.`;
+                }
+
+                chip.innerHTML = `<span class="zds-port-dot"></span><span class="zds-port-name">${portLabel}</span>${countBadge}`;
+                chip.title = tooltip;
 
                 chip.onclick = (e) => {
                     e.stopPropagation();
@@ -779,6 +935,166 @@ class ZombiehausDeckStudio {
         row.appendChild(outGroup);
         sec.appendChild(row);
         return sec;
+    }
+
+    // ── Dedicated Prompt Studio Popout Modal ──────────────────────────────────
+    openPromptStudio(targetNode = null) {
+        let node = targetNode;
+        if (!node && app.graph?._nodes) {
+            node = app.graph._nodes.find(n =>
+                (n.type || "").toLowerCase().includes("texteditor") ||
+                n.widgets?.some(w => w.name.toLowerCase().includes("positive"))
+            ) || app.graph._nodes.find(n =>
+                (n.type || "").toLowerCase().includes("prompt") ||
+                (n.type || "").toLowerCase().includes("clip")
+            );
+        }
+
+        if (!node) {
+            alert("No prompt or text nodes found in the current workflow.");
+            return;
+        }
+
+        const existing = document.querySelector(".zds-prompt-modal-overlay");
+        if (existing) existing.remove();
+
+        const posWidget = node.widgets?.find(w => w.name.toLowerCase().includes("positive") || w.name.toLowerCase().includes("text")) || node.widgets?.[0];
+        const negWidget = node.widgets?.find(w => w.name.toLowerCase().includes("negative"));
+
+        const overlay = document.createElement("div");
+        overlay.className = "zds-prompt-modal-overlay";
+
+        const modal = document.createElement("div");
+        modal.className = "zds-prompt-modal";
+
+        modal.innerHTML = `
+            <div class="zds-prompt-modal-header">
+                <div class="zds-prompt-modal-title">
+                    <span style="font-size: 20px;">🎨</span>
+                    <div>
+                        <h2>Zombiehaus Prompt Studio</h2>
+                        <div style="font-size: 11px; color: var(--zds-text-secondary); margin-top: 2px;">
+                            Active Node #${node.id} (${node.title || node.type}) • Real-time Canvas Sync
+                        </div>
+                    </div>
+                </div>
+                <button type="button" class="zds-card-btn" id="zds-prompt-modal-close" style="font-size: 16px;">✕</button>
+            </div>
+
+            <div class="zds-prompt-modal-body">
+                <div class="zds-prompt-pane">
+                    <div class="zds-prompt-pane-header">
+                        <span style="color: #c084fc;">Positive Conditioning Prompt</span>
+                        <span id="zds-pos-count" style="font-family: var(--zds-font-mono); font-size: 11px; color: var(--zds-text-muted);">0 words</span>
+                    </div>
+                    <textarea class="zds-prompt-textarea" id="zds-pos-textarea" placeholder="Describe subject, optical textures, lighting, angle, and camera focal length...">${posWidget?.value || ""}</textarea>
+                </div>
+
+                ${negWidget ? `
+                <div class="zds-prompt-pane" style="flex: 0 0 160px;">
+                    <div class="zds-prompt-pane-header">
+                        <span style="color: #f87171;">Negative Conditioning Prompt</span>
+                        <span id="zds-neg-count" style="font-family: var(--zds-font-mono); font-size: 11px; color: var(--zds-text-muted);">0 words</span>
+                    </div>
+                    <textarea class="zds-prompt-textarea" id="zds-neg-textarea" style="min-height: 90px;" placeholder="Undesired artifacts, bad anatomy, blur, oversaturation...">${negWidget.value || ""}</textarea>
+                </div>
+                ` : ""}
+
+                <div>
+                    <div style="font-size: 11px; font-weight: 700; color: var(--zds-text-secondary); text-transform: uppercase; margin-bottom: 6px;">
+                        Quick Cinematic & Optical Tag Injector
+                    </div>
+                    <div class="zds-prompt-tag-bar" id="zds-tag-chips-container"></div>
+                </div>
+            </div>
+
+            <div class="zds-prompt-modal-footer">
+                <div style="font-size: 11px; color: #10b981; display: flex; align-items: center; gap: 6px;">
+                    <span>🟢</span> Live Canvas Sync Active (changes reflect instantly on node #${node.id})
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" class="zds-btn" id="zds-prompt-clear-btn">Clear</button>
+                    <button type="button" class="zds-btn zds-btn-primary" id="zds-prompt-apply-btn">💾 Apply & Close</button>
+                </div>
+            </div>
+        `;
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        const posArea = modal.querySelector("#zds-pos-textarea");
+        const negArea = modal.querySelector("#zds-neg-textarea");
+        const posCount = modal.querySelector("#zds-pos-count");
+        const negCount = modal.querySelector("#zds-neg-count");
+
+        const updateCounts = () => {
+            if (posArea && posCount) {
+                const words = (posArea.value.trim().match(/\S+/g) || []).length;
+                posCount.textContent = `${words} words • ${posArea.value.length} chars`;
+            }
+            if (negArea && negCount) {
+                const words = (negArea.value.trim().match(/\S+/g) || []).length;
+                negCount.textContent = `${words} words • ${negArea.value.length} chars`;
+            }
+        };
+        updateCounts();
+
+        // Two-Way Sync on input
+        if (posArea && posWidget) {
+            posArea.oninput = () => {
+                posWidget.value = posArea.value;
+                if (posWidget.callback) posWidget.callback(posArea.value, app.canvas, node);
+                node.setDirtyCanvas(true, true);
+                updateCounts();
+                const cardTa = document.querySelector(`#zds-card-${node.id} textarea`);
+                if (cardTa) cardTa.value = posArea.value;
+            };
+        }
+
+        if (negArea && negWidget) {
+            negArea.oninput = () => {
+                negWidget.value = negArea.value;
+                if (negWidget.callback) negWidget.callback(negArea.value, app.canvas, node);
+                node.setDirtyCanvas(true, true);
+                updateCounts();
+            };
+        }
+
+        // Tag Injector Chips
+        const tagContainer = modal.querySelector("#zds-tag-chips-container");
+        const sampleTags = [
+            "35mm photograph", "85mm f/1.4 portrait", "cinematic softbox lighting",
+            "warm rim light", "photorealistic skin pores", "sharp optical focus",
+            "volumetric backlight", "8k uhd masterpiece", "subtle film grain",
+            "shallow depth of field", "natural daylight", "dynamic pose"
+        ];
+
+        sampleTags.forEach(tag => {
+            const chip = document.createElement("span");
+            chip.className = "zds-tag-chip";
+            chip.textContent = `+ ${tag}`;
+            chip.onclick = () => {
+                if (!posArea) return;
+                const val = posArea.value.trim();
+                posArea.value = val ? `${val}, ${tag}` : tag;
+                posArea.dispatchEvent(new Event("input"));
+                posArea.focus();
+            };
+            tagContainer.appendChild(chip);
+        });
+
+        // Close handlers
+        modal.querySelector("#zds-prompt-modal-close").onclick = () => overlay.remove();
+        modal.querySelector("#zds-prompt-apply-btn").onclick = () => overlay.remove();
+        modal.querySelector("#zds-prompt-clear-btn").onclick = () => {
+            if (posArea && confirm("Clear positive prompt?")) {
+                posArea.value = "";
+                posArea.dispatchEvent(new Event("input"));
+            }
+        };
+        overlay.onclick = (e) => {
+            if (e.target === overlay) overlay.remove();
+        };
     }
 
     // ── Smart Wire Connection Handling ────────────────────────────────────────

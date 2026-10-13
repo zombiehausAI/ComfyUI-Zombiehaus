@@ -333,11 +333,10 @@
   background: rgba(255, 255, 255, 0.22);
 }
 
-/* Stage Column */
+/* Stage Bay (Production Phase) */
+.zds-bay,
 .zds-column {
-  flex: 0 0 340px;
-  max-width: 360px;
-  min-width: 310px;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   background: var(--zds-bg-surface);
@@ -348,24 +347,29 @@
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
   transition: all 0.2s ease;
   overflow: hidden;
+  height: calc(100% - 10px);
+  max-height: 100%;
 }
 
+.zds-bay.zds-drag-over,
 .zds-column.zds-drag-over {
   border-color: var(--zds-accent-cyan);
   box-shadow: 0 0 25px rgba(6, 182, 212, 0.25);
   background: rgba(24, 30, 48, 0.92);
 }
 
-/* Column Header */
+/* Bay / Column Header */
+.zds-bay-header,
 .zds-col-header {
-  padding: 16px 18px;
-  background: rgba(0, 0, 0, 0.25);
+  padding: 14px 18px;
+  background: rgba(0, 0, 0, 0.35);
   border-bottom: 1px solid var(--zds-border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
   user-select: none;
   position: relative;
+  gap: 16px;
 }
 
 .zds-col-indicator {
@@ -386,6 +390,16 @@
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.zds-col-step-num {
+  font-family: var(--zds-font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--zds-text-secondary);
 }
 
 .zds-col-icon {
@@ -410,16 +424,62 @@
   font-family: var(--zds-font-mono);
   font-size: 11px;
   font-weight: 700;
-  padding: 2px 7px;
+  padding: 2px 8px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.08);
   color: var(--zds-text-secondary);
 }
 
-/* Column Cards Container */
+/* Multi-Column Lanes Container inside a Bay */
+.zds-bay-lanes {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  padding: 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.zds-column-lane {
+  width: 380px;
+  min-width: 360px;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(10, 12, 20, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--zds-radius-md);
+  overflow: hidden;
+  height: 100%;
+}
+
+.zds-lane-header {
+  padding: 7px 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--zds-text-secondary);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.zds-lane-priority-tag {
+  font-family: var(--zds-font-mono);
+  font-size: 9px;
+  color: var(--zds-accent-cyan);
+}
+
+/* Lane Cards Container */
+.zds-lane-cards,
 .zds-cards-container {
   flex: 1;
-  padding: 14px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -427,25 +487,29 @@
   min-height: 200px;
 }
 
+.zds-lane-cards::-webkit-scrollbar,
 .zds-cards-container::-webkit-scrollbar {
   width: 6px;
 }
 
+.zds-lane-cards::-webkit-scrollbar-thumb,
 .zds-cards-container::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 3px;
 }
 
+.zds-lane-cards::-webkit-scrollbar-thumb:hover,
 .zds-cards-container::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
-/* Empty Column State */
-.zds-empty-col {
+/* Empty State */
+.zds-empty-col,
+.zds-empty-lane {
   padding: 30px 16px;
   text-align: center;
   color: var(--zds-text-muted);
-  font-size: 13px;
+  font-size: 12px;
   border: 1px dashed rgba(255, 255, 255, 0.08);
   border-radius: var(--zds-radius-md);
   margin: 10px 0;
@@ -1105,4 +1169,210 @@
   color: #ffffff;
   box-shadow: 0 4px 14px rgba(168, 85, 247, 0.45);
   transform: translateY(-1px);
+}
+
+/* ==========================================================================
+   Card Execution Priority Step Badge & Subtitle
+   ========================================================================== */
+.zds-card-step-badge {
+  font-family: var(--zds-font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.35), rgba(6, 182, 212, 0.35));
+  border: 1px solid rgba(168, 85, 247, 0.6);
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  line-height: 1;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.zds-card-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.zds-card-role {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--zds-accent-cyan);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+.zds-port-name {
+  font-weight: 700;
+}
+
+.zds-port-origin-badge {
+  font-family: var(--zds-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+}
+
+/* Prompt Card Popout Button */
+.zds-card-btn-prompt {
+  background: rgba(168, 85, 247, 0.2) !important;
+  border: 1px solid rgba(168, 85, 247, 0.5) !important;
+  color: #d8b4fe !important;
+}
+
+.zds-card-btn-prompt:hover {
+  background: rgba(168, 85, 247, 0.4) !important;
+  color: #fff !important;
+}
+
+/* ==========================================================================
+   Full-Screen / Popout Prompt Studio Modal
+   ========================================================================== */
+.zds-prompt-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 8, 16, 0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100010;
+  padding: 24px;
+  animation: zds-fade-in 0.2s ease;
+}
+
+.zds-prompt-modal {
+  width: 1080px;
+  max-width: 95vw;
+  height: 86vh;
+  max-height: 900px;
+  background: #111422;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.9), 0 0 35px rgba(168, 85, 247, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #f8fafc;
+}
+
+.zds-prompt-modal-header {
+  padding: 16px 24px;
+  background: rgba(0, 0, 0, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.zds-prompt-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.zds-prompt-modal-title h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  background: linear-gradient(90deg, #ffffff, #c084fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.zds-prompt-modal-body {
+  flex: 1;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+}
+
+.zds-prompt-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.zds-prompt-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--zds-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.zds-prompt-textarea {
+  flex: 1;
+  min-height: 140px;
+  background: #090b12;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 14px;
+  color: #f8fafc;
+  font-family: var(--zds-font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.zds-prompt-textarea:focus {
+  border-color: #a855f7;
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.25);
+}
+
+.zds-prompt-tag-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 0;
+}
+
+.zds-tag-chip {
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  font-size: 11px;
+  color: var(--zds-text-secondary);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.zds-tag-chip:hover {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(168, 85, 247, 0.5);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.zds-prompt-modal-footer {
+  padding: 14px 24px;
+  background: rgba(0, 0, 0, 0.35);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }

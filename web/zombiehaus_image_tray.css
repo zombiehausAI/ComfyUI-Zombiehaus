@@ -1,0 +1,525 @@
+/* ==========================================================================
+   Zombiehaus Image Tray - Dockable Bottom Filmstrip & Workflow Lightbox
+   ========================================================================== */
+
+:root {
+  --zit-bg: rgba(14, 16, 26, 0.92);
+  --zit-bg-hover: rgba(22, 25, 42, 0.98);
+  --zit-card-bg: rgba(20, 24, 38, 0.85);
+  --zit-border: rgba(255, 255, 255, 0.08);
+  --zit-border-hover: #a855f7;
+  
+  --zit-text-primary: #f8fafc;
+  --zit-text-secondary: #94a3b8;
+  --zit-text-muted: #64748b;
+  
+  --zit-accent-purple: #a855f7;
+  --zit-accent-cyan: #06b6d4;
+  --zit-accent-green: #10b981;
+  --zit-accent-pink: #ec4899;
+  
+  --zit-shadow: 0 -8px 30px rgba(0, 0, 0, 0.6), 0 -1px 3px rgba(255, 255, 255, 0.05);
+  --zit-radius: 12px;
+  --zit-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --zit-font-mono: 'JetBrains Mono', Consolas, monospace;
+}
+
+/* Master Fixed Tray Container */
+#zombiehaus-image-tray {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 99992;
+  background: var(--zit-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--zit-border);
+  box-shadow: var(--zit-shadow);
+  color: var(--zit-text-primary);
+  font-family: var(--zit-font);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), height 0.2s ease;
+  user-select: none;
+}
+
+#zombiehaus-image-tray.zit-collapsed {
+  transform: translateY(calc(100% - 36px));
+}
+
+#zombiehaus-image-tray.zit-hidden {
+  display: none !important;
+}
+
+/* Tray Header Bar */
+.zit-header {
+  height: 36px;
+  min-height: 36px;
+  background: rgba(0, 0, 0, 0.35);
+  border-bottom: 1px solid var(--zit-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  cursor: pointer;
+}
+
+.zit-header-left,
+.zit-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.zit-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.zit-icon {
+  font-size: 15px;
+}
+
+.zit-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #ffffff, #c084fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.zit-count-badge {
+  font-family: var(--zit-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  color: #d8b4fe;
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+.zit-action-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--zit-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zit-action-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.zit-collapse-toggle {
+  font-size: 13px;
+  color: var(--zit-text-secondary);
+  transition: transform 0.2s ease;
+}
+
+#zombiehaus-image-tray.zit-collapsed .zit-collapse-toggle {
+  transform: rotate(180deg);
+}
+
+/* Filmstrip Body */
+.zit-filmstrip {
+  height: 148px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+}
+
+.zit-filmstrip.zit-size-small { height: 115px; }
+.zit-filmstrip.zit-size-large { height: 195px; }
+
+.zit-filmstrip::-webkit-scrollbar {
+  height: 6px;
+}
+
+.zit-filmstrip::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.zit-filmstrip::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.zit-filmstrip::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* Filmstrip Thumbnail Card */
+.zit-card {
+  flex: 0 0 auto;
+  height: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--zit-card-bg);
+  border: 1px solid var(--zit-border);
+  border-radius: var(--zit-radius);
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.zit-card:hover {
+  transform: translateY(-4px) scale(1.03);
+  border-color: var(--zit-border-hover);
+  box-shadow: 0 8px 24px rgba(168, 85, 247, 0.35);
+  z-index: 5;
+}
+
+.zit-card.zit-card-new {
+  animation: zit-slide-in 0.35s cubic-bezier(0.16, 1, 0.3, 1), zit-pulse-new 1.8s ease;
+}
+
+@keyframes zit-slide-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.9); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes zit-pulse-new {
+  0% { border-color: var(--zit-accent-cyan); box-shadow: 0 0 20px rgba(6, 182, 212, 0.6); }
+  100% { border-color: var(--zit-border); }
+}
+
+.zit-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Card Hover Quick Action Ribbon */
+.zit-card-actions {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.3) 60%, transparent 100%);
+  opacity: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px;
+  transition: opacity 0.15s ease;
+}
+
+.zit-card:hover .zit-card-actions {
+  opacity: 1;
+}
+
+.zit-card-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.zit-dim-badge {
+  font-family: var(--zit-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #38bdf8;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.zit-card-bot-bar {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.zit-quick-btn {
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 5px;
+  color: #fff;
+  font-size: 11px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.zit-quick-btn:hover {
+  background: var(--zit-accent-purple);
+  border-color: #fff;
+  transform: scale(1.15);
+}
+
+/* Empty Tray State */
+.zit-empty-msg {
+  color: var(--zit-text-muted);
+  font-size: 12px;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ==========================================================================
+   Full Workstation Lightbox & Metadata Inspector
+   ========================================================================== */
+.zit-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99998;
+  background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: zit-fade-in 0.2s ease;
+}
+
+@keyframes zit-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.zit-lightbox-modal {
+  width: 92vw;
+  height: 88vh;
+  background: #11131f;
+  border: 1px solid var(--zit-border);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.85);
+  display: flex;
+  overflow: hidden;
+}
+
+.zit-lightbox-main {
+  flex: 1;
+  background: #090a10;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  user-select: none;
+}
+
+.zit-lightbox-viewport {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  cursor: zoom-in;
+}
+
+.zit-lightbox-viewport.zit-is-zoomed {
+  cursor: grab;
+}
+
+.zit-lightbox-viewport.zit-is-dragging {
+  cursor: grabbing !important;
+}
+
+.zit-lightbox-image {
+  max-width: 95%;
+  max-height: 95%;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+  transition: transform 0.15s ease-out;
+  transform-origin: center center;
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.zit-lightbox-viewport.zit-is-dragging .zit-lightbox-image {
+  transition: none;
+}
+
+.zit-zoom-toolbar {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(14, 16, 26, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--zit-border);
+  border-radius: 20px;
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  z-index: 10;
+}
+
+.zit-zoom-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid transparent;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zit-zoom-btn:hover {
+  background: var(--zit-accent-purple);
+  border-color: #fff;
+}
+
+.zit-zoom-level-badge {
+  font-family: var(--zit-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: #38bdf8;
+  padding: 0 6px;
+  min-width: 50px;
+  text-align: center;
+}
+
+.zit-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--zit-border);
+  color: #fff;
+  font-size: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  z-index: 10;
+}
+
+.zit-lightbox-close:hover {
+  background: rgba(244, 63, 94, 0.6);
+  border-color: #f43f5e;
+}
+
+/* Lightbox Metadata Sidebar */
+.zit-lightbox-sidebar {
+  width: 380px;
+  min-width: 320px;
+  background: #141726;
+  border-left: 1px solid var(--zit-border);
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.zit-sidebar-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.zit-sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zit-sidebar-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--zit-border);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zit-sidebar-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.zit-btn-accent {
+  background: linear-gradient(135deg, var(--zit-accent-purple), #6366f1);
+  border: 1px solid #c084fc;
+}
+
+.zit-btn-accent:hover {
+  background: linear-gradient(135deg, #c084fc, #818cf8);
+}
+
+.zit-meta-box {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--zit-border);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: var(--zit-font-mono);
+  font-size: 11px;
+  color: #cbd5e1;
+  max-height: 250px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Floating Cockpit Trigger Button */
+#zombiehaus-image-tray-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(20, 24, 38, 0.85);
+  border: 1px solid var(--zit-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: #e2e8f0;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+#zombiehaus-image-tray-toggle-btn:hover {
+  background: rgba(168, 85, 247, 0.25);
+  border-color: var(--zit-accent-purple);
+  color: #fff;
+}

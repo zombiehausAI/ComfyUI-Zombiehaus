@@ -1,0 +1,1108 @@
+/* ==========================================================================
+   Zombiehaus Deck Studio - Modular Column-and-Card Workspace Interface
+   ========================================================================== */
+
+:root {
+  --zds-bg-base: #090a0f;
+  --zds-bg-surface: rgba(18, 20, 31, 0.82);
+  --zds-bg-card: rgba(24, 27, 43, 0.88);
+  --zds-bg-card-hover: rgba(30, 34, 54, 0.95);
+  --zds-bg-glass: rgba(255, 255, 255, 0.03);
+  
+  --zds-border-subtle: rgba(255, 255, 255, 0.07);
+  --zds-border-focus: #a855f7;
+  --zds-border-running: #06b6d4;
+  
+  --zds-text-primary: #f8fafc;
+  --zds-text-secondary: #94a3b8;
+  --zds-text-muted: #64748b;
+  
+  --zds-accent-purple: #a855f7;
+  --zds-accent-cyan: #06b6d4;
+  --zds-accent-pink: #ec4899;
+  --zds-accent-green: #10b981;
+  --zds-accent-amber: #f59e0b;
+  --zds-accent-rose: #f43f5e;
+  --zds-accent-blue: #3b82f6;
+
+  --zds-glow-running: 0 0 20px rgba(6, 182, 212, 0.45), 0 0 40px rgba(168, 85, 247, 0.25);
+  --zds-glow-focus: 0 0 16px rgba(168, 85, 247, 0.35);
+  --zds-shadow-card: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+  
+  --zds-radius-sm: 6px;
+  --zds-radius-md: 10px;
+  --zds-radius-lg: 16px;
+  --zds-radius-xl: 22px;
+  
+  --zds-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --zds-font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+}
+
+/* Base Fullscreen Workstation Overlay */
+#zombiehaus-deck-studio-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99990;
+  background: radial-gradient(circle at 50% 0%, #151828 0%, var(--zds-bg-base) 75%);
+  color: var(--zds-text-primary);
+  font-family: var(--zds-font);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.985);
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+#zombiehaus-deck-studio-overlay.zds-active {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+#zombiehaus-deck-studio-overlay * {
+  box-sizing: border-box;
+}
+
+/* ==========================================================================
+   Header & Ribbon Toolbar
+   ========================================================================== */
+.zds-toolbar {
+  height: 64px;
+  min-height: 64px;
+  background: rgba(13, 15, 24, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--zds-border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  gap: 16px;
+  position: relative;
+  z-index: 10;
+}
+
+.zds-toolbar-left,
+.zds-toolbar-center,
+.zds-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.zds-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+}
+
+.zds-brand-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--zds-radius-md);
+  background: linear-gradient(135deg, var(--zds-accent-purple), var(--zds-accent-cyan));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  box-shadow: 0 0 15px rgba(168, 85, 247, 0.5);
+}
+
+.zds-brand-title {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  background: linear-gradient(90deg, #ffffff, #c084fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-transform: uppercase;
+}
+
+.zds-brand-pill {
+  font-size: 10px;
+  padding: 2px 7px;
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  border-radius: 12px;
+  color: #d8b4fe;
+  font-weight: 700;
+  font-family: var(--zds-font-mono);
+}
+
+/* View Switcher Toggle */
+.zds-view-toggle {
+  display: flex;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--zds-border-subtle);
+  border-radius: var(--zds-radius-md);
+  padding: 3px;
+  gap: 2px;
+}
+
+.zds-view-btn {
+  background: transparent;
+  border: none;
+  color: var(--zds-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: var(--zds-radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.zds-view-btn:hover {
+  color: var(--zds-text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.zds-view-btn.zds-active-view {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(6, 182, 212, 0.25));
+  color: #ffffff;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* Search Bar */
+.zds-search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.zds-search-input {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--zds-border-subtle);
+  border-radius: var(--zds-radius-md);
+  padding: 7px 12px 7px 32px;
+  font-size: 13px;
+  color: var(--zds-text-primary);
+  width: 220px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.zds-search-input:focus {
+  width: 280px;
+  border-color: var(--zds-border-focus);
+  box-shadow: var(--zds-glow-focus);
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.zds-search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--zds-text-muted);
+  pointer-events: none;
+  font-size: 13px;
+}
+
+/* Primary Toolbar Buttons */
+.zds-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--zds-border-subtle);
+  border-radius: var(--zds-radius-md);
+  color: var(--zds-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+
+.zds-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+
+.zds-btn:active {
+  transform: translateY(0);
+}
+
+.zds-btn-primary {
+  background: linear-gradient(135deg, #9333ea, #6366f1);
+  border: 1px solid #c084fc;
+  color: #ffffff;
+  box-shadow: 0 4px 15px rgba(147, 51, 234, 0.4);
+}
+
+.zds-btn-primary:hover {
+  background: linear-gradient(135deg, #a855f7, #4f46e5);
+  box-shadow: 0 6px 20px rgba(168, 85, 247, 0.6);
+}
+
+.zds-btn-primary.zds-btn-running {
+  background: linear-gradient(135deg, #059669, #0d9488);
+  border-color: #34d399;
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.5);
+  animation: zds-shimmer 2s infinite linear;
+}
+
+.zds-btn-danger {
+  background: rgba(244, 63, 94, 0.15);
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  color: #fda4af;
+}
+
+.zds-btn-danger:hover {
+  background: rgba(244, 63, 94, 0.25);
+  border-color: var(--zds-accent-rose);
+  color: #fff;
+}
+
+.zds-batch-stepper {
+  display: flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--zds-border-subtle);
+  border-radius: var(--zds-radius-md);
+  padding: 2px 4px;
+  gap: 4px;
+}
+
+.zds-stepper-btn {
+  background: transparent;
+  border: none;
+  color: var(--zds-text-secondary);
+  font-size: 14px;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.zds-stepper-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.zds-stepper-val {
+  font-family: var(--zds-font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 24px;
+  text-align: center;
+  color: var(--zds-text-primary);
+}
+
+/* ==========================================================================
+   Deck Workspace Columns Layout
+   ========================================================================== */
+.zds-workspace {
+  flex: 1;
+  display: flex;
+  padding: 20px;
+  gap: 18px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: radial-gradient(circle at 50% 50%, rgba(20, 24, 40, 0.4) 0%, rgba(9, 10, 15, 0.8) 100%);
+  scroll-behavior: smooth;
+}
+
+.zds-workspace::-webkit-scrollbar {
+  height: 10px;
+}
+
+.zds-workspace::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 5px;
+}
+
+.zds-workspace::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+}
+
+.zds-workspace::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* Stage Column */
+.zds-column {
+  flex: 0 0 340px;
+  max-width: 360px;
+  min-width: 310px;
+  display: flex;
+  flex-direction: column;
+  background: var(--zds-bg-surface);
+  border: 1px solid var(--zds-border-subtle);
+  border-radius: var(--zds-radius-lg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+
+.zds-column.zds-drag-over {
+  border-color: var(--zds-accent-cyan);
+  box-shadow: 0 0 25px rgba(6, 182, 212, 0.25);
+  background: rgba(24, 30, 48, 0.92);
+}
+
+/* Column Header */
+.zds-col-header {
+  padding: 16px 18px;
+  background: rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid var(--zds-border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+  position: relative;
+}
+
+.zds-col-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+
+.zds-col-1 .zds-col-indicator { background: linear-gradient(90deg, #3b82f6, #06b6d4); }
+.zds-col-2 .zds-col-indicator { background: linear-gradient(90deg, #a855f7, #ec4899); }
+.zds-col-3 .zds-col-indicator { background: linear-gradient(90deg, #10b981, #06b6d4); }
+.zds-col-4 .zds-col-indicator { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+.zds-col-5 .zds-col-indicator { background: linear-gradient(90deg, #ec4899, #8b5cf6); }
+
+.zds-col-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.zds-col-icon {
+  font-size: 17px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--zds-radius-sm);
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zds-col-name {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: var(--zds-text-primary);
+}
+
+.zds-col-count {
+  font-family: var(--zds-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--zds-text-secondary);
+}
+
+/* Column Cards Container */
+.zds-cards-container {
+  flex: 1;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  min-height: 200px;
+}
+
+.zds-cards-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.zds-cards-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.zds-cards-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Empty Column State */
+.zds-empty-col {
+  padding: 30px 16px;
+  text-align: center;
+  color: var(--zds-text-muted);
+  font-size: 13px;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  border-radius: var(--zds-radius-md);
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ==========================================================================
+   Interactive Node Cards
+   ========================================================================== */
+.zds-card {
+  background: var(--zds-bg-card);
+  border: 1px solid var(--zds-border-subtle);
+  border-radius: var(--zds-radius-md);
+  box-shadow: var(--zds-shadow-card);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+}
+
+.zds-card:hover {
+  background: var(--zds-bg-card-hover);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 14px 28px -4px rgba(0, 0, 0, 0.65);
+}
+
+.zds-card.zds-card-dragging {
+  opacity: 0.45;
+  transform: scale(0.96);
+  border: 1px dashed var(--zds-accent-cyan);
+}
+
+/* Card States: Running / Executing */
+.zds-card.zds-card-executing {
+  border-color: var(--zds-border-running);
+  box-shadow: var(--zds-glow-running);
+  animation: zds-pulse 1.8s infinite ease-in-out;
+}
+
+@keyframes zds-pulse {
+  0% { box-shadow: 0 0 15px rgba(6, 182, 212, 0.4); }
+  50% { box-shadow: 0 0 30px rgba(168, 85, 247, 0.65); }
+  100% { box-shadow: 0 0 15px rgba(6, 182, 212, 0.4); }
+}
+
+/* Card States: Muted & Bypassed */
+.zds-card.zds-card-bypassed {
+  opacity: 0.65;
+  border-style: dashed;
+  border-color: var(--zds-accent-amber);
+}
+
+.zds-card.zds-card-muted {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+}
+
+/* Card Header */
+.zds-card-header {
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.35);
+  border-bottom: 1px solid var(--zds-border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: grab;
+}
+
+.zds-card-header:active {
+  cursor: grabbing;
+}
+
+.zds-card-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.zds-card-drag-handle {
+  color: var(--zds-text-muted);
+  font-size: 13px;
+  cursor: grab;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.zds-card-drag-handle:hover {
+  color: var(--zds-text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.zds-card-id {
+  font-family: var(--zds-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: #c084fc;
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.zds-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--zds-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  outline: none;
+  cursor: text;
+}
+
+.zds-card-title[contenteditable="true"]:focus {
+  background: rgba(0, 0, 0, 0.5);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--zds-border-focus);
+}
+
+.zds-card-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.zds-card-btn {
+  background: transparent;
+  border: none;
+  color: var(--zds-text-secondary);
+  font-size: 12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.zds-card-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--zds-text-primary);
+}
+
+.zds-card-btn.zds-btn-active-bypass {
+  color: var(--zds-accent-amber);
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.zds-card-btn.zds-btn-active-mute {
+  color: var(--zds-accent-rose);
+  background: rgba(244, 63, 94, 0.15);
+}
+
+/* ==========================================================================
+   Port Chips & Smart Wire Connections
+   ========================================================================== */
+.zds-ports-section {
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.18);
+  border-bottom: 1px solid var(--zds-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.zds-ports-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.zds-inputs-group,
+.zds-outputs-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.zds-outputs-group {
+  justify-content: flex-end;
+}
+
+.zds-port-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-family: var(--zds-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--zds-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.zds-port-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.zds-port-chip.zds-port-connected {
+  border-color: currentColor;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.zds-port-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Port Type Coloring */
+.zds-type-model { color: #c084fc; border-color: rgba(192, 132, 252, 0.3); }
+.zds-type-clip { color: #facc15; border-color: rgba(250, 204, 21, 0.3); }
+.zds-type-vae { color: #f87171; border-color: rgba(248, 113, 113, 0.3); }
+.zds-type-image { color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
+.zds-type-latent { color: #f472b6; border-color: rgba(244, 114, 182, 0.3); }
+.zds-type-conditioning { color: #fb923c; border-color: rgba(251, 146, 60, 0.3); }
+.zds-type-mask { color: #2dd4bf; border-color: rgba(45, 212, 191, 0.3); }
+
+/* Connecting Wire Mode */
+.zds-connecting-mode .zds-port-chip.zds-port-target-compatible {
+  box-shadow: 0 0 10px var(--zds-accent-cyan);
+  border-color: var(--zds-accent-cyan) !important;
+  color: var(--zds-accent-cyan) !important;
+  animation: zds-port-beacon 1.2s infinite alternate;
+}
+
+@keyframes zds-port-beacon {
+  0% { transform: scale(1); filter: brightness(1); }
+  100% { transform: scale(1.08); filter: brightness(1.4); }
+}
+
+.zds-port-chip.zds-port-active-source {
+  background: var(--zds-accent-purple) !important;
+  color: #fff !important;
+  border-color: #fff !important;
+}
+
+/* ==========================================================================
+   Card Direct Interactive Widgets
+   ========================================================================== */
+.zds-widgets-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.zds-card.zds-card-collapsed .zds-widgets-body,
+.zds-card.zds-card-collapsed .zds-ports-section,
+.zds-card.zds-card-collapsed .zds-card-preview {
+  display: none;
+}
+
+.zds-widget-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.zds-widget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--zds-text-secondary);
+}
+
+.zds-widget-val-badge {
+  font-family: var(--zds-font-mono);
+  font-size: 11px;
+  color: var(--zds-accent-cyan);
+  background: rgba(6, 182, 212, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* Slider Controls */
+.zds-slider-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.zds-range-input {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zds-range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5), 0 0 6px var(--zds-accent-purple);
+  transition: transform 0.1s ease;
+}
+
+.zds-range-input::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  background: #f8fafc;
+}
+
+.zds-num-input {
+  width: 68px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--zds-border-subtle);
+  border-radius: var(--zds-radius-sm);
+  color: var(--zds-text-primary);
+  font-family: var(--zds-font-mono);
+  font-size: 11px;
+  padding: 4px 6px;
+  text-align: right;
+  outline: none;
+}
+
+.zds-num-input:focus {
+  border-color: var(--zds-border-focus);
+}
+
+/* Textarea / Text Input */
+.zds-textarea {
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--zds-border-subtle);
+  border-radius: var(--zds-radius-sm);
+  padding: 8px 10px;
+  color: var(--zds-text-primary);
+  font-size: 12px;
+  font-family: var(--zds-font);
+  line-height: 1.45;
+  resize: vertical;
+  min-height: 64px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.zds-textarea:focus {
+  border-color: var(--zds-border-focus);
+  background: rgba(0, 0, 0, 0.65);
+}
+
+/* Dropdown Selects */
+.zds-select {
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--zds-border-subtle);
+  border-radius: var(--zds-radius-sm);
+  padding: 6px 10px;
+  color: var(--zds-text-primary);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+  width: 100%;
+}
+
+.zds-select:focus {
+  border-color: var(--zds-border-focus);
+}
+
+/* Seed Widget Control Group */
+.zds-seed-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zds-seed-input {
+  flex: 1;
+  font-family: var(--zds-font-mono);
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--zds-border-subtle);
+  border-radius: var(--zds-radius-sm);
+  padding: 5px 8px;
+  color: #38bdf8;
+  outline: none;
+}
+
+.zds-seed-input:focus {
+  border-color: var(--zds-accent-cyan);
+}
+
+.zds-seed-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--zds-border-subtle);
+  border-radius: var(--zds-radius-sm);
+  color: var(--zds-text-secondary);
+  font-size: 12px;
+  padding: 5px 9px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.zds-seed-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--zds-text-primary);
+}
+
+/* Toggle Checkbox Switch */
+.zds-switch-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--zds-text-secondary);
+  cursor: pointer;
+}
+
+.zds-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+}
+
+.zds-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.zds-switch-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.15);
+  transition: 0.2s;
+  border-radius: 20px;
+}
+
+.zds-switch-slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.2s;
+  border-radius: 50%;
+}
+
+.zds-switch input:checked + .zds-switch-slider {
+  background: var(--zds-accent-purple);
+}
+
+.zds-switch input:checked + .zds-switch-slider:before {
+  transform: translateX(16px);
+}
+
+/* Live Sampler Progress Bar */
+.zds-progress-container {
+  padding: 4px 14px 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.zds-progress-bar-bg {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  position: relative;
+}
+
+.zds-progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--zds-accent-cyan), var(--zds-accent-purple));
+  border-radius: 3px;
+  transition: width 0.1s linear;
+}
+
+.zds-progress-text {
+  font-family: var(--zds-font-mono);
+  font-size: 10px;
+  color: var(--zds-accent-cyan);
+  text-align: right;
+}
+
+/* Live Card Image Preview */
+.zds-card-preview {
+  padding: 10px 14px;
+  border-top: 1px solid var(--zds-border-subtle);
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  justify-content: center;
+}
+
+.zds-preview-img {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: var(--zds-radius-sm);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  transition: transform 0.2s ease;
+  object-fit: contain;
+}
+
+.zds-preview-img:hover {
+  transform: scale(1.02);
+}
+
+/* ==========================================================================
+   Add Card Search Modal
+   ========================================================================== */
+.zds-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99995;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zds-modal {
+  width: 580px;
+  max-width: 90vw;
+  max-height: 80vh;
+  background: #131522;
+  border: 1px solid var(--zds-border-subtle);
+  border-radius: var(--zds-radius-lg);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.zds-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--zds-border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.zds-modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--zds-text-primary);
+}
+
+.zds-modal-search {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--zds-border-subtle);
+}
+
+.zds-modal-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--zds-border-subtle);
+  border-radius: var(--zds-radius-md);
+  padding: 10px 14px;
+  color: #fff;
+  font-size: 13px;
+  outline: none;
+}
+
+.zds-modal-input:focus {
+  border-color: var(--zds-border-focus);
+}
+
+.zds-modal-list {
+  flex: 1;
+  padding: 12px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 400px;
+}
+
+.zds-modal-item {
+  padding: 10px 14px;
+  border-radius: var(--zds-radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.zds-modal-item:hover {
+  background: rgba(168, 85, 247, 0.15);
+  border-color: rgba(168, 85, 247, 0.35);
+  transform: translateX(4px);
+}
+
+.zds-modal-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--zds-text-primary);
+}
+
+.zds-modal-item-cat {
+  font-size: 11px;
+  color: var(--zds-text-muted);
+}
+
+/* Persistent Comfy Cockpit / Menu Toggle Button */
+#zombiehaus-deck-studio-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(6, 182, 212, 0.2));
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  border-radius: 6px;
+  padding: 5px 12px;
+  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: all 0.18s ease;
+  user-select: none;
+}
+
+#zombiehaus-deck-studio-toggle-btn:hover {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.4), rgba(6, 182, 212, 0.4));
+  border-color: #c084fc;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(168, 85, 247, 0.45);
+  transform: translateY(-1px);
+}

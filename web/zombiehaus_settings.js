@@ -18,10 +18,6 @@ function openZombiehausSettingsDialog() {
         window.zombiehausShowSettings();
         return;
     }
-    if (typeof == "function" && window.zombiehausShowSettings !== openZombiehausSettingsDialog && window.zombiehausShowSettings !== openZombiehausSettingsDialog) {
-        window.zombiehausShowSettings();
-        return;
-    }
 
     const existing = document.getElementById("zombiehaus-settings-modal") || document.getElementById("zombiehaus-settings-modal");
     if (existing) {
@@ -599,6 +595,23 @@ function buildZombiehausSettingsList(serverConfig = {}) {
             onChange: (newVal, oldVal) => {
                 if (newVal !== undefined && oldVal !== undefined && newVal !== oldVal) {
                     queueSave("prompts_save_directory", newVal);
+                }
+            }
+        },
+        {
+            id: "Zombiehaus.EnableImageTray",
+            category: ["Zombiehaus", "Workspaces"],
+            name: "Zombiehaus: Enable Bottom Image Tray",
+            type: "boolean",
+            defaultValue: true,
+            tooltip: "Enable or disable the dockable bottom Image Tray filmstrip and quick preview dock (Alt+T / F10)",
+            sortOrder: 50,
+            onChange: (newVal) => {
+                if (typeof localStorage !== "undefined") {
+                    localStorage.setItem("zombiehaus_image_tray_enabled", newVal ? "true" : "false");
+                }
+                if (window.zombiehausImageTray) {
+                    window.zombiehausImageTray.setEnabled(!!newVal);
                 }
             }
         }

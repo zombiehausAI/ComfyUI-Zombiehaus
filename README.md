@@ -18,6 +18,10 @@ A comprehensive collection of professional-grade custom nodes for ComfyUI, featu
 
 ComfyUI-Zombiehaus by zombiehaus provides custom nodes organized into six categories:
 
+**▥ Workspaces & Flagship Studios**
+- [Zombiehaus Deck Studio](docs/ZombiehausDeckStudio.md) - Modular, column-and-card workspace interface organizing ComfyUI nodes into 5 logical production stage columns with tactile interactive cards, no-spaghetti smart wire connections, and real-time execution feedback.
+- [Zombiehaus Image Tray](docs/ZombiehausImageTray.md) - Dockable, real-time bottom filmstrip stream with one-click workflow restoration, LoadImage node routing, clipboard export, and full-screen metadata lightbox.
+
 **🤖 AI & Prompt Enhancement**
 - Ollama Prompt Refiner - Full-pipeline prompt enhancement with Ollama LLMs, conditioning output, and pipe support
 - Ollama Text Refiner - Lightweight text refinement via Ollama
@@ -202,6 +206,10 @@ Edit `config.json` to configure:
 - 🖥️ **[Zombiehaus Studio Specification](docs/ZOMBIEHAUS_STUDIO_SPEC.md)** — Architecture & technical specification for the standalone cross-platform Photino.Blazor desktop workstation.
 
 ### Node Documentation
+
+**Workspaces & Flagship Studios**
+- [Zombiehaus Deck Studio](docs/ZombiehausDeckStudio.md) (Modular Column-and-Card Production Workstation)
+- [Zombiehaus Image Tray](docs/ZombiehausImageTray.md) (Dockable Real-Time Filmstrip, Workflow Restoration & Lightbox)
 
 **AI & Prompt Enhancement**
 - [Ollama Prompt Refiner](docs/ollama-prompt-refiner.md)

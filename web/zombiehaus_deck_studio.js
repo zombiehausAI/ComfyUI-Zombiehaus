@@ -352,9 +352,9 @@ class ZombiehausDeckStudio {
                 .zds-card {
                     resize: both !important;
                     min-width: 280px !important;
-                    max-width: 1400px !important;
+                    max-width: none !important;
                     min-height: 110px !important;
-                    max-height: 1200px !important;
+                    max-height: none !important;
                     display: flex !important;
                     flex-direction: column !important;
                     box-sizing: border-box !important;
@@ -366,27 +366,279 @@ class ZombiehausDeckStudio {
                     cursor: nwse-resize !important;
                 }
                 .zds-widgets-body {
-                    flex: 1 !important;
+                    flex: 1 1 auto !important;
+                    min-height: 0 !important;
                     display: flex !important;
                     flex-direction: column !important;
+                    overflow-y: auto !important;
+                    overflow-x: hidden !important;
+                    gap: 8px !important;
+                    padding: 8px 10px 14px 10px !important;
+                    box-sizing: border-box !important;
+                }
+                .zds-widgets-body::-webkit-scrollbar {
+                    width: 6px !important;
+                }
+                .zds-widgets-body::-webkit-scrollbar-track {
+                    background: rgba(0, 0, 0, 0.25) !important;
+                    border-radius: 3px !important;
+                }
+                .zds-widgets-body::-webkit-scrollbar-thumb {
+                    background: rgba(168, 85, 247, 0.45) !important;
+                    border-radius: 3px !important;
+                }
+                .zds-widgets-body::-webkit-scrollbar-thumb:hover {
+                    background: rgba(168, 85, 247, 0.8) !important;
                 }
                 .zds-widget-row {
                     width: 100% !important;
                     box-sizing: border-box !important;
+                    flex-shrink: 0;
                 }
                 .zds-widget-row.zds-widget-multiline {
-                    flex: 1 !important;
+                    flex: 1 1 auto !important;
+                    flex-shrink: 1 !important;
                     display: flex !important;
                     flex-direction: column !important;
                     min-height: 90px !important;
                 }
+                .zds-widget-row.zds-widget-hero-prompt {
+                    flex: 2.2 1 130px !important;
+                    min-height: 120px !important;
+                }
+                .zds-widget-row.zds-widget-secondary-prompt {
+                    flex: 1.2 1 85px !important;
+                    min-height: 80px !important;
+                }
                 .zds-textarea {
                     width: 100% !important;
                     box-sizing: border-box !important;
-                    flex: 1 !important;
-                    min-height: 80px !important;
+                    flex: 1 1 auto !important;
+                    min-height: 70px !important;
                     height: 100% !important;
                     resize: vertical !important;
+                    background: rgba(0, 0, 0, 0.5) !important;
+                    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+                    border-radius: 6px !important;
+                    color: #f8fafc !important;
+                    font-family: Consolas, 'SF Mono', Monaco, 'Liberation Mono', monospace !important;
+                    font-size: 12px !important;
+                    line-height: 1.45 !important;
+                    padding: 8px 10px !important;
+                    white-space: pre-wrap !important;
+                    word-break: break-word !important;
+                    outline: none !important;
+                    transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease !important;
+                }
+                .zds-textarea:focus {
+                    border-color: #a855f7 !important;
+                    background: rgba(0, 0, 0, 0.75) !important;
+                    box-shadow: 0 0 10px rgba(168, 85, 247, 0.35) !important;
+                }
+                /* Structured Studio Cards & Toolbars */
+                .zds-studio-toolbar {
+                    display: flex !important;
+                    flex-wrap: wrap !important;
+                    gap: 6px !important;
+                    padding: 4px 0 6px 0 !important;
+                    width: 100% !important;
+                    box-sizing: border-box !important;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+                    margin-bottom: 6px !important;
+                }
+                .zds-studio-btn {
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    gap: 4px !important;
+                    background: rgba(255, 255, 255, 0.05) !important;
+                    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+                    border-radius: 5px !important;
+                    color: #e2e8f0 !important;
+                    font-size: 11px !important;
+                    font-weight: 600 !important;
+                    padding: 4px 10px !important;
+                    cursor: pointer !important;
+                    transition: all 0.15s ease !important;
+                    white-space: nowrap !important;
+                    line-height: 1.2 !important;
+                }
+                .zds-studio-btn:hover {
+                    background: rgba(168, 85, 247, 0.25) !important;
+                    border-color: rgba(168, 85, 247, 0.6) !important;
+                    color: #ffffff !important;
+                    box-shadow: 0 0 10px rgba(168, 85, 247, 0.3) !important;
+                    transform: translateY(-1px) !important;
+                }
+                .zds-studio-btn:active {
+                    transform: translateY(0) !important;
+                }
+                .zds-prompt-box {
+                    display: flex !important;
+                    flex-direction: column !important;
+                    gap: 5px !important;
+                    width: 100% !important;
+                    box-sizing: border-box !important;
+                    margin-bottom: 6px !important;
+                }
+                .zds-prompt-box-pos {
+                    flex: 2.2 1 140px !important;
+                    min-height: 130px !important;
+                }
+                .zds-prompt-box-neg {
+                    flex: 1.2 1 90px !important;
+                    min-height: 85px !important;
+                }
+                .zds-prompt-muted .zds-textarea-neg {
+                    opacity: 0.45 !important;
+                    filter: grayscale(0.8) !important;
+                    text-decoration: line-through !important;
+                }
+                .zds-prompt-header {
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: space-between !important;
+                    width: 100% !important;
+                    padding: 2px 2px !important;
+                    box-sizing: border-box !important;
+                }
+                .zds-prompt-label-left {
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 8px !important;
+                    font-size: 11.5px !important;
+                    font-weight: 700 !important;
+                    text-transform: uppercase !important;
+                    letter-spacing: 0.5px !important;
+                }
+                .zds-prompt-dot-pos {
+                    width: 7px !important;
+                    height: 7px !important;
+                    border-radius: 50% !important;
+                    background: #10b981 !important;
+                    box-shadow: 0 0 8px rgba(16, 185, 129, 0.7) !important;
+                    display: inline-block !important;
+                }
+                .zds-prompt-dot-neg {
+                    width: 7px !important;
+                    height: 7px !important;
+                    border-radius: 50% !important;
+                    background: #f43f5e !important;
+                    box-shadow: 0 0 8px rgba(244, 63, 94, 0.7) !important;
+                    display: inline-block !important;
+                }
+                .zds-mute-inline-label {
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    gap: 4px !important;
+                    cursor: pointer !important;
+                    margin-left: 8px !important;
+                }
+                .zds-prompt-actions {
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 6px !important;
+                }
+                .zds-prompt-counter {
+                    font-size: 10px !important;
+                    color: var(--zds-text-muted, #94a3b8) !important;
+                    font-family: Consolas, monospace !important;
+                    font-weight: normal !important;
+                    margin-right: 4px !important;
+                }
+                .zds-prompt-tool-btn {
+                    background: rgba(255, 255, 255, 0.04) !important;
+                    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                    border-radius: 4px !important;
+                    color: #94a3b8 !important;
+                    font-size: 10.5px !important;
+                    padding: 2px 7px !important;
+                    cursor: pointer !important;
+                    transition: all 0.15s ease !important;
+                    line-height: 1.2 !important;
+                }
+                .zds-prompt-tool-btn:hover {
+                    border-color: #a855f7 !important;
+                    color: #ffffff !important;
+                    background: rgba(168, 85, 247, 0.2) !important;
+                }
+                .zds-section-subhead {
+                    font-size: 11px !important;
+                    font-weight: 700 !important;
+                    color: #c084fc !important;
+                    text-transform: uppercase !important;
+                    letter-spacing: 0.5px !important;
+                    margin-bottom: 6px !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 6px !important;
+                }
+                .zds-library-section {
+                    width: 100% !important;
+                    box-sizing: border-box !important;
+                    background: rgba(0, 0, 0, 0.25) !important;
+                    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+                    border-radius: 6px !important;
+                    padding: 8px 10px !important;
+                    margin-top: 4px !important;
+                    flex-shrink: 0 !important;
+                }
+                .zds-prompt-library-grid {
+                    display: grid !important;
+                    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+                    gap: 8px !important;
+                    width: 100% !important;
+                    box-sizing: border-box !important;
+                }
+                .zds-grid-cell {
+                    display: flex !important;
+                    flex-direction: column !important;
+                    gap: 4px !important;
+                    min-width: 0 !important;
+                }
+                .zds-cell-label {
+                    font-size: 10.5px !important;
+                    color: var(--zds-text-muted, #94a3b8) !important;
+                    text-transform: capitalize !important;
+                    font-weight: 600 !important;
+                    white-space: nowrap !important;
+                    overflow: hidden !important;
+                    text-overflow: ellipsis !important;
+                }
+                .zds-select-compact {
+                    padding: 4px 8px !important;
+                    font-size: 11px !important;
+                    height: 28px !important;
+                }
+                .zds-input-compact {
+                    padding: 4px 8px !important;
+                    font-size: 11px !important;
+                    height: 28px !important;
+                    box-sizing: border-box !important;
+                }
+                .zds-params-strip {
+                    display: flex !important;
+                    flex-wrap: wrap !important;
+                    align-items: center !important;
+                    gap: 12px !important;
+                    width: 100% !important;
+                    box-sizing: border-box !important;
+                    background: rgba(0, 0, 0, 0.25) !important;
+                    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+                    border-radius: 6px !important;
+                    padding: 8px 10px !important;
+                    margin-top: 4px !important;
+                    flex-shrink: 0 !important;
+                }
+                .zds-param-block {
+                    display: flex !important;
+                    flex-direction: column !important;
+                    gap: 3px !important;
+                    min-width: 120px !important;
+                    flex: 1 1 auto !important;
+                }
+                .zds-seed-block {
+                    flex: 1.5 1 200px !important;
                 }
                 .zds-card-header {
                     display: flex;
@@ -603,7 +855,7 @@ class ZombiehausDeckStudio {
 
         const onPointerMove = (e) => {
             const dx = e.clientX - startX;
-            const newWidth = Math.max(320, Math.min(1200, Math.round(startWidth + dx)));
+            const newWidth = Math.max(280, Math.round(startWidth + dx));
             bay.style.width = `${newWidth}px`;
             this.bayWidths[stageId] = newWidth;
         };
@@ -641,7 +893,7 @@ class ZombiehausDeckStudio {
 
         const onPointerMove = (e) => {
             const dx = e.clientX - startX;
-            const newWidth = Math.max(300, Math.min(1600, Math.round(startWidth + dx)));
+            const newWidth = Math.max(280, Math.round(startWidth + dx));
             laneEl.style.width = `${newWidth}px`;
             this.laneWidths[laneKey] = newWidth;
         };
@@ -1396,11 +1648,40 @@ class ZombiehausDeckStudio {
         const widgetsBody = document.createElement("div");
         widgetsBody.className = "zds-widgets-body";
 
-        if (node.widgets && node.widgets.length > 0) {
+        const nodeTypeLower = (node.type || "").toLowerCase();
+        const nodeTitleLower = (node.title || "").toLowerCase();
+        const isTextStudio = nodeTypeLower.includes("texteditor") ||
+                             nodeTypeLower.includes("zombiehaustext") ||
+                             nodeTitleLower.includes("text studio") ||
+                             (node.widgets?.some(w => w.name === "positive") && node.widgets?.some(w => w.name === "negative"));
+
+        if (isTextStudio) {
+            this.renderTextStudioWidgets(node, widgetsBody);
+        } else if (node.widgets && node.widgets.length > 0) {
+            let currentToolbar = null;
             for (const widget of node.widgets) {
                 try {
-                    const wRow = this.renderWidgetControl(node, widget);
-                    if (wRow) widgetsBody.appendChild(wRow);
+                    const isBtn = widget.type === "button" || (typeof widget.callback === "function" && widget.value === undefined);
+                    if (isBtn) {
+                        if (!currentToolbar) {
+                            currentToolbar = document.createElement("div");
+                            currentToolbar.className = "zds-studio-toolbar";
+                            widgetsBody.appendChild(currentToolbar);
+                        }
+                        const btn = document.createElement("button");
+                        btn.type = "button";
+                        btn.className = "zds-studio-btn";
+                        btn.textContent = widget.name || "Action";
+                        btn.title = widget.name || "";
+                        btn.onclick = () => {
+                            if (widget.callback) widget.callback(widget, app.canvas, node);
+                        };
+                        currentToolbar.appendChild(btn);
+                    } else {
+                        currentToolbar = null;
+                        const wRow = this.renderWidgetControl(node, widget);
+                        if (wRow) widgetsBody.appendChild(wRow);
+                    }
                 } catch (wErr) {
                     console.warn(`[Deck Studio] Skipping widget "${widget?.name}" on #${node.id}:`, wErr);
                 }
@@ -1973,6 +2254,499 @@ class ZombiehausDeckStudio {
         this.syncCards();
     }
 
+    // ── Dedicated Structured Layout for Text Studio Nodes ─────────────────────
+    renderTextStudioWidgets(node, container) {
+        const findW = (name) => node.widgets?.find((w) => w.name === name);
+        const positiveW = findW("positive");
+        const negativeW = findW("negative");
+        const muteNegativeW = findW("mute_negative");
+        const savedPromptW = findW("saved_prompt");
+        const promptStyleW = findW("prompt_style");
+        const syntaxThemeW = findW("syntax_theme");
+        const typeFilterW = findW("type_filter");
+        const catFilterW = findW("category_filter");
+        const negPresetsW = findW("negative_presets");
+        const weightModeW = findW("weight_mode");
+        const seedW = findW("seed");
+        const seedActionW = findW("seed_action") || findW("control_after_generate");
+        const promptCategoryW = findW("prompt_category");
+
+        // Action buttons
+        const buttonWidgets = (node.widgets || []).filter((w) => w.type === "button" || (typeof w.callback === "function" && w.value === undefined));
+
+        // 1. Sleek Action Toolbar at the Top
+        if (buttonWidgets.length > 0) {
+            const toolbar = document.createElement("div");
+            toolbar.className = "zds-studio-toolbar";
+            for (const bw of buttonWidgets) {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "zds-studio-btn";
+                btn.textContent = bw.name || "Action";
+                btn.title = bw.name || "";
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (bw.callback) {
+                        try {
+                            bw.callback(bw, app.canvas, node);
+                        } catch (err) {
+                            console.error("[Deck Studio] Button action error:", err);
+                        }
+                    }
+                };
+                toolbar.appendChild(btn);
+            }
+            container.appendChild(toolbar);
+        }
+
+        let posTa = null;
+        let negTa = null;
+
+        const updateCounter = (ta, counterEl) => {
+            const txt = ta.value || "";
+            const words = txt.trim() ? txt.trim().split(/\s+/).length : 0;
+            counterEl.textContent = `${words}w • ${txt.length}c`;
+        };
+
+        // 2. Positive Prompt Box (Hero Focus)
+        if (positiveW) {
+            const posBox = document.createElement("div");
+            posBox.className = "zds-prompt-box zds-prompt-box-pos";
+
+            const posHeader = document.createElement("div");
+            posHeader.className = "zds-prompt-header";
+
+            const left = document.createElement("div");
+            left.className = "zds-prompt-label-left";
+            left.innerHTML = `<span class="zds-prompt-dot-pos"></span><span style="color: #34d399; font-weight: 700;">Positive Prompt</span>`;
+
+            const right = document.createElement("div");
+            right.className = "zds-prompt-actions";
+
+            const counter = document.createElement("span");
+            counter.className = "zds-prompt-counter";
+
+            const copyBtn = document.createElement("button");
+            copyBtn.type = "button";
+            copyBtn.className = "zds-prompt-tool-btn";
+            copyBtn.textContent = "📋 Copy";
+            copyBtn.title = "Copy Positive Prompt";
+            copyBtn.onclick = () => {
+                if (posTa) {
+                    navigator.clipboard.writeText(posTa.value).then(() => {
+                        copyBtn.textContent = "✓ Copied";
+                        setTimeout(() => {
+                            copyBtn.textContent = "📋 Copy";
+                        }, 1500);
+                    });
+                }
+            };
+
+            const clearBtn = document.createElement("button");
+            clearBtn.type = "button";
+            clearBtn.className = "zds-prompt-tool-btn";
+            clearBtn.textContent = "🧹 Clear";
+            clearBtn.title = "Clear Positive Prompt";
+            clearBtn.onclick = () => {
+                if (posTa && confirm("Clear positive prompt?")) {
+                    posTa.value = "";
+                    posTa.dispatchEvent(new Event("input"));
+                }
+            };
+
+            right.appendChild(counter);
+            right.appendChild(copyBtn);
+            right.appendChild(clearBtn);
+
+            posHeader.appendChild(left);
+            posHeader.appendChild(right);
+            posBox.appendChild(posHeader);
+
+            posTa = document.createElement("textarea");
+            posTa.className = "zds-textarea zds-textarea-pos";
+            posTa.value = positiveW.value || "";
+            posTa.placeholder = "Enter positive prompt (tags, descriptions, styles)...";
+
+            posTa.oninput = () => {
+                positiveW.value = posTa.value;
+                updateCounter(posTa, counter);
+                if (positiveW.callback) positiveW.callback(posTa.value, app.canvas, node);
+                node.setDirtyCanvas(true, true);
+            };
+
+            updateCounter(posTa, counter);
+            posBox.appendChild(posTa);
+            container.appendChild(posBox);
+        }
+
+        // 3. Negative Prompt Box (with integrated Mute Negative switch)
+        if (negativeW) {
+            const negBox = document.createElement("div");
+            negBox.className = "zds-prompt-box zds-prompt-box-neg";
+
+            const negHeader = document.createElement("div");
+            negHeader.className = "zds-prompt-header";
+
+            const left = document.createElement("div");
+            left.className = "zds-prompt-label-left";
+            left.innerHTML = `<span class="zds-prompt-dot-neg"></span><span style="color: #fb7185; font-weight: 700;">Negative Prompt</span>`;
+
+            // Embed Mute Negative toggle right into the header
+            if (muteNegativeW) {
+                const muteLabel = document.createElement("label");
+                muteLabel.className = "zds-mute-inline-label";
+                muteLabel.title = "Mute or bypass the negative prompt during generation";
+
+                const muteText = document.createElement("span");
+                muteText.textContent = "Mute:";
+                muteText.style.fontSize = "10px";
+                muteText.style.color = "var(--zds-text-muted)";
+
+                const switchSpan = document.createElement("label");
+                switchSpan.className = "zds-switch";
+                switchSpan.style.transform = "scale(0.8)";
+                switchSpan.style.margin = "0 4px";
+
+                const chk = document.createElement("input");
+                chk.type = "checkbox";
+                chk.checked = !!muteNegativeW.value;
+
+                chk.onchange = () => {
+                    muteNegativeW.value = chk.checked;
+                    if (chk.checked) {
+                        negBox.classList.add("zds-prompt-muted");
+                    } else {
+                        negBox.classList.remove("zds-prompt-muted");
+                    }
+                    if (muteNegativeW.callback) muteNegativeW.callback(chk.checked, app.canvas, node);
+                    node.setDirtyCanvas(true, true);
+                };
+
+                if (chk.checked) negBox.classList.add("zds-prompt-muted");
+
+                const slider = document.createElement("span");
+                slider.className = "zds-switch-slider";
+
+                switchSpan.appendChild(chk);
+                switchSpan.appendChild(slider);
+                muteLabel.appendChild(muteText);
+                muteLabel.appendChild(switchSpan);
+                left.appendChild(muteLabel);
+            }
+
+            const right = document.createElement("div");
+            right.className = "zds-prompt-actions";
+
+            const counter = document.createElement("span");
+            counter.className = "zds-prompt-counter";
+
+            const copyBtn = document.createElement("button");
+            copyBtn.type = "button";
+            copyBtn.className = "zds-prompt-tool-btn";
+            copyBtn.textContent = "📋 Copy";
+            copyBtn.title = "Copy Negative Prompt";
+            copyBtn.onclick = () => {
+                if (negTa) {
+                    navigator.clipboard.writeText(negTa.value).then(() => {
+                        copyBtn.textContent = "✓ Copied";
+                        setTimeout(() => {
+                            copyBtn.textContent = "📋 Copy";
+                        }, 1500);
+                    });
+                }
+            };
+
+            const clearBtn = document.createElement("button");
+            clearBtn.type = "button";
+            clearBtn.className = "zds-prompt-tool-btn";
+            clearBtn.textContent = "🧹 Clear";
+            clearBtn.title = "Clear Negative Prompt";
+            clearBtn.onclick = () => {
+                if (negTa && confirm("Clear negative prompt?")) {
+                    negTa.value = "";
+                    negTa.dispatchEvent(new Event("input"));
+                }
+            };
+
+            right.appendChild(counter);
+            right.appendChild(copyBtn);
+            right.appendChild(clearBtn);
+
+            negHeader.appendChild(left);
+            negHeader.appendChild(right);
+            negBox.appendChild(negHeader);
+
+            negTa = document.createElement("textarea");
+            negTa.className = "zds-textarea zds-textarea-neg";
+            negTa.value = negativeW.value || "";
+            negTa.placeholder = "Enter negative prompt (unwanted artifacts, quality filters)...";
+
+            negTa.oninput = () => {
+                negativeW.value = negTa.value;
+                updateCounter(negTa, counter);
+                if (negativeW.callback) negativeW.callback(negTa.value, app.canvas, node);
+                node.setDirtyCanvas(true, true);
+            };
+
+            updateCounter(negTa, counter);
+            negBox.appendChild(negTa);
+            container.appendChild(negBox);
+        }
+
+        // 4. Prompt Library & Presets (Clean 2-Column Responsive Grid)
+        const libraryWidgets = [
+            savedPromptW,
+            catFilterW,
+            negPresetsW,
+            promptStyleW,
+            typeFilterW,
+            syntaxThemeW,
+            promptCategoryW
+        ].filter(Boolean);
+
+        if (libraryWidgets.length > 0) {
+            const libSection = document.createElement("div");
+            libSection.className = "zds-library-section";
+
+            const libHeader = document.createElement("div");
+            libHeader.className = "zds-section-subhead";
+            libHeader.innerHTML = `<span>📚 Prompt Library & Styles</span>`;
+            libSection.appendChild(libHeader);
+
+            const grid = document.createElement("div");
+            grid.className = "zds-prompt-library-grid";
+
+            for (const w of libraryWidgets) {
+                const cell = document.createElement("div");
+                cell.className = "zds-grid-cell";
+
+                const lbl = document.createElement("label");
+                lbl.className = "zds-cell-label";
+                lbl.textContent = w.name.replace(/_/g, " ");
+
+                cell.appendChild(lbl);
+
+                if (w.type === "combo" || Array.isArray(w.options?.values) || typeof w.options?.values === "function") {
+                    const sel = document.createElement("select");
+                    sel.className = "zds-select zds-select-compact";
+
+                    let values = w.options?.values;
+                    if (typeof values === "function") {
+                        try {
+                            values = values(w, node);
+                        } catch (_) {
+                            values = [];
+                        }
+                    }
+                    if (!Array.isArray(values)) values = [];
+
+                    let selectedVal = w.value;
+                    if (typeof selectedVal === "number" && values[selectedVal] !== undefined) {
+                        selectedVal = values[selectedVal];
+                    }
+                    if (selectedVal && !values.includes(selectedVal)) {
+                        values = [selectedVal, ...values];
+                    }
+
+                    for (const val of values) {
+                        const opt = document.createElement("option");
+                        opt.value = val;
+                        opt.textContent = val;
+                        if (val === selectedVal) opt.selected = true;
+                        sel.appendChild(opt);
+                    }
+
+                    sel.onchange = () => {
+                        w.value = sel.value;
+                        if (w.callback) w.callback(sel.value, app.canvas, node);
+                        node.setDirtyCanvas(true, true);
+
+                        // If loading a saved prompt or preset, refresh textareas after ComfyUI updates them
+                        if (w === savedPromptW || w === negPresetsW) {
+                            setTimeout(() => {
+                                if (posTa && positiveW) {
+                                    posTa.value = positiveW.value || "";
+                                    posTa.dispatchEvent(new Event("input"));
+                                }
+                                if (negTa && negativeW) {
+                                    negTa.value = negativeW.value || "";
+                                    negTa.dispatchEvent(new Event("input"));
+                                }
+                            }, 50);
+                        }
+                    };
+
+                    cell.appendChild(sel);
+                } else {
+                    const inp = document.createElement("input");
+                    inp.type = "text";
+                    inp.className = "zds-modal-input zds-input-compact";
+                    inp.value = w.value || "";
+                    inp.oninput = () => {
+                        w.value = inp.value;
+                        if (w.callback) w.callback(inp.value, app.canvas, node);
+                        node.setDirtyCanvas(true, true);
+                    };
+                    cell.appendChild(inp);
+                }
+
+                grid.appendChild(cell);
+            }
+
+            libSection.appendChild(grid);
+            container.appendChild(libSection);
+        }
+
+        // 5. Parameters & Seed Strip (Horizontal Compact Bar)
+        if (seedW || weightModeW || seedActionW) {
+            const paramsStrip = document.createElement("div");
+            paramsStrip.className = "zds-params-strip";
+
+            // Seed Control
+            if (seedW) {
+                const seedBlock = document.createElement("div");
+                seedBlock.className = "zds-param-block zds-seed-block";
+
+                const seedLbl = document.createElement("span");
+                seedLbl.className = "zds-cell-label";
+                seedLbl.textContent = "Seed";
+
+                const seedGroup = document.createElement("div");
+                seedGroup.className = "zds-seed-group";
+
+                const seedInput = document.createElement("input");
+                seedInput.type = "number";
+                seedInput.className = "zds-seed-input";
+                seedInput.value = seedW.value;
+
+                seedInput.oninput = () => {
+                    const val = parseInt(seedInput.value, 10) || 0;
+                    seedW.value = val;
+                    if (seedW.callback) seedW.callback(val, app.canvas, node);
+                    node.setDirtyCanvas(true, true);
+                };
+
+                const randBtn = document.createElement("button");
+                randBtn.type = "button";
+                randBtn.className = "zds-seed-btn";
+                randBtn.innerHTML = "🎲";
+                randBtn.title = "Generate Random Seed";
+                randBtn.onclick = () => {
+                    const r = Math.floor(Math.random() * 1125899906842624);
+                    seedInput.value = r;
+                    seedInput.dispatchEvent(new Event("input"));
+                };
+
+                const incBtn = document.createElement("button");
+                incBtn.type = "button";
+                incBtn.className = "zds-seed-btn";
+                incBtn.innerHTML = "+1";
+                incBtn.title = "Increment Seed";
+                incBtn.onclick = () => {
+                    seedInput.value = (parseInt(seedInput.value, 10) || 0) + 1;
+                    seedInput.dispatchEvent(new Event("input"));
+                };
+
+                seedGroup.appendChild(seedInput);
+                seedGroup.appendChild(randBtn);
+                seedGroup.appendChild(incBtn);
+
+                seedBlock.appendChild(seedLbl);
+                seedBlock.appendChild(seedGroup);
+                paramsStrip.appendChild(seedBlock);
+            }
+
+            // Seed Action
+            if (seedActionW) {
+                const actBlock = document.createElement("div");
+                actBlock.className = "zds-param-block";
+
+                const actLbl = document.createElement("span");
+                actLbl.className = "zds-cell-label";
+                actLbl.textContent = "Seed Action";
+
+                const sel = document.createElement("select");
+                sel.className = "zds-select zds-select-compact";
+                const values = Array.isArray(seedActionW.options?.values) ? seedActionW.options.values : ["fixed", "randomize", "increment", "decrement"];
+                for (const v of values) {
+                    const opt = document.createElement("option");
+                    opt.value = v;
+                    opt.textContent = v;
+                    if (v === seedActionW.value) opt.selected = true;
+                    sel.appendChild(opt);
+                }
+                sel.onchange = () => {
+                    seedActionW.value = sel.value;
+                    if (seedActionW.callback) seedActionW.callback(sel.value, app.canvas, node);
+                    node.setDirtyCanvas(true, true);
+                };
+
+                actBlock.appendChild(actLbl);
+                actBlock.appendChild(sel);
+                paramsStrip.appendChild(actBlock);
+            }
+
+            // Weight Mode
+            if (weightModeW) {
+                const wmBlock = document.createElement("div");
+                wmBlock.className = "zds-param-block";
+
+                const wmLbl = document.createElement("span");
+                wmLbl.className = "zds-cell-label";
+                wmLbl.textContent = "Weight Mode";
+
+                const sel = document.createElement("select");
+                sel.className = "zds-select zds-select-compact";
+                let values = weightModeW.options?.values || [];
+                if (typeof values === "function") {
+                    try {
+                        values = values(weightModeW, node);
+                    } catch (_) {
+                        values = [];
+                    }
+                }
+                if (!Array.isArray(values)) values = [];
+                let sVal = weightModeW.value;
+                if (typeof sVal === "number" && values[sVal] !== undefined) sVal = values[sVal];
+
+                for (const v of values) {
+                    const opt = document.createElement("option");
+                    opt.value = v;
+                    opt.textContent = v;
+                    if (v === sVal) opt.selected = true;
+                    sel.appendChild(opt);
+                }
+                sel.onchange = () => {
+                    weightModeW.value = sel.value;
+                    if (weightModeW.callback) weightModeW.callback(sel.value, app.canvas, node);
+                    node.setDirtyCanvas(true, true);
+                };
+
+                wmBlock.appendChild(wmLbl);
+                wmBlock.appendChild(sel);
+                paramsStrip.appendChild(wmBlock);
+            }
+
+            container.appendChild(paramsStrip);
+        }
+
+        // 6. Gracefully append any extra or custom unhandled widgets
+        const handledNames = new Set([
+            "positive", "negative", "mute_negative", "saved_prompt", "prompt_style",
+            "syntax_theme", "type_filter", "category_filter", "negative_presets",
+            "weight_mode", "seed", "seed_action", "control_after_generate", "prompt_category"
+        ]);
+        const remainingWidgets = (node.widgets || []).filter((w) => !handledNames.has(w.name) && w.type !== "button" && !(typeof w.callback === "function" && w.value === undefined));
+        if (remainingWidgets.length > 0) {
+            for (const rw of remainingWidgets) {
+                try {
+                    const row = this.renderWidgetControl(node, rw);
+                    if (row) container.appendChild(row);
+                } catch (_) {}
+            }
+        }
+    }
+
     // ── Render Tactile HTML Widgets (Two-Way Sync) ─────────────────────────────
     renderWidgetControl(node, widget) {
         if (!widget || widget.type === "hidden") return null;
@@ -1986,6 +2760,95 @@ class ZombiehausDeckStudio {
         const label = document.createElement("span");
         label.textContent = widget.name;
         header.appendChild(label);
+
+        // Dropdown Select (COMBO) - evaluated first so combo options with numeric indices/values are never mistaken for sliders
+        if (widget.type === "combo" || Array.isArray(widget.options?.values) || typeof widget.options?.values === "function") {
+            row.appendChild(header);
+            const select = document.createElement("select");
+            select.className = "zds-select";
+
+            let values = widget.options?.values;
+            if (typeof values === "function") {
+                try {
+                    values = values(widget, node);
+                } catch (_) {
+                    values = [];
+                }
+            }
+            if (!Array.isArray(values)) {
+                values = [];
+            }
+
+            let selectedVal = widget.value;
+            if (typeof selectedVal === "number" && values[selectedVal] !== undefined) {
+                selectedVal = values[selectedVal];
+            }
+
+            if (selectedVal && !values.includes(selectedVal)) {
+                values = [selectedVal, ...values];
+            }
+
+            for (const val of values) {
+                const opt = document.createElement("option");
+                opt.value = val;
+                opt.textContent = val;
+                if (val === selectedVal) {
+                    opt.selected = true;
+                }
+                select.appendChild(opt);
+            }
+
+            select.onchange = () => {
+                widget.value = select.value;
+                if (widget.callback) widget.callback(select.value, app.canvas, node);
+                node.setDirtyCanvas(true, true);
+            };
+
+            row.appendChild(select);
+            return row;
+        }
+
+        // Button Widget
+        if (widget.type === "button" || (typeof widget.callback === "function" && widget.value === undefined)) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "zds-btn";
+            btn.style.cssText = "width: 100%; margin-top: 4px; padding: 5px 10px; font-size: 11px;";
+            btn.textContent = widget.name || "Action";
+            btn.onclick = () => {
+                if (widget.callback) widget.callback(widget, app.canvas, node);
+            };
+            row.appendChild(btn);
+            return row;
+        }
+
+        // Boolean Toggle
+        if (widget.type === "toggle" || typeof widget.value === "boolean") {
+            const switchLabel = document.createElement("label");
+            switchLabel.className = "zds-switch-label";
+            switchLabel.innerHTML = `<span>${widget.name}</span>`;
+
+            const switchSpan = document.createElement("label");
+            switchSpan.className = "zds-switch";
+            const chk = document.createElement("input");
+            chk.type = "checkbox";
+            chk.checked = !!widget.value;
+
+            chk.onchange = () => {
+                widget.value = chk.checked;
+                if (widget.callback) widget.callback(chk.checked, app.canvas, node);
+                node.setDirtyCanvas(true, true);
+            };
+
+            const slider = document.createElement("span");
+            slider.className = "zds-switch-slider";
+
+            switchSpan.appendChild(chk);
+            switchSpan.appendChild(slider);
+            switchLabel.appendChild(switchSpan);
+            row.appendChild(switchLabel);
+            return row;
+        }
 
         // Numeric Slider Control
         if (widget.type === "number" || typeof widget.value === "number") {
@@ -2087,101 +2950,56 @@ class ZombiehausDeckStudio {
             return row;
         }
 
-        // Dropdown Select (COMBO)
-        if (widget.type === "combo" || Array.isArray(widget.options?.values) || typeof widget.options?.values === "function") {
-            row.appendChild(header);
-            const select = document.createElement("select");
-            select.className = "zds-select";
-
-            let values = widget.options?.values;
-            if (typeof values === "function") {
-                try {
-                    values = values(widget, node);
-                } catch (_) {
-                    values = [];
-                }
-            }
-            if (!Array.isArray(values)) {
-                values = [];
-            }
-
-            if (widget.value && !values.includes(widget.value)) {
-                values = [widget.value, ...values];
-            }
-
-            for (const val of values) {
-                const opt = document.createElement("option");
-                opt.value = val;
-                opt.textContent = val;
-                if (val === widget.value) opt.selected = true;
-                select.appendChild(opt);
-            }
-
-            select.onchange = () => {
-                widget.value = select.value;
-                if (widget.callback) widget.callback(select.value, app.canvas, node);
-                node.setDirtyCanvas(true, true);
-            };
-
-            row.appendChild(select);
-            return row;
-        }
-
-        // Button Widget
-        if (widget.type === "button" || (typeof widget.callback === "function" && widget.value === undefined)) {
-            const btn = document.createElement("button");
-            btn.type = "button";
-            btn.className = "zds-btn";
-            btn.style.cssText = "width: 100%; margin-top: 4px; padding: 5px 10px; font-size: 11px;";
-            btn.textContent = widget.name || "Action";
-            btn.onclick = () => {
-                if (widget.callback) widget.callback(widget, app.canvas, node);
-            };
-            row.appendChild(btn);
-            return row;
-        }
-
-        // Boolean Toggle
-        if (widget.type === "toggle" || typeof widget.value === "boolean") {
-            const switchLabel = document.createElement("label");
-            switchLabel.className = "zds-switch-label";
-            switchLabel.innerHTML = `<span>${widget.name}</span>`;
-
-            const switchSpan = document.createElement("label");
-            switchSpan.className = "zds-switch";
-            const chk = document.createElement("input");
-            chk.type = "checkbox";
-            chk.checked = !!widget.value;
-
-            chk.onchange = () => {
-                widget.value = chk.checked;
-                if (widget.callback) widget.callback(chk.checked, app.canvas, node);
-                node.setDirtyCanvas(true, true);
-            };
-
-            const slider = document.createElement("span");
-            slider.className = "zds-switch-slider";
-
-            switchSpan.appendChild(chk);
-            switchSpan.appendChild(slider);
-            switchLabel.appendChild(switchSpan);
-            row.appendChild(switchLabel);
-            return row;
-        }
-
         // Multi-line Textarea / Text Input
         if (widget.type === "text" || widget.type === "customtext" || typeof widget.value === "string") {
             row.appendChild(header);
-            const isMultiline = widget.name.toLowerCase().includes("prompt") || widget.name.toLowerCase().includes("text");
+
+            const nameLower = (widget.name || "").toLowerCase();
+            const isExcludedSingleLine = nameLower.includes("category") ||
+                                         nameLower.includes("filter") ||
+                                         nameLower.includes("style") ||
+                                         nameLower.includes("theme") ||
+                                         nameLower.includes("preset") ||
+                                         nameLower.includes("prefix") ||
+                                         nameLower.includes("suffix") ||
+                                         nameLower.includes("filename") ||
+                                         nameLower.includes("folder") ||
+                                         nameLower.includes("path") ||
+                                         nameLower.includes("mode") ||
+                                         nameLower.includes("action") ||
+                                         nameLower.includes("method");
+
+            const isExplicitMultiline = widget.options?.multiline === true || widget.type === "customtext";
+            const isMultilineName = nameLower === "positive" ||
+                                    nameLower === "negative" ||
+                                    nameLower.includes("positive_") ||
+                                    nameLower.includes("negative_") ||
+                                    nameLower.includes("prompt") ||
+                                    nameLower.includes("caption") ||
+                                    nameLower.includes("description") ||
+                                    nameLower.includes("lyrics") ||
+                                    nameLower.includes("script") ||
+                                    nameLower.includes("notes") ||
+                                    nameLower.includes("content") ||
+                                    nameLower === "text" ||
+                                    nameLower.startsWith("text_");
+
+            const hasMultilineContent = typeof widget.value === "string" && (widget.value.includes("\n") || widget.value.length > 80);
+
+            const isMultiline = isExplicitMultiline || (!isExcludedSingleLine && (isMultilineName || hasMultilineContent));
 
             if (isMultiline) {
                 row.classList.add("zds-widget-multiline");
+                if (nameLower === "positive" || nameLower.includes("lyrics") || nameLower === "caption") {
+                    row.classList.add("zds-widget-hero-prompt");
+                } else if (nameLower === "negative") {
+                    row.classList.add("zds-widget-secondary-prompt");
+                }
+
                 const ta = document.createElement("textarea");
                 ta.className = "zds-textarea";
-                ta.style.width = "100%";
-                ta.style.boxSizing = "border-box";
-                ta.style.flex = "1";
                 ta.value = widget.value || "";
+                ta.placeholder = `Enter ${widget.name}...`;
 
                 ta.oninput = () => {
                     widget.value = ta.value;

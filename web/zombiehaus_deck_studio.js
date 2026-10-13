@@ -601,7 +601,7 @@ class ZombiehausDeckStudio {
                     min-height: 70px !important;
                     height: 100% !important;
                     box-sizing: border-box !important;
-                    overflow: hidden !important;
+                    overflow: visible !important;
                     border-radius: 6px !important;
                 }
                 .zds-syntax-backdrop {
@@ -643,6 +643,95 @@ class ZombiehausDeckStudio {
                 .zds-textarea.zds-syntax-ta::-moz-selection {
                     background: rgba(168, 85, 247, 0.45) !important;
                     color: #ffffff !important;
+                }
+                .zds-autocomplete-menu {
+                    position: fixed !important;
+                    background: rgba(15, 23, 42, 0.96) !important;
+                    backdrop-filter: blur(16px) !important;
+                    -webkit-backdrop-filter: blur(16px) !important;
+                    border: 1px solid rgba(255, 255, 255, 0.16) !important;
+                    border-radius: 8px !important;
+                    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.85), 0 0 1px 1px rgba(255, 255, 255, 0.1) !important;
+                    max-height: 240px !important;
+                    width: 340px !important;
+                    overflow-y: auto !important;
+                    z-index: 999999 !important;
+                    pointer-events: auto !important;
+                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+                    font-size: 12px !important;
+                    display: none;
+                    box-sizing: border-box !important;
+                    padding: 4px !important;
+                    scrollbar-width: thin !important;
+                    scrollbar-color: rgba(255, 255, 255, 0.25) transparent !important;
+                }
+                .zds-autocomplete-item {
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 8px !important;
+                    padding: 6px 10px !important;
+                    border-radius: 5px !important;
+                    cursor: pointer !important;
+                    user-select: none !important;
+                    transition: background 0.1s ease !important;
+                    color: #f1f5f9 !important;
+                }
+                .zds-autocomplete-item:hover, .zds-autocomplete-item.selected {
+                    background: rgba(139, 92, 246, 0.3) !important;
+                    color: #ffffff !important;
+                }
+                .zds-ac-badge {
+                    font-size: 9px !important;
+                    font-weight: 700 !important;
+                    padding: 1px 5px !important;
+                    border-radius: 3px !important;
+                    letter-spacing: 0.5px !important;
+                    text-transform: uppercase !important;
+                    flex-shrink: 0 !important;
+                }
+                .zds-ac-badge.badge-wildcard {
+                    background: rgba(245, 158, 11, 0.25) !important;
+                    color: #fbbf24 !important;
+                    border: 1px solid rgba(245, 158, 11, 0.4) !important;
+                }
+                .zds-ac-badge.badge-lora {
+                    background: rgba(168, 85, 247, 0.25) !important;
+                    color: #c084fc !important;
+                    border: 1px solid rgba(168, 85, 247, 0.4) !important;
+                }
+                .zds-ac-badge.badge-variable {
+                    background: rgba(59, 130, 246, 0.25) !important;
+                    color: #60a5fa !important;
+                    border: 1px solid rgba(59, 130, 246, 0.4) !important;
+                }
+                .zds-ac-badge.badge-property {
+                    background: rgba(16, 185, 129, 0.25) !important;
+                    color: #34d399 !important;
+                    border: 1px solid rgba(16, 185, 129, 0.4) !important;
+                }
+                .zds-ac-badge.badge-curator {
+                    background: rgba(236, 72, 153, 0.25) !important;
+                    color: #f472b6 !important;
+                    border: 1px solid rgba(236, 72, 153, 0.4) !important;
+                }
+                .zds-ac-label {
+                    flex: 1 !important;
+                    overflow: hidden !important;
+                    text-overflow: ellipsis !important;
+                    white-space: nowrap !important;
+                }
+                .zds-ac-hint {
+                    font-size: 10px !important;
+                    color: #94a3b8 !important;
+                    margin-left: auto !important;
+                    flex-shrink: 0 !important;
+                }
+                .zds-ac-empty {
+                    padding: 6px 10px !important;
+                    font-size: 11px !important;
+                    color: #94a3b8 !important;
+                    text-align: center !important;
+                    font-style: italic !important;
                 }
                 .zds-widgets-body {
                     flex: 1 1 auto !important;
@@ -4100,6 +4189,496 @@ class ZombiehausDeckStudio {
         updateHighlight();
     }
 
+    // ── Dedicated Autocomplete Engine for Deck Studio Cards ───────────────────
+    attachAutocompleteToTextarea(ta, node) {
+        if (!ta || ta._hasZdsAutocomplete) return;
+        ta._hasZdsAutocomplete = true;
+
+        if (typeof window.zombiehausAttachAutocomplete === "function") {
+            try {
+                window.zombiehausAttachAutocomplete(ta, node);
+                return;
+            } catch (_) {}
+        }
+
+        // Shared module caches
+        if (!window._zdsAcCaches) {
+            window._zdsAcCaches = {
+                wildcards: null,
+                loras: null,
+                wildcardKeys: new Map()
+            };
+        }
+        const caches = window._zdsAcCaches;
+
+        const getWildcards = async () => {
+            if (caches.wildcards) return caches.wildcards;
+            try {
+                const r = await fetch("/zombiehaus/wildcards/list");
+                const data = await r.json();
+                if (data && data.success && Array.isArray(data.data)) {
+                    caches.wildcards = data.data;
+                    return data.data;
+                }
+            } catch (_) {}
+            return [];
+        };
+
+        const getLoras = async () => {
+            if (caches.loras) return caches.loras;
+            try {
+                const r = await fetch("/zombiehaus/get_loras");
+                const data = await r.json();
+                if (data && data.success && Array.isArray(data.data)) {
+                    caches.loras = data.data;
+                    return data.data;
+                }
+            } catch (_) {}
+            return [];
+        };
+
+        const parseWildcardData = (content) => {
+            const itemKeys = new Set();
+            const propsByItem = new Map();
+            const allProps = new Set();
+            if (!content || typeof content !== "string") {
+                return { items: [], propsByItem, allProps: [] };
+            }
+
+            const lines = content.split(/\r?\n/);
+            for (const rawLine of lines) {
+                const line = rawLine.trim();
+                if (!line || line.startsWith("#") || line.startsWith("//")) continue;
+
+                const colonMatch = line.match(/^([a-zA-Z0-9_-]+)\s*[:=]\s*(.*)$/);
+                if (colonMatch) {
+                    const itemKey = colonMatch[1].trim();
+                    const val = colonMatch[2].trim();
+                    itemKeys.add(itemKey);
+
+                    const propMatches = val.matchAll(/(?:^|[{,\s])([a-zA-Z0-9_]+)\s*:/g);
+                    const pSet = propsByItem.get(itemKey.toLowerCase()) || new Set();
+                    for (const pm of propMatches) {
+                        const pk = pm[1].trim();
+                        if (pk) {
+                            pSet.add(pk);
+                            allProps.add(pk);
+                        }
+                    }
+                    if (pSet.size > 0) {
+                        propsByItem.set(itemKey.toLowerCase(), pSet);
+                    }
+                } else {
+                    const wordMatch = line.match(/^([a-zA-Z0-9_-]+)/);
+                    if (wordMatch) {
+                        itemKeys.add(wordMatch[1]);
+                    }
+                }
+            }
+
+            return {
+                items: Array.from(itemKeys),
+                propsByItem,
+                allProps: Array.from(allProps)
+            };
+        };
+
+        const getWildcardData = async (filename) => {
+            const clean = (filename || "").replace(/^__+|__+$/g, "").replace(/\.txt$/i, "").trim().toLowerCase();
+            if (!clean) return { items: [], propsByItem: new Map(), allProps: [] };
+            if (caches.wildcardKeys.has(clean)) return caches.wildcardKeys.get(clean);
+
+            try {
+                const r = await fetch("/zombiehaus/wildcards/load", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ filename: clean })
+                });
+                const data = await r.json();
+                if (data && data.success && data.data) {
+                    const parsed = parseWildcardData(data.data);
+                    caches.wildcardKeys.set(clean, parsed);
+                    return parsed;
+                }
+            } catch (_) {}
+            const empty = { items: [], propsByItem: new Map(), allProps: [] };
+            caches.wildcardKeys.set(clean, empty);
+            return empty;
+        };
+
+        const getCaretCoords = (element, position) => {
+            const div = document.createElement("div");
+            const cs = window.getComputedStyle(element);
+            const props = [
+                "direction", "boxSizing", "width", "height", "overflowX", "overflowY",
+                "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth", "borderStyle",
+                "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+                "fontStyle", "fontVariant", "fontWeight", "fontStretch", "fontSize",
+                "fontSizeAdjust", "lineHeight", "fontFamily", "textAlign", "textTransform",
+                "textIndent", "textDecoration", "letterSpacing", "wordSpacing", "tabSize"
+            ];
+            div.style.position = "absolute";
+            div.style.visibility = "hidden";
+            div.style.whiteSpace = "pre-wrap";
+            div.style.wordWrap = "break-word";
+            div.style.top = "0";
+            div.style.left = "-9999px";
+            for (const p of props) {
+                div.style[p] = cs[p];
+            }
+            div.style.width = (element.clientWidth || 300) + "px";
+            div.textContent = element.value.substring(0, position);
+            const span = document.createElement("span");
+            span.textContent = element.value.substring(position) || ".";
+            div.appendChild(span);
+            document.body.appendChild(div);
+            const top = span.offsetTop - element.scrollTop + parseInt(cs.borderTopWidth || "0", 10);
+            const left = span.offsetLeft - element.scrollLeft + parseInt(cs.borderLeftWidth || "0", 10);
+            const lineHeight = parseInt(cs.lineHeight, 10) || 18;
+            document.body.removeChild(div);
+            return { top, left, lineHeight };
+        };
+
+        const detectTrigger = (text, cursor) => {
+            if (cursor <= 0 || !text) return null;
+            const sub = text.slice(0, cursor);
+
+            // 0. Property access: $var.prop (e.g. $woman. or $women.MeganFox.)
+            const propMatch = sub.match(/(?:^|[^\$a-zA-Z0-9_])\$([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]*)$/);
+            if (propMatch) {
+                return {
+                    type: "property",
+                    varName: propMatch[1],
+                    query: propMatch[2] || "",
+                    replaceStart: cursor - (propMatch[2] || "").length,
+                    replaceEnd: cursor
+                };
+            }
+
+            // 1. Wildcards: __name
+            const wcMatch = sub.match(/(?:^|[\s,.:;!?([{\"])(__([a-zA-Z0-9_\/-]*))$/);
+            if (wcMatch) {
+                return {
+                    type: "wildcard",
+                    query: wcMatch[2] || "",
+                    replaceStart: cursor - wcMatch[1].length,
+                    replaceEnd: cursor
+                };
+            }
+
+            // 2. LoRA: <lora:name or <name
+            const loraMatch = sub.match(/(?:^|[\s,.:;!?([{\"])(<(?:lora:)?([a-zA-Z0-9_\/\-\.]*))$/i);
+            if (loraMatch) {
+                return {
+                    type: "lora",
+                    query: loraMatch[2] || "",
+                    replaceStart: cursor - loraMatch[1].length,
+                    replaceEnd: cursor
+                };
+            }
+
+            // 3. Variables: $name
+            const varMatch = sub.match(/(?:^|[^\$a-zA-Z0-9_])(\$([a-zA-Z0-9_]*))$/);
+            if (varMatch) {
+                return {
+                    type: "variable",
+                    query: varMatch[2] || "",
+                    replaceStart: cursor - varMatch[1].length,
+                    replaceEnd: cursor
+                };
+            }
+
+            // 4. Curator placeholders: {c or {curator
+            const curMatch = sub.match(/(?:^|[\s,.:;!?([{\"])(\{([a-zA-Z0-9_]*))$/i);
+            if (curMatch) {
+                return {
+                    type: "curator",
+                    query: curMatch[2] || "",
+                    replaceStart: cursor - curMatch[1].length,
+                    replaceEnd: cursor
+                };
+            }
+
+            return null;
+        };
+
+        const resolveItems = async (trigger) => {
+            const q = (trigger.query || "").toLowerCase();
+            const fullContext = (ta.value || "") + "\n" + (node?.widgets?.map(w => w.value || "").join("\n") || "");
+
+            if (trigger.type === "property") {
+                const items = [];
+                const varName = trigger.varName;
+                const assignMatch = fullContext.match(new RegExp(`(?:^|\\n)\\s*\\$${varName}\\s*=\\s*([^;\\n\\r]+)`, "i"));
+                let rhs = assignMatch ? assignMatch[1].trim() : "";
+
+                let wcName = null;
+                let subItem = null;
+
+                const chainMatch = rhs.match(/\$([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)/i);
+                if (chainMatch) {
+                    const parentVar = chainMatch[1];
+                    subItem = chainMatch[2];
+                    const pAssign = fullContext.match(new RegExp(`(?:^|\\n)\\s*\\$${parentVar}\\s*=\\s*([^;\\n\\r]+)`, "i"));
+                    if (pAssign) rhs = pAssign[1].trim();
+                }
+
+                const wcMatch = rhs.match(/__(?:[-a-zA-Z0-9_*$]+?\$\$)?([a-zA-Z0-9_/-]+)__/i) ||
+                               rhs.match(/(?:all|any|one|choose)\s*[\({]\s*['"]?([a-zA-Z0-9_/-]+)['"]?\s*[\)}]/i);
+                if (wcMatch) {
+                    wcName = wcMatch[1].replace(/\.txt$/i, "").trim().toLowerCase();
+                }
+
+                if (wcName) {
+                    const data = await getWildcardData(wcName);
+                    if (subItem && data.propsByItem.has(subItem.toLowerCase())) {
+                        for (const prop of data.propsByItem.get(subItem.toLowerCase())) {
+                            items.push({ name: prop, badge: "PROP", badgeClass: "badge-property", desc: `${subItem}.${prop}` });
+                        }
+                    } else if (data.items.length > 0) {
+                        for (const it of data.items) {
+                            items.push({ name: it, badge: "ITEM", badgeClass: "badge-property", desc: `${wcName} item` });
+                        }
+                    }
+                    if (items.length === 0 && data.allProps.length > 0) {
+                        for (const prop of data.allProps) {
+                            items.push({ name: prop, badge: "PROP", badgeClass: "badge-property", desc: `Property (${wcName})` });
+                        }
+                    }
+                }
+
+                // Inline dictionary extraction fallback
+                const inlineMatches = rhs.matchAll(/(?:^|[{,\s])([a-zA-Z0-9_]+)\s*:/g);
+                for (const im of inlineMatches) {
+                    const k = im[1].trim();
+                    if (k && !items.some(it => it.name === k)) {
+                        items.push({ name: k, badge: "PROP", badgeClass: "badge-property", desc: "Dictionary key" });
+                    }
+                }
+
+                // Standard helper methods
+                ["keys", "values", "length", "first", "last"].forEach(h => {
+                    items.push({ name: h, badge: "FUNC", badgeClass: "badge-variable", desc: "Helper method" });
+                });
+
+                return items.filter(it => !q || it.name.toLowerCase().includes(q));
+            }
+
+            if (trigger.type === "wildcard") {
+                const wcs = await getWildcards();
+                return wcs
+                    .map(w => ({ name: w, badge: "WC", badgeClass: "badge-wildcard", desc: "Wildcard file" }))
+                    .filter(it => !q || it.name.toLowerCase().includes(q));
+            }
+
+            if (trigger.type === "lora") {
+                const loras = await getLoras();
+                return loras
+                    .map(l => ({ name: l, badge: "LORA", badgeClass: "badge-lora", desc: "LoRA model" }))
+                    .filter(it => !q || it.name.toLowerCase().includes(q));
+            }
+
+            if (trigger.type === "variable") {
+                const vars = new Set();
+                const vRegex = /\$([a-zA-Z0-9_]+)/g;
+                let vm;
+                while ((vm = vRegex.exec(fullContext)) !== null) {
+                    vars.add(vm[1]);
+                }
+                ["subject", "style", "lighting", "quality", "details", "outfit"].forEach(s => vars.add(s));
+                return Array.from(vars)
+                    .map(v => ({ name: v, badge: "VAR", badgeClass: "badge-variable", desc: "Prompt variable" }))
+                    .filter(it => !q || it.name.toLowerCase().includes(q));
+            }
+
+            if (trigger.type === "curator") {
+                return ["curator", "curator2", "curator3", "curator4", "curator5", "curator6"]
+                    .map(c => ({ name: c, badge: "LIST", badgeClass: "badge-curator", desc: "List curator slot" }))
+                    .filter(it => !q || it.name.toLowerCase().includes(q));
+            }
+
+            return [];
+        };
+
+        const formatReplacement = (item, type) => {
+            if (type === "property") return item.name;
+            if (type === "wildcard") return `__${item.name}__`;
+            if (type === "lora") return `<lora:${item.name}:1.0>`;
+            if (type === "variable") return `$${item.name}`;
+            if (type === "curator") return `{${item.name}}`;
+            return item.name;
+        };
+
+        // Autocomplete menu container attached to overlay or body
+        const menu = document.createElement("div");
+        menu.className = "zds-autocomplete-menu";
+        document.body.appendChild(menu);
+
+        let activeItems = [];
+        let selectedIndex = 0;
+        let currentTrigger = null;
+
+        const closeMenu = () => {
+            menu.style.display = "none";
+            menu.innerHTML = "";
+            activeItems = [];
+            selectedIndex = 0;
+            currentTrigger = null;
+        };
+
+        const commitItem = (item) => {
+            if (!currentTrigger) return;
+            const replacement = formatReplacement(item, currentTrigger.type);
+            ta.setRangeText(replacement, currentTrigger.replaceStart, currentTrigger.replaceEnd, "end");
+            ta.dispatchEvent(new Event("input", { bubbles: true }));
+            closeMenu();
+            ta.focus();
+        };
+
+        const updateHighlight = () => {
+            const rows = menu.querySelectorAll(".zds-autocomplete-item");
+            rows.forEach((r, idx) => {
+                if (idx === selectedIndex) {
+                    r.classList.add("selected");
+                    r.scrollIntoView({ block: "nearest" });
+                } else {
+                    r.classList.remove("selected");
+                }
+            });
+        };
+
+        const positionMenu = () => {
+            if (!currentTrigger) return;
+            const coords = getCaretCoords(ta, currentTrigger.replaceStart);
+            const rect = ta.getBoundingClientRect();
+            const left = Math.min(window.innerWidth - 350, Math.max(10, Math.round(rect.left + coords.left - ta.scrollLeft)));
+            let top = Math.round(rect.top + coords.top - ta.scrollTop + coords.lineHeight + 4);
+            if (top + 240 > window.innerHeight && rect.top - 240 > 10) {
+                top = Math.round(rect.top + coords.top - ta.scrollTop - 244);
+            }
+            menu.style.left = `${left}px`;
+            menu.style.top = `${top}px`;
+        };
+
+        const renderMenu = () => {
+            menu.innerHTML = "";
+            if (activeItems.length === 0) {
+                closeMenu();
+                return;
+            }
+
+            const maxVisible = 25;
+            const displayItems = activeItems.slice(0, maxVisible);
+            displayItems.forEach((item, idx) => {
+                const row = document.createElement("div");
+                row.className = "zds-autocomplete-item" + (idx === selectedIndex ? " selected" : "");
+
+                const badge = document.createElement("span");
+                badge.className = `zds-ac-badge ${item.badgeClass || ""}`;
+                badge.textContent = item.badge || "AUTO";
+
+                const label = document.createElement("span");
+                label.className = "zds-ac-label";
+                label.textContent = item.name;
+
+                row.appendChild(badge);
+                row.appendChild(label);
+
+                if (item.desc) {
+                    const desc = document.createElement("span");
+                    desc.className = "zds-ac-hint";
+                    desc.textContent = item.desc;
+                    row.appendChild(desc);
+                }
+
+                row.addEventListener("mousedown", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    commitItem(item);
+                });
+
+                row.addEventListener("mouseenter", () => {
+                    selectedIndex = idx;
+                    updateHighlight();
+                });
+
+                menu.appendChild(row);
+            });
+
+            if (activeItems.length > maxVisible) {
+                const more = document.createElement("div");
+                more.className = "zds-ac-empty";
+                more.textContent = `+${activeItems.length - maxVisible} more (type to filter)...`;
+                menu.appendChild(more);
+            }
+
+            positionMenu();
+            menu.style.display = "block";
+            updateHighlight();
+        };
+
+        const checkTriggerAndSuggest = async () => {
+            const trigger = detectTrigger(ta.value, ta.selectionStart);
+            if (!trigger) {
+                closeMenu();
+                return;
+            }
+
+            currentTrigger = trigger;
+            const items = await resolveItems(trigger);
+            if (currentTrigger !== trigger) return;
+
+            activeItems = items;
+            selectedIndex = 0;
+            renderMenu();
+        };
+
+        ta.addEventListener("input", () => {
+            checkTriggerAndSuggest();
+        });
+
+        ta.addEventListener("keydown", (e) => {
+            if (menu.style.display !== "none" && activeItems.length > 0) {
+                if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    selectedIndex = (selectedIndex + 1) % activeItems.length;
+                    updateHighlight();
+                    return;
+                }
+                if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    selectedIndex = (selectedIndex - 1 + activeItems.length) % activeItems.length;
+                    updateHighlight();
+                    return;
+                }
+                if (e.key === "Enter" || e.key === "Tab") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    commitItem(activeItems[selectedIndex]);
+                    return;
+                }
+                if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeMenu();
+                    return;
+                }
+            }
+        });
+
+        ta.addEventListener("blur", () => {
+            setTimeout(closeMenu, 180);
+        });
+
+        ta.addEventListener("scroll", () => {
+            if (menu.style.display !== "none") positionMenu();
+        });
+
+        window.addEventListener("resize", closeMenu);
+    }
+
     // ── Dedicated Structured Layout for Text Studio Nodes ─────────────────────
     renderTextStudioWidgets(node, container) {
         const findW = (name) => node.widgets?.find((w) => w.name === name);
@@ -4223,6 +4802,7 @@ class ZombiehausDeckStudio {
             updateCounter(posTa, counter);
             posBox.appendChild(posTa);
             this.attachSyntaxHighlighterToTextarea(posTa, posBox);
+            this.attachAutocompleteToTextarea(posTa, node);
             container.appendChild(posBox);
         }
 
@@ -4338,6 +4918,7 @@ class ZombiehausDeckStudio {
             updateCounter(negTa, counter);
             negBox.appendChild(negTa);
             this.attachSyntaxHighlighterToTextarea(negTa, negBox);
+            this.attachAutocompleteToTextarea(negTa, node);
             container.appendChild(negBox);
         }
 
@@ -4857,6 +5438,7 @@ class ZombiehausDeckStudio {
 
                 row.appendChild(ta);
                 this.attachSyntaxHighlighterToTextarea(ta, row);
+                this.attachAutocompleteToTextarea(ta, node);
             } else {
                 const inp = document.createElement("input");
                 inp.type = "text";

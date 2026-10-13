@@ -299,8 +299,8 @@ class ZombiehausDeckStudio {
         let svg = this.workspace ? this.workspace.querySelector("#zds-connections-svg") : null;
         if (!svg && this.workspace) {
             svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-            svg.className = "zds-connections-svg";
-            svg.id = "zds-connections-svg";
+            svg.setAttribute("class", "zds-connections-svg");
+            svg.setAttribute("id", "zds-connections-svg");
             this.workspace.appendChild(svg);
         }
         this.svgOverlay = svg;

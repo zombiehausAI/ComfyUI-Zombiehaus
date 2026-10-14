@@ -241,7 +241,11 @@ function injectSyntaxStyles() {
         [data-node-id] textarea {
             resize: none !important;
         }
-        .zombiehaus-syntax-ta {
+        .zombiehaus-syntax-ta,
+        textarea.zombiehaus-syntax-ta,
+        .litegraph textarea.zombiehaus-syntax-ta,
+        .comfy-multiline-input.zombiehaus-syntax-ta,
+        [data-node-id] textarea.zombiehaus-syntax-ta {
             color: transparent !important;
             -webkit-text-fill-color: transparent !important;
             background: transparent !important;
@@ -1656,13 +1660,13 @@ function detectPromptHealth(text) {
 // ── Universal Widget Input Resolver (Supports Classic Canvas & Modern Vue Nodes 2.0) ──
 function resolveWidgetInputEl(widget, node) {
     if (!widget) return null;
-    if (widget.inputEl && widget.inputEl.isConnected) {
-        return widget.inputEl;
+    if (widget._cachedInputEl && widget._cachedInputEl.isConnected) {
+        return widget._cachedInputEl;
     }
     if (widget.element && widget.element.isConnected) {
         const ta = widget.element.tagName === "TEXTAREA" ? widget.element : widget.element.querySelector?.("textarea");
         if (ta && ta.isConnected) {
-            widget.inputEl = ta;
+            widget._cachedInputEl = ta;
             return ta;
         }
     }
@@ -1696,14 +1700,14 @@ function resolveWidgetInputEl(widget, node) {
                         try {
                             const byId = nodeEl.querySelector("#" + CSS.escape(forId)) || document.getElementById(forId);
                             if (byId && byId.tagName === "TEXTAREA" && byId.isConnected) {
-                                widget.inputEl = byId;
+                                widget._cachedInputEl = byId;
                                 return byId;
                             }
                         } catch (_) {}
                     }
                     const parentTa = lbl.parentElement?.querySelector("textarea");
                     if (parentTa && parentTa.isConnected) {
-                        widget.inputEl = parentTa;
+                        widget._cachedInputEl = parentTa;
                         return parentTa;
                     }
                 }
@@ -1721,15 +1725,15 @@ function resolveWidgetInputEl(widget, node) {
             );
             const wIdx = multilineWidgets.indexOf(widget);
             if (wIdx >= 0 && allTextareas[wIdx] && allTextareas[wIdx].isConnected) {
-                widget.inputEl = allTextareas[wIdx];
+                widget._cachedInputEl = allTextareas[wIdx];
                 return allTextareas[wIdx];
             }
             if (widget.name === "positive" && allTextareas[0] && allTextareas[0].isConnected) {
-                widget.inputEl = allTextareas[0];
+                widget._cachedInputEl = allTextareas[0];
                 return allTextareas[0];
             }
             if (widget.name === "negative" && allTextareas[1] && allTextareas[1].isConnected) {
-                widget.inputEl = allTextareas[1];
+                widget._cachedInputEl = allTextareas[1];
                 return allTextareas[1];
             }
         }
@@ -1766,7 +1770,8 @@ function hookTextAreaReactivity(ta, widget) {
 function ensureWidgetInputElProxy(widget, node) {
     if (!widget || widget._hasInputElProxy) return;
     widget._hasInputElProxy = true;
-    let _cachedEl = widget.inputEl || null;
+    let _cachedEl = widget._cachedInputEl || widget.inputEl || null;
+    widget._cachedInputEl = _cachedEl;
 
     Object.defineProperty(widget, "inputEl", {
         configurable: true,
@@ -1775,16 +1780,24 @@ function ensureWidgetInputElProxy(widget, node) {
             if (_cachedEl && _cachedEl.isConnected) {
                 return _cachedEl;
             }
-            const found = resolveWidgetInputEl(widget, node);
-            if (found) {
-                _cachedEl = found;
-                hookTextAreaReactivity(found, widget);
-                return found;
+            if (widget._isResolvingInputEl) return _cachedEl;
+            widget._isResolvingInputEl = true;
+            try {
+                const found = resolveWidgetInputEl(widget, node);
+                if (found) {
+                    _cachedEl = found;
+                    widget._cachedInputEl = found;
+                    hookTextAreaReactivity(found, widget);
+                    return found;
+                }
+            } finally {
+                widget._isResolvingInputEl = false;
             }
             return _cachedEl;
         },
         set(val) {
             _cachedEl = val;
+            widget._cachedInputEl = val;
             if (val && val instanceof HTMLElement) {
                 hookTextAreaReactivity(val, widget);
             }
@@ -5457,29 +5470,7 @@ app.registerExtension({
                 );
                 categoryWidget.label = "Category";
 
-                // Move style, theme, type, and category filters to appear right before saved_prompt
-                if (dropdownWidget) {
-                    const dropIdx = node.widgets.indexOf(dropdownWidget);
-                    const styleIdx = node.widgets.indexOf(styleWidget);
-                    const themeIdx = node.widgets.indexOf(themeWidget);
-                    const typeIdx  = node.widgets.indexOf(typeWidget);
-                    const catIdx   = node.widgets.indexOf(categoryWidget);
-                    if (dropIdx >= 0) {
-                        const items = [
-                            { w: styleWidget, idx: styleIdx },
-                            { w: themeWidget, idx: themeIdx },
-                            { w: typeWidget,  idx: typeIdx },
-                            { w: categoryWidget, idx: catIdx }
-                        ].sort((a, b) => b.idx - a.idx);
-
-                        for (const it of items) {
-                            if (it.idx >= 0) node.widgets.splice(it.idx, 1);
-                        }
-
-                        const newDropIdx = node.widgets.indexOf(dropdownWidget);
-                        node.widgets.splice(newDropIdx, 0, styleWidget, themeWidget, typeWidget, categoryWidget);
-                    }
-                }
+                // (Widgets are kept in natural sequence to ensure 100% stable workflow deserialization)
 
                 // ── Prompt dropdown → load on select ─────────────────────────────
                 if (dropdownWidget) {
@@ -5645,25 +5636,78 @@ app.registerExtension({
                 );
             };
 
+            nodeType.prototype._healShiftedWidgets = function() {
+                const sw = this.widgets?.find(w => w.name === "saved_prompt");
+                const wmw = this.widgets?.find(w => w.name === "weight_mode");
+                const seedW = this.widgets?.find(w => w.name === "seed");
+                const cagw = this.widgets?.find(w => w.name === "control_after_generate");
+                const saw = this.widgets?.find(w => w.name === "seed_action");
+                const styleW = this.widgets?.find(w => w.name === "prompt_style");
+                const themeW = this.widgets?.find(w => w.name === "syntax_theme");
+                const catW = this.widgets?.find(w => w.name === "category_filter");
+
+                // 1. If seed_action received a .json prompt filename (e.g. "Minimal.json")
+                if (saw && typeof saw.value === "string" && saw.value.endsWith(".json")) {
+                    if (sw) sw.value = saw.value;
+                    saw.value = "fixed";
+                }
+
+                // 2. If saved_prompt received prompt_style (e.g. "Expressions (Flux / SD3)")
+                if (sw && styleW && styleW.options?.values?.includes(sw.value)) {
+                    styleW.value = sw.value;
+                    if (!sw.value.endsWith(".json")) {
+                        sw.value = sw.options?.values?.[0] || "";
+                    }
+                }
+
+                // 3. If weight_mode received syntax_theme (e.g. "Zombiehaus Neon (Default)")
+                if (wmw && themeW && themeW.options?.values?.includes(wmw.value)) {
+                    themeW.value = wmw.value;
+                    wmw.value = wmw.options?.values?.[0] || "Pass-Through (SDXL / Pony)";
+                }
+
+                // 4. If control_after_generate received a category or invalid value
+                if (cagw && !["fixed", "increment", "decrement", "randomize"].includes(cagw.value)) {
+                    if (catW && typeof cagw.value === "string" && cagw.value !== "--all categories--") {
+                        if (catW.options?.values && !catW.options.values.includes(cagw.value)) {
+                            catW.options.values.push(cagw.value);
+                        }
+                        catW.value = cagw.value;
+                    }
+                    cagw.value = "fixed";
+                }
+
+                // 5. If seed received NaN or string
+                if (seedW && (isNaN(seedW.value) || typeof seedW.value !== "number")) {
+                    seedW.value = 0;
+                }
+
+                // 6. Ensure seed_action is valid
+                if (saw && (!saw.options?.values?.includes(saw.value))) {
+                    saw.value = "fixed";
+                }
+            };
+
             // ── onConfigure (workflow load / paste) ───────────────────────────────
             const onConfigure = nodeType.prototype.onConfigure;
             nodeType.prototype.onConfigure = function(config) {
                 if (onConfigure) onConfigure.apply(this, arguments);
 
+                // Auto-heal shifted widget values
+                this._healShiftedWidgets?.();
+
+                const themeW = this.widgets?.find(w => w.name === "syntax_theme");
+                const styleW = this.widgets?.find(w => w.name === "prompt_style");
+
                 if (this.properties?.syntax_theme) {
-                    const tw = this.widgets?.find(w => w.name === "syntax_theme");
-                    if (tw) tw.value = this.properties.syntax_theme;
+                    if (themeW) themeW.value = this.properties.syntax_theme;
                     setNodeTheme(this, this.properties.syntax_theme);
-                } else {
-                    const tw = this.widgets?.find(w => w.name === "syntax_theme");
-                    if (tw && tw.value) {
-                        setNodeTheme(this, tw.value);
-                    }
+                } else if (themeW && themeW.value) {
+                    setNodeTheme(this, themeW.value);
                 }
 
-                if (this.properties?.prompt_style) {
-                    const sw = this.widgets?.find(w => w.name === "prompt_style");
-                    if (sw) sw.value = this.properties.prompt_style;
+                if (this.properties?.prompt_style && styleW) {
+                    styleW.value = this.properties.prompt_style;
                 }
 
                 const cfw = this.widgets?.find(w => w.name === "category_filter");

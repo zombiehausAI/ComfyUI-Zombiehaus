@@ -87,6 +87,15 @@ let _activeThemeName = "Zombiehaus Neon (Default)";
 let _customThemes = {};
 let _themeEnabled = true;
 
+// ── Node Docking & Magnetic Snapping State ─────────────────────────────────────
+let _dockingMode = "sticky"; // "sticky" | "snap" | "off"
+let _dockingGap = 0; // 0 = flush, 8 = card gutter, 16 = spaced
+let _snapThreshold = 16; // trigger distance in canvas coordinates
+let _activeSnapGuides = [];
+let _lastDragPrimary = null;
+let _lastPrimaryPos = null;
+let _dragCluster = new Set();
+
 try {
     const savedName = localStorage.getItem("zombiehaus_card_theme_name");
     if (savedName) _activeThemeName = savedName;
@@ -96,6 +105,16 @@ try {
 
     const savedEnabled = localStorage.getItem("zombiehaus_card_theme_enabled");
     if (savedEnabled !== null) _themeEnabled = savedEnabled === "true";
+
+    const savedDockMode = localStorage.getItem("zombiehaus_node_docking_mode");
+    if (savedDockMode && ["sticky", "snap", "off"].includes(savedDockMode)) {
+        _dockingMode = savedDockMode;
+    }
+
+    const savedGap = localStorage.getItem("zombiehaus_node_docking_gap");
+    if (savedGap !== null) {
+        _dockingGap = parseInt(savedGap, 10) || 0;
+    }
 } catch (_) {}
 
 function getActiveTheme() {
@@ -236,9 +255,9 @@ function applyCardThemeCSS() {
         }
 
         /* ── Old Style / Classic LiteGraph Canvas Widgets & Textareas ── */
-        .comfy-multiline-input,
-        .litegraph .comfy-multiline-input,
-        .litegraph textarea,
+        .comfy-multiline-input:not(.zombiehaus-syntax-ta),
+        .litegraph .comfy-multiline-input:not(.zombiehaus-syntax-ta),
+        .litegraph textarea:not(.zombiehaus-syntax-ta),
         .litegraph input[type="text"],
         .litegraph select {
             background: var(--zh-card-widget-bg) !important;
@@ -357,6 +376,41 @@ function setupClassicCanvasDecorator() {
             // Note: Role subtitles are intentionally omitted from canvas to keep
             // input/output slot labels 100% clean with zero text overlap.
 
+            // 3. Tactile Docked Edge Seams on Connected Cards
+            if (_dockingMode !== "off" && app.graph?._nodes) {
+                for (const other of app.graph._nodes) {
+                    if (other === node || !other.pos || !other.size || other.flags?.collapsed) continue;
+                    // Right edge docked flush to other left edge
+                    if (Math.abs((node.pos[0] + w + _dockingGap) - other.pos[0]) <= 2 &&
+                        node.pos[1] + h > other.pos[1] + 12 && node.pos[1] < other.pos[1] + other.size[1] - 12) {
+                        ctx.save();
+                        ctx.strokeStyle = th.accent_color || "#89b4fa";
+                        ctx.lineWidth = 2.5;
+                        ctx.shadowColor = th.border_glow || "#89b4fa";
+                        ctx.shadowBlur = 8;
+                        ctx.beginPath();
+                        ctx.moveTo(w, Math.max(0, other.pos[1] - node.pos[1]) + 8);
+                        ctx.lineTo(w, Math.min(h, other.pos[1] + other.size[1] - node.pos[1]) - 8);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                    // Bottom edge docked flush to other top edge
+                    if (Math.abs((node.pos[1] + h + _dockingGap) - other.pos[1]) <= 2 &&
+                        node.pos[0] + w > other.pos[0] + 12 && node.pos[0] < other.pos[0] + other.size[0] - 12) {
+                        ctx.save();
+                        ctx.strokeStyle = th.accent_color || "#89b4fa";
+                        ctx.lineWidth = 2.5;
+                        ctx.shadowColor = th.border_glow || "#89b4fa";
+                        ctx.shadowBlur = 8;
+                        ctx.beginPath();
+                        ctx.moveTo(Math.max(0, other.pos[0] - node.pos[0]) + 8, h);
+                        ctx.lineTo(Math.min(w, other.pos[0] + other.size[0] - node.pos[0]) - 8, h);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                }
+            }
+
             ctx.restore();
         }
 
@@ -373,7 +427,469 @@ function setupClassicCanvasDecorator() {
                 openThemeStudioModal();
             }
         });
+
+        const dockLabel = _dockingMode === "sticky" ? "Sticky Clusters" : (_dockingMode === "snap" ? "Edge Snap" : "Off");
+        options.push({
+            content: `🧲 Node Docking: ${dockLabel}...`,
+            has_submenu: true,
+            callback: () => {},
+            submenu: {
+                options: [
+                    {
+                        content: "🧲 Sticky Magnetic Docking" + (_dockingMode === "sticky" ? "  ✓" : ""),
+                        callback: () => setDockingMode("sticky")
+                    },
+                    {
+                        content: "📐 Magnetic Edge Snap Only" + (_dockingMode === "snap" ? "  ✓" : ""),
+                        callback: () => setDockingMode("snap")
+                    },
+                    {
+                        content: "⚪ Docking Off" + (_dockingMode === "off" ? "  ✓" : ""),
+                        callback: () => setDockingMode("off")
+                    }
+                ]
+            }
+        });
+
         return options;
+    };
+}
+
+// ── Node-to-Node Magnetic Docking & Sticky Movement Logic ─────────────────────
+function areNodesDocked(nodeA, nodeB, gap) {
+    if (!nodeA || !nodeB || !nodeA.pos || !nodeB.pos || !nodeA.size || !nodeB.size) return false;
+    const tol = 3;
+    const g = gap || 0;
+    const ax = nodeA.pos[0], ay = nodeA.pos[1], aw = nodeA.size[0], ah = nodeA.size[1];
+    const bx = nodeB.pos[0], by = nodeB.pos[1], bw = nodeB.size[0], bh = nodeB.size[1];
+
+    const hAdjacency = (Math.abs((ax + aw + g) - bx) <= tol) || (Math.abs((bx + bw + g) - ax) <= tol);
+    const vOverlap = (ay + ah > by + 12) && (ay < by + bh - 12);
+    if (hAdjacency && vOverlap) return true;
+
+    const vAdjacency = (Math.abs((ay + ah + g) - by) <= tol) || (Math.abs((by + bh + g) - ay) <= tol);
+    const hOverlap = (ax + aw > bx + 12) && (ax < bx + bw - 12);
+    if (vAdjacency && hOverlap) return true;
+
+    return false;
+}
+
+function findDockedCluster(seedNodes, allNodes, gap) {
+    const cluster = new Set();
+    const queue = [];
+    for (const n of seedNodes) {
+        if (n && n.id != null) {
+            cluster.add(n);
+            queue.push(n);
+        }
+    }
+
+    const candidates = (allNodes || []).filter(n => n && !n.flags?.collapsed && n.pos && n.size);
+
+    while (queue.length > 0) {
+        const curr = queue.shift();
+        for (const candidate of candidates) {
+            if (!cluster.has(candidate) && areNodesDocked(curr, candidate, gap)) {
+                cluster.add(candidate);
+                queue.push(candidate);
+            }
+        }
+    }
+    return cluster;
+}
+
+function showDockingToast(msg) {
+    const existing = document.getElementById("zombiehaus-docking-toast");
+    if (existing) existing.remove();
+
+    const toast = document.createElement("div");
+    toast.id = "zombiehaus-docking-toast";
+    toast.style.cssText = "position: fixed; bottom: 24px; right: 24px; background: rgba(17, 17, 27, 0.94); border: 1px solid rgba(137, 180, 250, 0.4); border-radius: 8px; padding: 10px 16px; color: #cdd6f4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); z-index: 100020; pointer-events: none; backdrop-filter: blur(8px); transition: opacity 0.3s ease, transform 0.3s ease; opacity: 0; transform: translateY(10px);";
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => {
+        toast.style.opacity = "1";
+        toast.style.transform = "translateY(0)";
+    });
+    setTimeout(() => {
+        toast.style.opacity = "0";
+        toast.style.transform = "translateY(10px)";
+        setTimeout(() => toast.remove(), 350);
+    }, 2400);
+}
+
+function setDockingMode(mode) {
+    if (!["sticky", "snap", "off"].includes(mode)) mode = "sticky";
+    _dockingMode = mode;
+    try {
+        localStorage.setItem("zombiehaus_node_docking_mode", _dockingMode);
+    } catch (_) {}
+
+    updateDockingBtnUI();
+
+    const desc = (
+        _dockingMode === "sticky"
+            ? "Sticky Magnetic Docking: Nodes lock edge-to-edge and move as connected racks (Hold Alt to detach)"
+            : (_dockingMode === "snap"
+                ? "Magnetic Edge Snap: Nodes snap flush and align edges independently"
+                : "Node Docking: Off (Standard canvas dragging)")
+    );
+    showDockingToast(`🧲 ${desc}`);
+
+    if (app.canvas) app.canvas.setDirty(true, true);
+}
+
+function updateDockingBtnUI() {
+    const btn = document.getElementById("zombiehaus-docking-mode-btn");
+    if (!btn) return;
+
+    let dotColor = "#cba6f7";
+    let modeText = "Sticky";
+
+    if (_dockingMode === "snap") {
+        dotColor = "#89b4fa";
+        modeText = "Snap";
+    } else if (_dockingMode === "off") {
+        dotColor = "#6c7086";
+        modeText = "Off";
+    }
+
+    btn.innerHTML = `<span>🧲</span> Dock: <span style="display: inline-flex; align-items: center; gap: 5px; color: ${dotColor};"><span style="width: 7px; height: 7px; border-radius: 50%; background: ${dotColor}; box-shadow: 0 0 6px ${dotColor};"></span>${modeText}</span>`;
+}
+
+function attachDockingToggleBtn() {
+    if (document.getElementById("zombiehaus-docking-mode-btn")) {
+        updateDockingBtnUI();
+        return;
+    }
+
+    const btn = document.createElement("button");
+    btn.id = "zombiehaus-docking-mode-btn";
+    btn.type = "button";
+    btn.style.cssText = "display: inline-flex; align-items: center; gap: 6px; background: rgba(22, 22, 34, 0.85); border: 1px solid rgba(137, 180, 250, 0.4); border-radius: 6px; padding: 4px 10px; color: #cdd6f4; font-size: 11px; font-weight: 700; cursor: pointer; margin: 2px 4px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); z-index: 99990; user-select: none;";
+    btn.title = "Node-to-Node Edge Docking & Magnetic Snapping. Click to cycle modes (Sticky -> Snap -> Off). Hold Alt while dragging to peel nodes away.";
+
+    btn.onclick = (e) => {
+        e.preventDefault();
+        const nextMode = (_dockingMode === "sticky") ? "snap" : ((_dockingMode === "snap") ? "off" : "sticky");
+        setDockingMode(nextMode);
+    };
+
+    const menuBar = (
+        document.querySelector(".comfyui-menu") ||
+        document.querySelector(".comfy-menu") ||
+        document.querySelector("#comfy-menu") ||
+        document.querySelector(".side-bar-button-selected")?.parentElement ||
+        document.querySelector(".comfyui-action-bar") ||
+        document.querySelector(".comfyui-body-top") ||
+        document.querySelector("header.comfyui-menu") ||
+        document.querySelector(".comfyui-nav")
+    );
+
+    if (menuBar) {
+        menuBar.appendChild(btn);
+    } else {
+        btn.style.position = "fixed";
+        btn.style.top = "10px";
+        btn.style.right = "230px";
+        document.body.appendChild(btn);
+    }
+
+    updateDockingBtnUI();
+}
+
+function setupNodeEdgeDocking() {
+    if (typeof LGraphCanvas === "undefined") return;
+
+    // 1. Process Mouse Move for Magnetic Edge Snapping & Sticky Dragging
+    const origProcessMouseMove = LGraphCanvas.prototype.processMouseMove;
+    LGraphCanvas.prototype.processMouseMove = function (e) {
+        if (_dockingMode === "off") {
+            return origProcessMouseMove ? origProcessMouseMove.apply(this, arguments) : undefined;
+        }
+
+        const res = origProcessMouseMove ? origProcessMouseMove.apply(this, arguments) : undefined;
+
+        if (!this.graph || !this.graph._nodes) return res;
+
+        const isDragging = (this.isDragging || (this.pointer?.isDown && this.selected_nodes && Object.keys(this.selected_nodes).length > 0));
+        if (!isDragging) {
+            if (_activeSnapGuides.length > 0) {
+                _activeSnapGuides = [];
+                this.setDirty(true, true);
+            }
+            _lastDragPrimary = null;
+            _lastPrimaryPos = null;
+            _dragCluster.clear();
+            return res;
+        }
+
+        const draggedNodes = Object.values(this.selected_nodes || {});
+        if (draggedNodes.length === 0) return res;
+
+        const primary = draggedNodes[0];
+        if (!primary || !primary.pos || !primary.size) return res;
+
+        // Initialize drag cluster on new drag
+        if (_lastDragPrimary !== primary) {
+            _lastDragPrimary = primary;
+            _lastPrimaryPos = [primary.pos[0], primary.pos[1]];
+            _dragCluster.clear();
+            if (_dockingMode === "sticky" && !e.altKey) {
+                const cluster = findDockedCluster(draggedNodes, this.graph._nodes, _dockingGap);
+                for (const item of cluster) {
+                    _dragCluster.add(item);
+                }
+            }
+        }
+
+        // Propagate sticky cluster movement
+        if (_dockingMode === "sticky" && !e.altKey && _dragCluster.size > 1 && _lastPrimaryPos) {
+            const dX = primary.pos[0] - _lastPrimaryPos[0];
+            const dY = primary.pos[1] - _lastPrimaryPos[1];
+            if (dX !== 0 || dY !== 0) {
+                for (const companion of _dragCluster) {
+                    if (companion !== primary && !this.selected_nodes[companion.id]) {
+                        companion.pos[0] += dX;
+                        companion.pos[1] += dY;
+                        companion.setDirtyCanvas?.(true, true);
+                    }
+                }
+            }
+        }
+        _lastPrimaryPos = [primary.pos[0], primary.pos[1]];
+
+        // Magnetic Edge Snapping calculations (bypassed if Alt held)
+        if (e.altKey) {
+            if (_activeSnapGuides.length > 0) {
+                _activeSnapGuides = [];
+                this.setDirty(true, true);
+            }
+            return res;
+        }
+
+        let bestSnapX = null;
+        let minDiffX = _snapThreshold + 1;
+        let snapGuideX = null;
+
+        let bestSnapY = null;
+        let minDiffY = _snapThreshold + 1;
+        let snapGuideY = null;
+
+        const pX = primary.pos[0];
+        const pY = primary.pos[1];
+        const pW = primary.size[0];
+        const pH = primary.size[1];
+        const gap = _dockingGap;
+
+        for (const other of this.graph._nodes) {
+            if (!other || other === primary || _dragCluster.has(other) || this.selected_nodes[other.id]) continue;
+            if (other.flags?.collapsed || !other.pos || !other.size) continue;
+
+            const oX = other.pos[0];
+            const oY = other.pos[1];
+            const oW = other.size[0];
+            const oH = other.size[1];
+
+            // Horizontal Snap Candidates (when within vertical overlap range)
+            const vOverlap = (pY + pH > oY - 15) && (pY < oY + oH + 15);
+            if (vOverlap) {
+                // 1. Primary Left flush to Other Right (+ gap)
+                const targetX1 = oX + oW + gap;
+                const d1 = targetX1 - pX;
+                if (Math.abs(d1) < minDiffX) {
+                    minDiffX = Math.abs(d1);
+                    bestSnapX = d1;
+                    snapGuideX = {
+                        x: targetX1,
+                        y1: Math.min(pY, oY) - 8,
+                        y2: Math.max(pY + pH, oY + oH) + 8,
+                        type: "dock_right"
+                    };
+                }
+
+                // 2. Primary Right flush to Other Left (- gap)
+                const targetX2 = oX - pW - gap;
+                const d2 = targetX2 - pX;
+                if (Math.abs(d2) < minDiffX) {
+                    minDiffX = Math.abs(d2);
+                    bestSnapX = d2;
+                    snapGuideX = {
+                        x: oX,
+                        y1: Math.min(pY, oY) - 8,
+                        y2: Math.max(pY + pH, oY + oH) + 8,
+                        type: "dock_left"
+                    };
+                }
+
+                // 3. Primary Left align to Other Left
+                const d3 = oX - pX;
+                if (Math.abs(d3) < minDiffX) {
+                    minDiffX = Math.abs(d3);
+                    bestSnapX = d3;
+                    snapGuideX = {
+                        x: oX,
+                        y1: Math.min(pY, oY) - 8,
+                        y2: Math.max(pY + pH, oY + oH) + 8,
+                        type: "align_left"
+                    };
+                }
+
+                // 4. Primary Right align to Other Right
+                const d4 = (oX + oW) - (pX + pW);
+                if (Math.abs(d4) < minDiffX) {
+                    minDiffX = Math.abs(d4);
+                    bestSnapX = d4;
+                    snapGuideX = {
+                        x: oX + oW,
+                        y1: Math.min(pY, oY) - 8,
+                        y2: Math.max(pY + pH, oY + oH) + 8,
+                        type: "align_right"
+                    };
+                }
+            }
+
+            // Vertical Snap Candidates (when within horizontal overlap range)
+            const hOverlap = (pX + pW > oX - 15) && (pX < oX + oW + 15);
+            if (hOverlap) {
+                // 1. Primary Top flush to Other Bottom (+ gap)
+                const targetY1 = oY + oH + gap;
+                const d1 = targetY1 - pY;
+                if (Math.abs(d1) < minDiffY) {
+                    minDiffY = Math.abs(d1);
+                    bestSnapY = d1;
+                    snapGuideY = {
+                        y: targetY1,
+                        x1: Math.min(pX, oX) - 8,
+                        x2: Math.max(pX + pW, oX + oW) + 8,
+                        type: "dock_bottom"
+                    };
+                }
+
+                // 2. Primary Bottom flush to Other Top (- gap)
+                const targetY2 = oY - pH - gap;
+                const d2 = targetY2 - pY;
+                if (Math.abs(d2) < minDiffY) {
+                    minDiffY = Math.abs(d2);
+                    bestSnapY = d2;
+                    snapGuideY = {
+                        y: oY,
+                        x1: Math.min(pX, oX) - 8,
+                        x2: Math.max(pX + pW, oX + oW) + 8,
+                        type: "dock_top"
+                    };
+                }
+
+                // 3. Primary Top align to Other Top
+                const d3 = oY - pY;
+                if (Math.abs(d3) < minDiffY) {
+                    minDiffY = Math.abs(d3);
+                    bestSnapY = d3;
+                    snapGuideY = {
+                        y: oY,
+                        x1: Math.min(pX, oX) - 8,
+                        x2: Math.max(pX + pW, oX + oW) + 8,
+                        type: "align_top"
+                    };
+                }
+
+                // 4. Primary Bottom align to Other Bottom
+                const d4 = (oY + oH) - (pY + pH);
+                if (Math.abs(d4) < minDiffY) {
+                    minDiffY = Math.abs(d4);
+                    bestSnapY = d4;
+                    snapGuideY = {
+                        y: oY + oH,
+                        x1: Math.min(pX, oX) - 8,
+                        x2: Math.max(pX + pW, oX + oW) + 8,
+                        type: "align_bottom"
+                    };
+                }
+            }
+        }
+
+        // Apply magnetic lock if within threshold
+        const newGuides = [];
+        if (bestSnapX !== null && Math.abs(bestSnapX) <= _snapThreshold) {
+            primary.pos[0] += bestSnapX;
+            for (const c of _dragCluster) {
+                if (c !== primary) c.pos[0] += bestSnapX;
+            }
+            _lastPrimaryPos[0] = primary.pos[0];
+            if (snapGuideX) newGuides.push(snapGuideX);
+        }
+        if (bestSnapY !== null && Math.abs(bestSnapY) <= _snapThreshold) {
+            primary.pos[1] += bestSnapY;
+            for (const c of _dragCluster) {
+                if (c !== primary) c.pos[1] += bestSnapY;
+            }
+            _lastPrimaryPos[1] = primary.pos[1];
+            if (snapGuideY) newGuides.push(snapGuideY);
+        }
+
+        _activeSnapGuides = newGuides;
+        this.setDirty(true, true);
+
+        return res;
+    };
+
+    // 2. Process Mouse Up to finalize snap
+    const origProcessMouseUp = LGraphCanvas.prototype.processMouseUp;
+    LGraphCanvas.prototype.processMouseUp = function (e) {
+        _activeSnapGuides = [];
+        _lastDragPrimary = null;
+        _lastPrimaryPos = null;
+        _dragCluster.clear();
+        const res = origProcessMouseUp ? origProcessMouseUp.apply(this, arguments) : undefined;
+        this.setDirty(true, true);
+        return res;
+    };
+
+    // 3. Draw Front Canvas for Magnetic Guides
+    const origDrawFrontCanvas = LGraphCanvas.prototype.drawFrontCanvas;
+    LGraphCanvas.prototype.drawFrontCanvas = function (ctx) {
+        const res = origDrawFrontCanvas ? origDrawFrontCanvas.apply(this, arguments) : undefined;
+
+        if (_dockingMode !== "off" && _activeSnapGuides.length > 0 && ctx) {
+            const th = getActiveTheme();
+            const glowColor = th.border_glow || "#89b4fa";
+            const laserColor = th.accent_color || "#89b4fa";
+
+            ctx.save();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = laserColor;
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = 10;
+
+            for (const g of _activeSnapGuides) {
+                if (g.x !== undefined) {
+                    ctx.beginPath();
+                    ctx.moveTo(g.x, g.y1);
+                    ctx.lineTo(g.x, g.y2);
+                    ctx.stroke();
+
+                    ctx.fillStyle = glowColor;
+                    ctx.beginPath();
+                    ctx.arc(g.x, g.y1, 3.5, 0, Math.PI * 2);
+                    ctx.arc(g.x, g.y2, 3.5, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (g.y !== undefined) {
+                    ctx.beginPath();
+                    ctx.moveTo(g.x1, g.y);
+                    ctx.lineTo(g.x2, g.y);
+                    ctx.stroke();
+
+                    ctx.fillStyle = glowColor;
+                    ctx.beginPath();
+                    ctx.arc(g.x1, g.y, 3.5, 0, Math.PI * 2);
+                    ctx.arc(g.x2, g.y, 3.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            ctx.restore();
+        }
+
+        return res;
     };
 }
 
@@ -781,13 +1297,18 @@ app.registerExtension({
         };
 
         attachThemeStudioBtn();
+        attachDockingToggleBtn();
+
         const themeBtnTimer = setInterval(() => {
             attachThemeStudioBtn();
-            if (document.getElementById("zombiehaus-card-theme-btn")) {
+            attachDockingToggleBtn();
+            if (document.getElementById("zombiehaus-card-theme-btn") && document.getElementById("zombiehaus-docking-mode-btn")) {
                 clearInterval(themeBtnTimer);
             }
         }, 1000);
         setTimeout(() => clearInterval(themeBtnTimer), 8000);
+
+        setupNodeEdgeDocking();
 
         // Register ComfyUI Settings
         if (app.ui?.settings) {
@@ -819,6 +1340,36 @@ app.registerExtension({
                         } catch (_) {}
                         applyCardThemeCSS();
                     }
+                }
+            });
+
+            app.ui.settings.addSetting({
+                id: "Zombiehaus.NodeDockingMode",
+                name: "Zombiehaus Node Snapping & Docking Mode",
+                type: "combo",
+                defaultValue: _dockingMode === "sticky" ? "Sticky Magnetic Docking" : (_dockingMode === "snap" ? "Magnetic Edge Snap" : "Off"),
+                options: ["Sticky Magnetic Docking", "Magnetic Edge Snap", "Off"],
+                onChange: (val) => {
+                    if (val === "Sticky Magnetic Docking") setDockingMode("sticky");
+                    else if (val === "Magnetic Edge Snap") setDockingMode("snap");
+                    else setDockingMode("off");
+                }
+            });
+
+            app.ui.settings.addSetting({
+                id: "Zombiehaus.NodeDockingGap",
+                name: "Zombiehaus Docked Edge Spacing",
+                type: "combo",
+                defaultValue: _dockingGap === 0 ? "Flush (0px)" : (_dockingGap === 8 ? "Card Gutter (8px)" : "Spaced (16px)"),
+                options: ["Flush (0px)", "Card Gutter (8px)", "Spaced (16px)"],
+                onChange: (val) => {
+                    if (val === "Flush (0px)") _dockingGap = 0;
+                    else if (val === "Card Gutter (8px)") _dockingGap = 8;
+                    else _dockingGap = 16;
+                    try {
+                        localStorage.setItem("zombiehaus_node_docking_gap", String(_dockingGap));
+                    } catch (_) {}
+                    if (app.canvas) app.canvas.setDirty(true, true);
                 }
             });
         }

@@ -5292,6 +5292,12 @@ function attachImageDropHandlers(node) {
     requestAnimationFrame(() => {
         const pw = node.widgets?.find(w => w.name === "positive");
         const nw = node.widgets?.find(w => w.name === "negative");
+        if (pw?.inputEl) bindEl(pw.inputEl);
+        if (nw?.inputEl) bindEl(nw.inputEl);
+        if (node.element) bindEl(node.element);
+    });
+}
+
 // ── Universal Proportional Prompt Sizing (Positive Expansive, Negative Compact) ──
 function updateTextEditorProportions(targetNode) {
     if (!targetNode) return;
@@ -7869,7 +7875,8 @@ app.registerExtension({
                     updateStates();
 
                     parent.insertBefore(pedalBar, ta);
-                });
+                };
+                bind();
             }
 
             // ── Clean Prompt & JSON Exporters ─────────────────────────────────────
@@ -8060,7 +8067,8 @@ app.registerExtension({
                     ta._tagStudioContainer = container;
 
                     parent.appendChild(container);
-                });
+                };
+                bind();
             }
 
             function renderTagStudio(node, container, widget) {

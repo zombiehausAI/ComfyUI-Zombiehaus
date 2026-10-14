@@ -20,6 +20,7 @@ const CARD_THEME_PRESETS = {
         border_color: "rgba(137, 180, 250, 0.22)",
         border_glow: "#89b4fa",
         accent_color: "#89b4fa",
+        dock_highlight_color: "#89b4fa",
         title_color: "#cdd6f4",
         subtitle_color: "#89dceb",
         widget_bg: "rgba(17, 17, 27, 0.7)",
@@ -31,6 +32,7 @@ const CARD_THEME_PRESETS = {
         border_color: "rgba(203, 166, 247, 0.22)",
         border_glow: "#cba6f7",
         accent_color: "#cba6f7",
+        dock_highlight_color: "#cba6f7",
         title_color: "#cdd6f4",
         subtitle_color: "#f5c2e7",
         widget_bg: "rgba(24, 24, 37, 0.75)",
@@ -42,6 +44,7 @@ const CARD_THEME_PRESETS = {
         border_color: "rgba(254, 222, 0, 0.28)",
         border_glow: "#fede00",
         accent_color: "#00f0ff",
+        dock_highlight_color: "#00f0ff",
         title_color: "#00f0ff",
         subtitle_color: "#fede00",
         widget_bg: "rgba(10, 10, 15, 0.8)",
@@ -53,6 +56,7 @@ const CARD_THEME_PRESETS = {
         border_color: "rgba(189, 147, 249, 0.24)",
         border_glow: "#bd93f9",
         accent_color: "#ff79c6",
+        dock_highlight_color: "#ff79c6",
         title_color: "#f8f8f2",
         subtitle_color: "#50fa7b",
         widget_bg: "rgba(19, 18, 28, 0.75)",
@@ -64,6 +68,7 @@ const CARD_THEME_PRESETS = {
         border_color: "rgba(122, 162, 247, 0.24)",
         border_glow: "#7aa2f7",
         accent_color: "#bb9af7",
+        dock_highlight_color: "#bb9af7",
         title_color: "#c0caf5",
         subtitle_color: "#7dcfff",
         widget_bg: "rgba(15, 15, 23, 0.8)",
@@ -73,8 +78,9 @@ const CARD_THEME_PRESETS = {
         card_bg: "rgba(17, 17, 20, 0.96)",
         header_bg: "rgba(24, 24, 28, 0.98)",
         border_color: "rgba(255, 255, 255, 0.12)",
-        border_glow: "#38bdf8",
-        accent_color: "#38bdf8",
+        border_glow: "rgba(255, 255, 255, 0.22)",
+        accent_color: "#94a3b8",
+        dock_highlight_color: "#94a3b8",
         title_color: "#ffffff",
         subtitle_color: "#94a3b8",
         widget_bg: "rgba(10, 10, 12, 0.85)",
@@ -130,6 +136,47 @@ function getActiveTheme() {
     return CARD_THEME_PRESETS[_activeThemeName] || CARD_THEME_PRESETS["Zombiehaus Neon (Default)"];
 }
 
+// ── Docking & Magnetized Link Highlight Color Resolver ────────────────────────
+function getDockingHighlightColors(theme) {
+    const th = theme || getActiveTheme();
+
+    if (th && th.dock_highlight_color) {
+        return {
+            laserColor: th.dock_highlight_color,
+            glowColor: th.border_glow || th.dock_highlight_color,
+            seamColor: th.dock_highlight_color,
+            seamGlow: th.border_glow || th.dock_highlight_color
+        };
+    }
+
+    const themeName = (_activeThemeName || "").toLowerCase();
+    const isDarkMinimal = (
+        themeName.includes("obsidian") ||
+        themeName.includes("minimal") ||
+        themeName.includes("dark") ||
+        themeName.includes("stealth") ||
+        themeName.includes("mono")
+    );
+
+    if (isDarkMinimal) {
+        return {
+            laserColor: "rgba(203, 213, 225, 0.85)",
+            glowColor: "rgba(255, 255, 255, 0.22)",
+            seamColor: "rgba(203, 213, 225, 0.75)",
+            seamGlow: "rgba(255, 255, 255, 0.15)"
+        };
+    }
+
+    const laserColor = (th && (th.accent_color || th.title_color)) || "#cdd6f4";
+    const glowColor = (th && th.border_glow) || laserColor;
+    return {
+        laserColor,
+        glowColor,
+        seamColor: laserColor,
+        seamGlow: glowColor
+    };
+}
+
 // ── Role Subtitle Resolver ───────────────────────────────────────────────────
 function getNodeRoleSubtitle(nodeType, nodeTitle) {
     const t = (nodeType || "").toLowerCase();
@@ -180,6 +227,15 @@ function applyCardThemeCSS() {
     }
 
     const th = getActiveTheme();
+    const dockColors = getDockingHighlightColors(th);
+
+    if (typeof LiteGraph !== "undefined") {
+        LiteGraph.CONNECTING_LINK_COLOR = dockColors.laserColor;
+    }
+    if (app.canvas) {
+        app.canvas.connecting_color = dockColors.laserColor;
+        app.canvas.highlight_render_link_color = dockColors.laserColor;
+    }
 
     styleEl.textContent = `
         /* ── Zombiehaus Card Theme CSS Variables ── */
@@ -189,6 +245,7 @@ function applyCardThemeCSS() {
             --zh-card-border: ${th.border_color};
             --zh-card-glow: ${th.border_glow};
             --zh-card-accent: ${th.accent_color};
+            --zh-card-dock-highlight: ${dockColors.laserColor};
             --zh-card-title: ${th.title_color};
             --zh-card-subtitle: ${th.subtitle_color};
             --zh-card-widget-bg: ${th.widget_bg};
@@ -385,6 +442,7 @@ function setupClassicCanvasDecorator() {
             // 3. Tactile Docked Edge Seams on Connected Cards
             if (_dockingMode !== "off" && app.graph?._nodes) {
                 const nBounds = getNodeVisualBounds(node);
+                const dockColors = getDockingHighlightColors(th);
                 for (const other of app.graph._nodes) {
                     if (other === node || !other.pos || !other.size || other.flags?.collapsed) continue;
                     const oBounds = getNodeVisualBounds(other);
@@ -394,10 +452,10 @@ function setupClassicCanvasDecorator() {
                     if (Math.abs((nBounds.right + _dockingGap) - oBounds.x) <= 4 &&
                         nBounds.bottom > oBounds.y + 4 && nBounds.y < oBounds.bottom - 4) {
                         ctx.save();
-                        ctx.strokeStyle = th.accent_color || "#89b4fa";
-                        ctx.lineWidth = 2.5;
-                        ctx.shadowColor = th.border_glow || "#89b4fa";
-                        ctx.shadowBlur = 8;
+                        ctx.strokeStyle = dockColors.seamColor;
+                        ctx.lineWidth = 1.5;
+                        ctx.shadowColor = dockColors.seamGlow;
+                        ctx.shadowBlur = 4;
                         ctx.beginPath();
                         ctx.moveTo(w, Math.max(0, oBounds.y - node.pos[1]) + 8);
                         ctx.lineTo(w, Math.min(h, oBounds.bottom - node.pos[1]) - 8);
@@ -408,10 +466,10 @@ function setupClassicCanvasDecorator() {
                     if (Math.abs((nBounds.bottom + _dockingGap) - oBounds.y) <= 4 &&
                         nBounds.right > oBounds.x + 4 && nBounds.x < oBounds.right - 4) {
                         ctx.save();
-                        ctx.strokeStyle = th.accent_color || "#89b4fa";
-                        ctx.lineWidth = 2.5;
-                        ctx.shadowColor = th.border_glow || "#89b4fa";
-                        ctx.shadowBlur = 8;
+                        ctx.strokeStyle = dockColors.seamColor;
+                        ctx.lineWidth = 1.5;
+                        ctx.shadowColor = dockColors.seamGlow;
+                        ctx.shadowBlur = 4;
                         ctx.beginPath();
                         ctx.moveTo(Math.max(0, oBounds.x - node.pos[0]) + 8, h);
                         ctx.lineTo(Math.min(w, oBounds.right - node.pos[0]) - 8, h);
@@ -591,11 +649,13 @@ function updateDockingBtnUI() {
     const btn = document.getElementById("zombiehaus-docking-mode-btn");
     if (!btn) return;
 
-    let dotColor = "#cba6f7";
+    const th = getActiveTheme();
+    const dockColors = getDockingHighlightColors(th);
+    let dotColor = dockColors.laserColor;
     let modeText = "Sticky";
 
     if (_dockingMode === "snap") {
-        dotColor = "#89b4fa";
+        dotColor = dockColors.laserColor;
         modeText = "Snap";
     } else if (_dockingMode === "off") {
         dotColor = "#6c7086";
@@ -1029,14 +1089,15 @@ function setupNodeEdgeDocking() {
 
         if (_dockingMode !== "off" && _activeSnapGuides.length > 0 && ctx) {
             const th = getActiveTheme();
-            const glowColor = th.border_glow || "#89b4fa";
-            const laserColor = th.accent_color || "#89b4fa";
+            const dockColors = getDockingHighlightColors(th);
+            const glowColor = dockColors.glowColor;
+            const laserColor = dockColors.laserColor;
 
             ctx.save();
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 1.5;
             ctx.strokeStyle = laserColor;
             ctx.shadowColor = glowColor;
-            ctx.shadowBlur = 10;
+            ctx.shadowBlur = 6;
 
             for (const g of _activeSnapGuides) {
                 if (g.x !== undefined) {
@@ -1045,10 +1106,10 @@ function setupNodeEdgeDocking() {
                     ctx.lineTo(g.x, g.y2);
                     ctx.stroke();
 
-                    ctx.fillStyle = glowColor;
+                    ctx.fillStyle = laserColor;
                     ctx.beginPath();
-                    ctx.arc(g.x, g.y1, 3.5, 0, Math.PI * 2);
-                    ctx.arc(g.x, g.y2, 3.5, 0, Math.PI * 2);
+                    ctx.arc(g.x, g.y1, 2.5, 0, Math.PI * 2);
+                    ctx.arc(g.x, g.y2, 2.5, 0, Math.PI * 2);
                     ctx.fill();
                 } else if (g.y !== undefined) {
                     ctx.beginPath();
@@ -1056,10 +1117,10 @@ function setupNodeEdgeDocking() {
                     ctx.lineTo(g.x2, g.y);
                     ctx.stroke();
 
-                    ctx.fillStyle = glowColor;
+                    ctx.fillStyle = laserColor;
                     ctx.beginPath();
-                    ctx.arc(g.x1, g.y, 3.5, 0, Math.PI * 2);
-                    ctx.arc(g.x2, g.y, 3.5, 0, Math.PI * 2);
+                    ctx.arc(g.x1, g.y, 2.5, 0, Math.PI * 2);
+                    ctx.arc(g.x2, g.y, 2.5, 0, Math.PI * 2);
                     ctx.fill();
                 }
             }
@@ -1163,6 +1224,7 @@ function openThemeStudioModal() {
         { key: "border_color", label: "Card Border Color" },
         { key: "border_glow", label: "Execution Glow Color" },
         { key: "accent_color", label: "Accent Color" },
+        { key: "dock_highlight_color", label: "Dock & Snap Highlight" },
         { key: "title_color", label: "Title Text Color" },
         { key: "subtitle_color", label: "Subtitle Text Color" },
         { key: "widget_bg", label: "Widget Surface Color" }
@@ -1280,6 +1342,13 @@ function openThemeStudioModal() {
         accentEls.forEach((a) => {
             a.style.color = tempTheme.accent_color;
         });
+
+        const dockColors = getDockingHighlightColors(tempTheme);
+        const seamEl = previewCard.querySelector(".zh-preview-dock-seam");
+        if (seamEl) {
+            seamEl.style.background = dockColors.laserColor;
+            seamEl.style.boxShadow = `0 0 6px ${dockColors.glowColor}`;
+        }
     }
 
     function updatePickers() {
@@ -1295,7 +1364,9 @@ function openThemeStudioModal() {
         dialog.querySelector("#zh-radius-val").textContent = `${radiusSlider.value}px`;
     }
 
+    previewCard.style.position = "relative";
     previewCard.innerHTML = `
+        <div class="zh-preview-dock-seam" style="position: absolute; right: 0; top: 12px; bottom: 12px; width: 2px; border-radius: 2px; z-index: 2; transition: all 0.2s ease;" title="Docking & Connected Seam Accent"></div>
         <div class="zh-preview-head" style="padding: 8px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between;">
             <div style="display: flex; align-items: center; gap: 6px;">
                 <span style="opacity: 0.5; font-size: 11px;">⋮⋮</span>

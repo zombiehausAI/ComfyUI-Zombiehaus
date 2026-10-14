@@ -5309,22 +5309,17 @@ function updateTextEditorProportions(targetNode) {
 
         // Guaranteed compact negative height (3 lines of text: ~60-64px)
         const negH = 64;
+        const posH = 180;
 
-        // One-time sanitization of runaway node heights from previous loops
-        if (!targetNode._sizeSanitized) {
-            targetNode._sizeSanitized = true;
-            if (targetNode.size && targetNode.size[1] > 2000) {
-                targetNode.size[1] = 780;
-            }
+        // Force reset any runaway node heights to standard card height
+        if (!targetNode.size || targetNode.size[1] > 820 || targetNode.size[1] < 720) {
+            targetNode.size = [560, 780];
         }
 
-        const totalNodeH = (targetNode.size && targetNode.size[1]) ? targetNode.size[1] : 780;
-        const posH = Math.max(120, Math.floor(totalNodeH - 560));
-
-        // 1. Configure layout engine hooks on Negative Widget
+        // 1. Configure layout engine hooks on Negative Widget with FIXED dimensions
         if (nw) {
             nw.computeSize = function(width) {
-                return [width || (targetNode.size ? targetNode.size[0] - 20 : 540), negH];
+                return [width || 540, negH];
             };
             nw.computeLayoutSize = function() {
                 return { minHeight: 56, maxHeight: 72, minWidth: 0 };
@@ -5335,17 +5330,17 @@ function updateTextEditorProportions(targetNode) {
             nw.options.getHeight = () => negH;
         }
 
-        // 2. Configure layout engine hooks on Positive Widget
+        // 2. Configure layout engine hooks on Positive Widget with FIXED dimensions
         if (pw) {
             pw.computeSize = function(width) {
-                return [width || (targetNode.size ? targetNode.size[0] - 20 : 540), posH];
+                return [width || 540, posH];
             };
             pw.computeLayoutSize = function() {
-                return { minHeight: 120, maxHeight: 1000, minWidth: 0 };
+                return { minHeight: 120, maxHeight: 240, minWidth: 0 };
             };
             if (!pw.options) pw.options = {};
             pw.options.getMinHeight = () => 120;
-            pw.options.getMaxHeight = () => 1000;
+            pw.options.getMaxHeight = () => 240;
             pw.options.getHeight = () => posH;
         }
 
@@ -5356,14 +5351,14 @@ function updateTextEditorProportions(targetNode) {
         if (posTa && posTa.style) {
             posTa.style.setProperty("min-height", "120px", "important");
             posTa.style.setProperty("height", `${posH}px`, "important");
-            posTa.style.setProperty("max-height", `${posH}px`, "important");
+            posTa.style.setProperty("max-height", "240px", "important");
             posTa.style.setProperty("resize", "none", "important");
             posTa.style.overflowY = "auto";
             posTa.style.overflowX = "hidden";
             if (posTa.parentElement) {
                 posTa.parentElement.style.setProperty("min-height", "120px", "important");
                 posTa.parentElement.style.setProperty("height", `${posH}px`, "important");
-                posTa.parentElement.style.removeProperty("max-height");
+                posTa.parentElement.style.setProperty("max-height", "240px", "important");
             }
         }
 
@@ -5405,7 +5400,7 @@ function updateTextEditorProportions(targetNode) {
                 const firstTa = textareas[0];
                 firstTa.style.setProperty("min-height", "120px", "important");
                 firstTa.style.setProperty("height", `${posH}px`, "important");
-                firstTa.style.setProperty("max-height", `${posH}px`, "important");
+                firstTa.style.setProperty("max-height", "240px", "important");
 
                 const secondTa = textareas[1];
                 secondTa.classList.add("zombiehaus-negative-prompt-ta");
@@ -5501,11 +5496,10 @@ app.registerExtension({
 
                 node._updateProportions = () => updateTextEditorProportions(node);
 
-                // Hook Classic LiteGraph onResize for dynamic proportional prompt scaling
+                // Hook Classic LiteGraph onResize
                 const origOnResize = node.onResize;
                 node.onResize = function (size) {
                     const r = origOnResize ? origOnResize.apply(this, arguments) : undefined;
-                    updateTextEditorProportions(node);
                     return r;
                 };
 
@@ -5870,7 +5864,6 @@ app.registerExtension({
             const onResize = nodeType.prototype.onResize;
             nodeType.prototype.onResize = function(size) {
                 const r = onResize ? onResize.apply(this, arguments) : undefined;
-                updateTextEditorProportions(this);
                 return r;
             };
 

@@ -471,12 +471,15 @@ function getNodeVisualBounds(node) {
 
     let titleH = 0;
     if (node.flags?.collapsed) {
-        titleH = node.titleHeight || (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+        titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
     } else if (node.title_mode === 1 || node.title_mode === 2) {
         // LiteGraph.TRANSPARENT_TITLE = 1, LiteGraph.NO_TITLE = 2
         titleH = 0;
     } else {
-        titleH = node.titleHeight || (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+        // In ComfyUI modern canvas, nodes feature a 40-42px header bar that accommodates
+        // title typography, status badge, title buttons [⬆][☲][🔖], and header divider.
+        const baseH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+        titleH = Math.max(42, baseH + 12);
     }
 
     const x = node.pos[0];

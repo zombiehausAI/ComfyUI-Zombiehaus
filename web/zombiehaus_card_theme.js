@@ -247,21 +247,6 @@ function applyCardThemeCSS() {
             color: var(--zh-card-title) !important;
         }
 
-        /* Subtle Card Role Subtitle Badge */
-        .zh-card-role-badge {
-            font-size: 9.5px;
-            font-weight: 500;
-            color: var(--zh-card-subtitle);
-            opacity: 0.85;
-            letter-spacing: 0.4px;
-            text-transform: uppercase;
-            margin-left: 6px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            pointer-events: none;
-        }
-
         /* ── ComfyUI Native Slots & Terminal Pins: 100% Untouched & Aligned ── */
         /* Native slot connectors retain exact geometry, positioning, and wire docking */
         [data-node-id] .comfy-node-slot,
@@ -270,54 +255,54 @@ function applyCardThemeCSS() {
             /* Keep native styling, zero layout displacement */
         }
     `;
-}
 
-// ── Modern Node Subtitle Injector ──
-function injectModernNodeRoleBadges() {
-    if (!_themeEnabled) return;
-    const nodeEls = document.querySelectorAll("[data-node-id]");
-    nodeEls.forEach((el) => {
-        const nodeId = el.dataset.nodeId;
-        if (!nodeId) return;
+    // ── Synchronize LiteGraph Classic Canvas Defaults & Node Fills ──
+    if (typeof LiteGraph !== "undefined") {
+        LiteGraph.NODE_DEFAULT_COLOR = th.header_bg;
+        LiteGraph.NODE_DEFAULT_BGCOLOR = th.card_bg;
+        LiteGraph.NODE_TEXT_COLOR = th.title_color;
+    }
+    if (typeof LGraphCanvas !== "undefined") {
+        LGraphCanvas.node_title_color = th.title_color;
+    }
 
-        const node = app.graph?.getNodeById ? app.graph.getNodeById(nodeId) : null;
-        if (!node) return;
-
-        let badge = el.querySelector(".zh-card-role-badge");
-        if (!badge) {
-            const header = el.querySelector("[data-testid='node-inner-wrapper'] > div:first-child");
-            if (header) {
-                badge = document.createElement("div");
-                badge.className = "zh-card-role-badge";
-                header.appendChild(badge);
+    if (app.graph && app.graph._nodes) {
+        for (const n of app.graph._nodes) {
+            if (_themeEnabled) {
+                if (!n._hasOriginalColors) {
+                    n._hasOriginalColors = true;
+                    n._savedColor = n.color;
+                    n._savedBgColor = n.bgcolor;
+                }
+                n.bgcolor = th.card_bg;
+                n.color = th.header_bg;
+            } else if (n._hasOriginalColors) {
+                n.bgcolor = n._savedBgColor;
+                n.color = n._savedColor;
+                n._hasOriginalColors = false;
             }
         }
-        if (badge) {
-            badge.textContent = getNodeRoleSubtitle(node.type, node.title);
-        }
-    });
+    }
+    if (app.canvas) {
+        app.canvas.setDirty(true, true);
+    }
 }
 
 // ── Classic LiteGraph Canvas Card Decorator ───────────────────────────────────
 function setupClassicCanvasDecorator() {
     if (typeof LGraphCanvas === "undefined") return;
 
-    // Set canvas title color if supported
     const origDrawNode = LGraphCanvas.prototype.drawNode;
     LGraphCanvas.prototype.drawNode = function (node, ctx) {
         if (_themeEnabled && node && !node.flags?.collapsed) {
             const th = getActiveTheme();
-            const origColor = node.color;
-            const origBgColor = node.bgcolor;
             if (!node._hasOriginalColors) {
                 node._hasOriginalColors = true;
-                node._savedColor = origColor;
-                node._savedBgColor = origBgColor;
+                node._savedColor = node.color;
+                node._savedBgColor = node.bgcolor;
             }
             node.bgcolor = th.card_bg;
-            if (!origColor || origColor === "#222" || origColor === "#333") {
-                node.color = th.header_bg;
-            }
+            node.color = th.header_bg;
         } else if (!_themeEnabled && node && node._hasOriginalColors) {
             node.bgcolor = node._savedBgColor;
             node.color = node._savedColor;
@@ -369,15 +354,8 @@ function setupClassicCanvasDecorator() {
                 }
             }
 
-            // 3. Subtle Role Subtitle on Header (Classic Canvas)
-            const role = getNodeRoleSubtitle(node.type, node.title);
-            if (role && w > 180) {
-                ctx.font = "bold 9px sans-serif";
-                ctx.fillStyle = th.subtitle_color || "#89dceb";
-                ctx.globalAlpha = 0.75;
-                const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) ? LiteGraph.NODE_TITLE_HEIGHT : 30;
-                ctx.fillText(role.toUpperCase(), 12, titleH - 5);
-            }
+            // Note: Role subtitles are intentionally omitted from canvas to keep
+            // input/output slot labels 100% clean with zero text overlap.
 
             ctx.restore();
         }
@@ -736,10 +714,11 @@ function openThemeStudioModal() {
     applyBtn.textContent = "✓ Apply & Close";
     applyBtn.style.cssText = "background: #89b4fa; border: none; color: #11111b; padding: 6px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer;";
     applyBtn.onclick = () => {
-        if (_customThemes[_activeThemeName]) {
-            _customThemes[_activeThemeName] = { ...tempTheme };
+        _customThemes[_activeThemeName] = { ...tempTheme };
+        try {
             localStorage.setItem("zombiehaus_card_theme_custom", JSON.stringify(_customThemes));
-        }
+            localStorage.setItem("zombiehaus_card_theme_name", _activeThemeName);
+        } catch (_) {}
         applyCardThemeCSS();
         overlay.remove();
     };
@@ -764,15 +743,6 @@ app.registerExtension({
     async setup() {
         applyCardThemeCSS();
         setupClassicCanvasDecorator();
-
-        // Observe DOM for newly mounted Modern Nodes to inject role badges
-        if (window.MutationObserver) {
-            const mo = new MutationObserver(() => {
-                injectModernNodeRoleBadges();
-            });
-            mo.observe(document.body, { childList: true, subtree: true });
-        }
-        injectModernNodeRoleBadges();
 
         // Persistent Menu Button Injection for Theme Studio
         const attachThemeStudioBtn = () => {

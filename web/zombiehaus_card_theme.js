@@ -384,33 +384,37 @@ function setupClassicCanvasDecorator() {
 
             // 3. Tactile Docked Edge Seams on Connected Cards
             if (_dockingMode !== "off" && app.graph?._nodes) {
+                const nBounds = getNodeVisualBounds(node);
                 for (const other of app.graph._nodes) {
                     if (other === node || !other.pos || !other.size || other.flags?.collapsed) continue;
+                    const oBounds = getNodeVisualBounds(other);
+                    if (!nBounds || !oBounds) continue;
+
                     // Right edge docked flush to other left edge
-                    if (Math.abs((node.pos[0] + w + _dockingGap) - other.pos[0]) <= 4 &&
-                        node.pos[1] + h > other.pos[1] + 4 && node.pos[1] < other.pos[1] + other.size[1] - 4) {
+                    if (Math.abs((nBounds.right + _dockingGap) - oBounds.x) <= 4 &&
+                        nBounds.bottom > oBounds.y + 4 && nBounds.y < oBounds.bottom - 4) {
                         ctx.save();
                         ctx.strokeStyle = th.accent_color || "#89b4fa";
                         ctx.lineWidth = 2.5;
                         ctx.shadowColor = th.border_glow || "#89b4fa";
                         ctx.shadowBlur = 8;
                         ctx.beginPath();
-                        ctx.moveTo(w, Math.max(0, other.pos[1] - node.pos[1]) + 8);
-                        ctx.lineTo(w, Math.min(h, other.pos[1] + other.size[1] - node.pos[1]) - 8);
+                        ctx.moveTo(w, Math.max(0, oBounds.y - node.pos[1]) + 8);
+                        ctx.lineTo(w, Math.min(h, oBounds.bottom - node.pos[1]) - 8);
                         ctx.stroke();
                         ctx.restore();
                     }
                     // Bottom edge docked flush to other top edge
-                    if (Math.abs((node.pos[1] + h + _dockingGap) - other.pos[1]) <= 4 &&
-                        node.pos[0] + w > other.pos[0] + 4 && node.pos[0] < other.pos[0] + other.size[0] - 4) {
+                    if (Math.abs((nBounds.bottom + _dockingGap) - oBounds.y) <= 4 &&
+                        nBounds.right > oBounds.x + 4 && nBounds.x < oBounds.right - 4) {
                         ctx.save();
                         ctx.strokeStyle = th.accent_color || "#89b4fa";
                         ctx.lineWidth = 2.5;
                         ctx.shadowColor = th.border_glow || "#89b4fa";
                         ctx.shadowBlur = 8;
                         ctx.beginPath();
-                        ctx.moveTo(Math.max(0, other.pos[0] - node.pos[0]) + 8, h);
-                        ctx.lineTo(Math.min(w, other.pos[0] + other.size[0] - node.pos[0]) - 8, h);
+                        ctx.moveTo(Math.max(0, oBounds.x - node.pos[0]) + 8, h);
+                        ctx.lineTo(Math.min(w, oBounds.right - node.pos[0]) - 8, h);
                         ctx.stroke();
                         ctx.restore();
                     }
@@ -462,21 +466,54 @@ function setupClassicCanvasDecorator() {
 }
 
 // ── Node-to-Node Magnetic Docking & Sticky Movement Logic ─────────────────────
+function getNodeVisualBounds(node) {
+    if (!node || !node.pos || !node.size) return null;
+
+    let titleH = 0;
+    if (node.flags?.collapsed) {
+        titleH = node.titleHeight || (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+    } else if (node.title_mode === 1 || node.title_mode === 2) {
+        // LiteGraph.TRANSPARENT_TITLE = 1, LiteGraph.NO_TITLE = 2
+        titleH = 0;
+    } else {
+        titleH = node.titleHeight || (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+    }
+
+    const x = node.pos[0];
+    const y = node.pos[1] - titleH;
+    const w = node.flags?.collapsed
+        ? (node._collapsed_width || (typeof LiteGraph !== "undefined" && LiteGraph.NODE_COLLAPSED_WIDTH) || 80)
+        : node.size[0];
+    const h = node.flags?.collapsed ? titleH : (node.size[1] + titleH);
+
+    return {
+        x,
+        y,
+        w,
+        h,
+        right: x + w,
+        bottom: y + h,
+        titleOffset: titleH
+    };
+}
+
 function areNodesDocked(nodeA, nodeB, gap) {
     if (!nodeA || !nodeB || !nodeA.pos || !nodeB.pos || !nodeA.size || !nodeB.size) return false;
     const tol = 16;
     const g = gap || 0;
-    const ax = nodeA.pos[0], ay = nodeA.pos[1], aw = nodeA.size[0], ah = nodeA.size[1];
-    const bx = nodeB.pos[0], by = nodeB.pos[1], bw = nodeB.size[0], bh = nodeB.size[1];
+
+    const bA = getNodeVisualBounds(nodeA);
+    const bB = getNodeVisualBounds(nodeB);
+    if (!bA || !bB) return false;
 
     // 1. Horizontal Adjacency (Side to Side Docking)
-    const hAdjacency = (Math.abs((ax + aw + g) - bx) <= tol) || (Math.abs((bx + bw + g) - ax) <= tol);
-    const vOverlapAmount = Math.min(ay + ah, by + bh) - Math.max(ay, by);
+    const hAdjacency = (Math.abs((bA.right + g) - bB.x) <= tol) || (Math.abs((bB.right + g) - bA.x) <= tol);
+    const vOverlapAmount = Math.min(bA.bottom, bB.bottom) - Math.max(bA.y, bB.y);
     if (hAdjacency && vOverlapAmount >= -tol) return true;
 
     // 2. Vertical Adjacency (Top and Bottom Docking)
-    const vAdjacency = (Math.abs((ay + ah + g) - by) <= tol) || (Math.abs((by + bh + g) - ay) <= tol);
-    const hOverlapAmount = Math.min(ax + aw, bx + bw) - Math.max(ax, bx);
+    const vAdjacency = (Math.abs((bA.bottom + g) - bB.y) <= tol) || (Math.abs((bB.bottom + g) - bA.y) <= tol);
+    const hOverlapAmount = Math.min(bA.right, bB.right) - Math.max(bA.x, bB.x);
     if (vAdjacency && hOverlapAmount >= -tol) return true;
 
     return false;
@@ -767,94 +804,95 @@ function setupNodeEdgeDocking() {
         let minDiffY = _snapThreshold + 1;
         let snapGuideY = null;
 
-        const pX = primary.pos[0];
-        const pY = primary.pos[1];
-        const pW = primary.size[0];
-        const pH = primary.size[1];
+        const pBounds = getNodeVisualBounds(primary);
+        if (!pBounds) return res;
         const gap = _dockingGap;
 
         for (const other of this.graph._nodes) {
             if (!other || other === primary || _dragCluster.has(other) || (this.selected_nodes && this.selected_nodes[other.id])) continue;
             if (other.flags?.collapsed || !other.pos || !other.size) continue;
 
-            const oX = other.pos[0];
-            const oY = other.pos[1];
-            const oW = other.size[0];
-            const oH = other.size[1];
+            const oBounds = getNodeVisualBounds(other);
+            if (!oBounds) continue;
 
-            // Calculate cross-axis distances
-            const hDist = Math.max(0, Math.max(pX, oX) - Math.min(pX + pW, oX + oW));
-            const vDist = Math.max(0, Math.max(pY, oY) - Math.min(pY + pH, oY + oH));
+            // Calculate cross-axis distances using true visual boundaries
+            const hDist = Math.max(0, Math.max(pBounds.x, oBounds.x) - Math.min(pBounds.right, oBounds.right));
+            const vDist = Math.max(0, Math.max(pBounds.y, oBounds.y) - Math.min(pBounds.bottom, oBounds.bottom));
 
             // ── 1. Vertical Snapping (Top & Bottom Docking + Y Alignments) ─────────
             // Eligible if in horizontal proximity (overlapping or close to same column)
             if (hDist <= _snapThreshold * 2) {
                 // A. Dock Top: Primary Bottom flush to Other Top (- gap)
-                const targetY_top = oY - pH - gap;
-                const dY_top = targetY_top - pY;
+                // Other Top is oBounds.y (the top of other's title bar, fully exposed)
+                const targetVisualBottom = oBounds.y - gap;
+                const targetPrimaryPos1_top = targetVisualBottom - primary.size[1];
+                const dY_top = targetPrimaryPos1_top - primary.pos[1];
                 if (Math.abs(dY_top) < minDiffY) {
                     minDiffY = Math.abs(dY_top);
                     bestSnapY = dY_top;
                     snapGuideY = {
-                        y: oY,
-                        x1: Math.min(pX, oX) - 12,
-                        x2: Math.max(pX + pW, oX + oW) + 12,
+                        y: oBounds.y - (gap > 0 ? gap / 2 : 0),
+                        x1: Math.min(pBounds.x, oBounds.x) - 12,
+                        x2: Math.max(pBounds.right, oBounds.right) + 12,
                         type: "dock_top"
                     };
                 }
 
                 // B. Dock Bottom: Primary Top flush to Other Bottom (+ gap)
-                const targetY_bottom = oY + oH + gap;
-                const dY_bottom = targetY_bottom - pY;
+                // Other Bottom is oBounds.bottom. Primary Top is pBounds.y (pos[1] - titleOffset)
+                const targetVisualTop = oBounds.bottom + gap;
+                const targetPrimaryPos1_bottom = targetVisualTop + pBounds.titleOffset;
+                const dY_bottom = targetPrimaryPos1_bottom - primary.pos[1];
                 if (Math.abs(dY_bottom) < minDiffY) {
                     minDiffY = Math.abs(dY_bottom);
                     bestSnapY = dY_bottom;
                     snapGuideY = {
-                        y: targetY_bottom,
-                        x1: Math.min(pX, oX) - 12,
-                        x2: Math.max(pX + pW, oX + oW) + 12,
+                        y: oBounds.bottom + (gap > 0 ? gap / 2 : 0),
+                        x1: Math.min(pBounds.x, oBounds.x) - 12,
+                        x2: Math.max(pBounds.right, oBounds.right) + 12,
                         type: "dock_bottom"
                     };
                 }
 
                 // C. Align Top: Primary Top to Other Top
-                const targetY_alignTop = oY;
-                const dY_alignTop = targetY_alignTop - pY;
+                const targetPrimaryPos1_alignTop = oBounds.y + pBounds.titleOffset;
+                const dY_alignTop = targetPrimaryPos1_alignTop - primary.pos[1];
                 if (Math.abs(dY_alignTop) < minDiffY) {
                     minDiffY = Math.abs(dY_alignTop);
                     bestSnapY = dY_alignTop;
                     snapGuideY = {
-                        y: oY,
-                        x1: Math.min(pX, oX) - 12,
-                        x2: Math.max(pX + pW, oX + oW) + 12,
+                        y: oBounds.y,
+                        x1: Math.min(pBounds.x, oBounds.x) - 12,
+                        x2: Math.max(pBounds.right, oBounds.right) + 12,
                         type: "align_top"
                     };
                 }
 
                 // D. Align Center-Y: Primary Center-Y to Other Center-Y
-                const targetY_alignCenter = oY + (oH - pH) / 2;
-                const dY_alignCenter = targetY_alignCenter - pY;
+                const oCenterY = oBounds.y + oBounds.h / 2;
+                const pCenterY = pBounds.y + pBounds.h / 2;
+                const dY_alignCenter = oCenterY - pCenterY;
                 if (Math.abs(dY_alignCenter) < minDiffY) {
                     minDiffY = Math.abs(dY_alignCenter);
                     bestSnapY = dY_alignCenter;
                     snapGuideY = {
-                        y: oY + oH / 2,
-                        x1: Math.min(pX, oX) - 12,
-                        x2: Math.max(pX + pW, oX + oW) + 12,
+                        y: oCenterY,
+                        x1: Math.min(pBounds.x, oBounds.x) - 12,
+                        x2: Math.max(pBounds.right, oBounds.right) + 12,
                         type: "align_center_y"
                     };
                 }
 
                 // E. Align Bottom: Primary Bottom to Other Bottom
-                const targetY_alignBottom = oY + oH - pH;
-                const dY_alignBottom = targetY_alignBottom - pY;
+                const targetPrimaryPos1_alignBottom = oBounds.bottom - primary.size[1];
+                const dY_alignBottom = targetPrimaryPos1_alignBottom - primary.pos[1];
                 if (Math.abs(dY_alignBottom) < minDiffY) {
                     minDiffY = Math.abs(dY_alignBottom);
                     bestSnapY = dY_alignBottom;
                     snapGuideY = {
-                        y: oY + oH,
-                        x1: Math.min(pX, oX) - 12,
-                        x2: Math.max(pX + pW, oX + oW) + 12,
+                        y: oBounds.bottom,
+                        x1: Math.min(pBounds.x, oBounds.x) - 12,
+                        x2: Math.max(pBounds.right, oBounds.right) + 12,
                         type: "align_bottom"
                     };
                 }
@@ -864,71 +902,71 @@ function setupNodeEdgeDocking() {
             // Eligible if in vertical proximity (overlapping or close to same row)
             if (vDist <= _snapThreshold * 2) {
                 // A. Dock Left: Primary Right flush to Other Left (- gap)
-                const targetX_left = oX - pW - gap;
-                const dX_left = targetX_left - pX;
+                const targetX_left = oBounds.x - pBounds.w - gap;
+                const dX_left = targetX_left - primary.pos[0];
                 if (Math.abs(dX_left) < minDiffX) {
                     minDiffX = Math.abs(dX_left);
                     bestSnapX = dX_left;
                     snapGuideX = {
-                        x: oX,
-                        y1: Math.min(pY, oY) - 12,
-                        y2: Math.max(pY + pH, oY + oH) + 12,
+                        x: oBounds.x - (gap > 0 ? gap / 2 : 0),
+                        y1: Math.min(pBounds.y, oBounds.y) - 12,
+                        y2: Math.max(pBounds.bottom, oBounds.bottom) + 12,
                         type: "dock_left"
                     };
                 }
 
                 // B. Dock Right: Primary Left flush to Other Right (+ gap)
-                const targetX_right = oX + oW + gap;
-                const dX_right = targetX_right - pX;
+                const targetX_right = oBounds.right + gap;
+                const dX_right = targetX_right - primary.pos[0];
                 if (Math.abs(dX_right) < minDiffX) {
                     minDiffX = Math.abs(dX_right);
                     bestSnapX = dX_right;
                     snapGuideX = {
-                        x: targetX_right,
-                        y1: Math.min(pY, oY) - 12,
-                        y2: Math.max(pY + pH, oY + oH) + 12,
+                        x: oBounds.right + (gap > 0 ? gap / 2 : 0),
+                        y1: Math.min(pBounds.y, oBounds.y) - 12,
+                        y2: Math.max(pBounds.bottom, oBounds.bottom) + 12,
                         type: "dock_right"
                     };
                 }
 
                 // C. Align Left: Primary Left to Other Left
-                const targetX_alignLeft = oX;
-                const dX_alignLeft = targetX_alignLeft - pX;
+                const targetX_alignLeft = oBounds.x;
+                const dX_alignLeft = targetX_alignLeft - primary.pos[0];
                 if (Math.abs(dX_alignLeft) < minDiffX) {
                     minDiffX = Math.abs(dX_alignLeft);
                     bestSnapX = dX_alignLeft;
                     snapGuideX = {
-                        x: oX,
-                        y1: Math.min(pY, oY) - 12,
-                        y2: Math.max(pY + pH, oY + oH) + 12,
+                        x: oBounds.x,
+                        y1: Math.min(pBounds.y, oBounds.y) - 12,
+                        y2: Math.max(pBounds.bottom, oBounds.bottom) + 12,
                         type: "align_left"
                     };
                 }
 
                 // D. Align Center-X: Primary Center-X to Other Center-X
-                const targetX_alignCenter = oX + (oW - pW) / 2;
-                const dX_alignCenter = targetX_alignCenter - pX;
+                const targetX_alignCenter = oBounds.x + (oBounds.w - pBounds.w) / 2;
+                const dX_alignCenter = targetX_alignCenter - primary.pos[0];
                 if (Math.abs(dX_alignCenter) < minDiffX) {
                     minDiffX = Math.abs(dX_alignCenter);
                     bestSnapX = dX_alignCenter;
                     snapGuideX = {
-                        x: oX + oW / 2,
-                        y1: Math.min(pY, oY) - 12,
-                        y2: Math.max(pY + pH, oY + oH) + 12,
+                        x: oBounds.x + oBounds.w / 2,
+                        y1: Math.min(pBounds.y, oBounds.y) - 12,
+                        y2: Math.max(pBounds.bottom, oBounds.bottom) + 12,
                         type: "align_center_x"
                     };
                 }
 
                 // E. Align Right: Primary Right to Other Right
-                const targetX_alignRight = oX + oW - pW;
-                const dX_alignRight = targetX_alignRight - pX;
+                const targetX_alignRight = oBounds.right - pBounds.w;
+                const dX_alignRight = targetX_alignRight - primary.pos[0];
                 if (Math.abs(dX_alignRight) < minDiffX) {
                     minDiffX = Math.abs(dX_alignRight);
                     bestSnapX = dX_alignRight;
                     snapGuideX = {
-                        x: oX + oW,
-                        y1: Math.min(pY, oY) - 12,
-                        y2: Math.max(pY + pH, oY + oH) + 12,
+                        x: oBounds.right,
+                        y1: Math.min(pBounds.y, oBounds.y) - 12,
+                        y2: Math.max(pBounds.bottom, oBounds.bottom) + 12,
                         type: "align_right"
                     };
                 }

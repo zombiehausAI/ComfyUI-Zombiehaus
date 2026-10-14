@@ -1843,8 +1843,9 @@ function ensureWidgetInputElProxy(widget, node) {
                         found.style.setProperty("max-height", "72px", "important");
                         found.style.setProperty("resize", "none", "important");
                         if (found.parentElement) {
-                            found.parentElement.style.setProperty("height", "60px", "important");
-                            found.parentElement.style.setProperty("max-height", "72px", "important");
+                            found.parentElement.style.setProperty("min-height", "90px", "important");
+                            found.parentElement.style.setProperty("max-height", "108px", "important");
+                            found.parentElement.style.setProperty("height", "98px", "important");
                         }
                     }
                     return found;
@@ -1866,8 +1867,9 @@ function ensureWidgetInputElProxy(widget, node) {
                     val.style.setProperty("max-height", "72px", "important");
                     val.style.setProperty("resize", "none", "important");
                     if (val.parentElement) {
-                        val.parentElement.style.setProperty("height", "60px", "important");
-                        val.parentElement.style.setProperty("max-height", "72px", "important");
+                        val.parentElement.style.setProperty("min-height", "90px", "important");
+                        val.parentElement.style.setProperty("max-height", "108px", "important");
+                        val.parentElement.style.setProperty("height", "98px", "important");
                     }
                 }
             }
@@ -5307,46 +5309,33 @@ function updateTextEditorProportions(targetNode) {
         const nw = targetNode.widgets?.find(w => w.name === "negative");
         if (!pw && !nw) return;
 
-        // Negative prompt slot: 28px pedalboard + 60px textarea + margins = ~98px
-        const negSlotH = 98;
-        const negTaH = 60;
-
-        // Reset runaway heights from prior loop bugs (> 2500)
-        if (!targetNode.size || targetNode.size[1] > 2500) {
+        // Reset runaway heights from prior loop bugs (> 2500) only if corrupted
+        if (targetNode.size && targetNode.size[1] > 2500) {
             targetNode.size = [560, 830];
-        } else if (targetNode.size[1] < 760) {
-            targetNode.size[1] = 830;
         }
 
-        const currentTotalH = (targetNode.size && targetNode.size[1]) ? targetNode.size[1] : 830;
-        const posH = Math.max(190, Math.floor(currentTotalH - 620));
-
-        // 1. Configure layout engine hooks on Negative Widget (allocates space for pedalboard + textarea)
+        // 1. Negative Widget: Fixed compact slot for pedalboard (~24px) + textarea (60px) + margins = 98px
         if (nw) {
-            nw.computeSize = function(width) {
-                return [width || 540, negSlotH];
-            };
+            delete nw.computeSize;
             nw.computeLayoutSize = function() {
-                return { minHeight: 90, maxHeight: 110, minWidth: 0 };
+                return { minHeight: 98, maxHeight: 98, minWidth: 0 };
             };
             if (!nw.options) nw.options = {};
-            nw.options.getMinHeight = () => 90;
-            nw.options.getMaxHeight = () => 110;
-            nw.options.getHeight = () => negSlotH;
+            nw.options.getMinHeight = () => 98;
+            nw.options.getMaxHeight = () => 98;
+            delete nw.options.getHeight;
         }
 
-        // 2. Configure layout engine hooks on Positive Widget
+        // 2. Positive Widget: Expansive dynamic slot absorbing all available vertical space
         if (pw) {
-            pw.computeSize = function(width) {
-                return [width || (targetNode.size ? targetNode.size[0] - 20 : 540), posH];
-            };
+            delete pw.computeSize;
             pw.computeLayoutSize = function() {
-                return { minHeight: 140, maxHeight: 10000, minWidth: 0 };
+                return { minHeight: 140, maxHeight: 100000, minWidth: 0 };
             };
             if (!pw.options) pw.options = {};
             pw.options.getMinHeight = () => 140;
-            pw.options.getMaxHeight = () => 10000;
-            pw.options.getHeight = () => posH;
+            pw.options.getMaxHeight = () => 100000;
+            delete pw.options.getHeight;
         }
 
         // 3. Enforce DOM element styles on both textareas
@@ -5355,15 +5344,15 @@ function updateTextEditorProportions(targetNode) {
 
         if (posTa && posTa.style) {
             posTa.style.setProperty("min-height", "140px", "important");
-            posTa.style.setProperty("height", `${posH}px`, "important");
-            posTa.style.setProperty("max-height", `${posH}px`, "important");
+            posTa.style.setProperty("height", "100%", "important");
+            posTa.style.removeProperty("max-height");
             posTa.style.setProperty("resize", "none", "important");
+            posTa.style.setProperty("box-sizing", "border-box", "important");
             posTa.style.overflowY = "auto";
             posTa.style.overflowX = "hidden";
             if (posTa.parentElement) {
                 posTa.parentElement.style.setProperty("min-height", "140px", "important");
-                posTa.parentElement.style.setProperty("height", `${posH}px`, "important");
-                posTa.parentElement.style.setProperty("max-height", `${posH}px`, "important");
+                posTa.parentElement.style.removeProperty("max-height");
             }
         }
 
@@ -5371,17 +5360,15 @@ function updateTextEditorProportions(targetNode) {
             negTa.classList.add("zombiehaus-negative-prompt-ta");
             negTa.style.setProperty("min-height", "50px", "important");
             negTa.style.setProperty("max-height", "64px", "important");
-            negTa.style.setProperty("height", `${negTaH}px`, "important");
+            negTa.style.setProperty("height", "60px", "important");
             negTa.style.setProperty("resize", "none", "important");
-            negTa.style.setProperty("--comfy-widget-height", `${negTaH}px`, "important");
-            negTa.style.setProperty("--comfy-widget-max-height", "64px", "important");
-            negTa.style.setProperty("--comfy-widget-min-height", "50px", "important");
+            negTa.style.setProperty("box-sizing", "border-box", "important");
             negTa.style.overflowY = "auto";
             negTa.style.overflowX = "hidden";
             if (negTa.parentElement) {
-                negTa.parentElement.style.setProperty("min-height", `${negSlotH}px`, "important");
-                negTa.parentElement.style.setProperty("max-height", `${negSlotH + 10}px`, "important");
-                negTa.parentElement.style.setProperty("height", `${negSlotH}px`, "important");
+                negTa.parentElement.style.setProperty("min-height", "90px", "important");
+                negTa.parentElement.style.setProperty("max-height", "108px", "important");
+                negTa.parentElement.style.setProperty("height", "98px", "important");
             }
         }
 
@@ -5404,19 +5391,26 @@ function updateTextEditorProportions(targetNode) {
             if (textareas.length >= 2) {
                 const firstTa = textareas[0];
                 firstTa.style.setProperty("min-height", "140px", "important");
-                firstTa.style.setProperty("height", `${posH}px`, "important");
-                firstTa.style.setProperty("max-height", `${posH}px`, "important");
+                firstTa.style.setProperty("height", "100%", "important");
+                firstTa.style.removeProperty("max-height");
+                firstTa.style.setProperty("resize", "none", "important");
+                firstTa.style.setProperty("box-sizing", "border-box", "important");
+                if (firstTa.parentElement) {
+                    firstTa.parentElement.style.setProperty("min-height", "140px", "important");
+                    firstTa.parentElement.style.removeProperty("max-height");
+                }
 
                 const secondTa = textareas[1];
                 secondTa.classList.add("zombiehaus-negative-prompt-ta");
                 secondTa.style.setProperty("min-height", "50px", "important");
                 secondTa.style.setProperty("max-height", "64px", "important");
-                secondTa.style.setProperty("height", `${negTaH}px`, "important");
+                secondTa.style.setProperty("height", "60px", "important");
                 secondTa.style.setProperty("resize", "none", "important");
+                secondTa.style.setProperty("box-sizing", "border-box", "important");
                 if (secondTa.parentElement) {
-                    secondTa.parentElement.style.setProperty("min-height", `${negSlotH}px`, "important");
-                    secondTa.parentElement.style.setProperty("max-height", `${negSlotH + 10}px`, "important");
-                    secondTa.parentElement.style.setProperty("height", `${negSlotH}px`, "important");
+                    secondTa.parentElement.style.setProperty("min-height", "90px", "important");
+                    secondTa.parentElement.style.setProperty("max-height", "108px", "important");
+                    secondTa.parentElement.style.setProperty("height", "98px", "important");
                 }
             }
         }
@@ -5869,14 +5863,9 @@ app.registerExtension({
             const onResize = nodeType.prototype.onResize;
             nodeType.prototype.onResize = function(size) {
                 const r = onResize ? onResize.apply(this, arguments) : undefined;
-                updateTextEditorProportions(this);
+                const pw = this.widgets?.find(w => w.name === "positive");
+                pw?._updateSyntaxHighlight?.();
                 return r;
-            };
-
-            // ── computeSize (Floor prevents runaway auto-expansion loops) ─────────
-            nodeType.prototype.computeSize = function(minHeight) {
-                const w = Math.max(560, this.size ? this.size[0] : 560);
-                return [w, 830];
             };
 
             // ── onDrawForeground ──────────────────────────────────────────────────

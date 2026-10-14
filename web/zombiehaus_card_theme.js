@@ -90,11 +90,12 @@ let _themeEnabled = true;
 // ── Node Docking & Magnetic Snapping State ─────────────────────────────────────
 let _dockingMode = "sticky"; // "sticky" | "snap" | "off"
 let _dockingGap = 0; // 0 = flush, 8 = card gutter, 16 = spaced
-let _snapThreshold = 16; // trigger distance in canvas coordinates
+let _snapThreshold = 32; // trigger distance in canvas coordinates (doubled for effortless magnetic lock)
 let _activeSnapGuides = [];
 let _lastDragPrimary = null;
 let _lastPrimaryPos = null;
 let _dragCluster = new Set();
+let _clusterOffsets = new Map();
 
 try {
     const savedName = localStorage.getItem("zombiehaus_card_theme_name");
@@ -114,6 +115,11 @@ try {
     const savedGap = localStorage.getItem("zombiehaus_node_docking_gap");
     if (savedGap !== null) {
         _dockingGap = parseInt(savedGap, 10) || 0;
+    }
+
+    const savedSnapThreshold = localStorage.getItem("zombiehaus_node_docking_snap_threshold");
+    if (savedSnapThreshold !== null) {
+        _snapThreshold = parseInt(savedSnapThreshold, 10) || 32;
     }
 } catch (_) {}
 
@@ -381,8 +387,8 @@ function setupClassicCanvasDecorator() {
                 for (const other of app.graph._nodes) {
                     if (other === node || !other.pos || !other.size || other.flags?.collapsed) continue;
                     // Right edge docked flush to other left edge
-                    if (Math.abs((node.pos[0] + w + _dockingGap) - other.pos[0]) <= 2 &&
-                        node.pos[1] + h > other.pos[1] + 12 && node.pos[1] < other.pos[1] + other.size[1] - 12) {
+                    if (Math.abs((node.pos[0] + w + _dockingGap) - other.pos[0]) <= 4 &&
+                        node.pos[1] + h > other.pos[1] + 4 && node.pos[1] < other.pos[1] + other.size[1] - 4) {
                         ctx.save();
                         ctx.strokeStyle = th.accent_color || "#89b4fa";
                         ctx.lineWidth = 2.5;
@@ -395,8 +401,8 @@ function setupClassicCanvasDecorator() {
                         ctx.restore();
                     }
                     // Bottom edge docked flush to other top edge
-                    if (Math.abs((node.pos[1] + h + _dockingGap) - other.pos[1]) <= 2 &&
-                        node.pos[0] + w > other.pos[0] + 12 && node.pos[0] < other.pos[0] + other.size[0] - 12) {
+                    if (Math.abs((node.pos[1] + h + _dockingGap) - other.pos[1]) <= 4 &&
+                        node.pos[0] + w > other.pos[0] + 4 && node.pos[0] < other.pos[0] + other.size[0] - 4) {
                         ctx.save();
                         ctx.strokeStyle = th.accent_color || "#89b4fa";
                         ctx.lineWidth = 2.5;
@@ -458,17 +464,17 @@ function setupClassicCanvasDecorator() {
 // ── Node-to-Node Magnetic Docking & Sticky Movement Logic ─────────────────────
 function areNodesDocked(nodeA, nodeB, gap) {
     if (!nodeA || !nodeB || !nodeA.pos || !nodeB.pos || !nodeA.size || !nodeB.size) return false;
-    const tol = 3;
+    const tol = 10;
     const g = gap || 0;
     const ax = nodeA.pos[0], ay = nodeA.pos[1], aw = nodeA.size[0], ah = nodeA.size[1];
     const bx = nodeB.pos[0], by = nodeB.pos[1], bw = nodeB.size[0], bh = nodeB.size[1];
 
     const hAdjacency = (Math.abs((ax + aw + g) - bx) <= tol) || (Math.abs((bx + bw + g) - ax) <= tol);
-    const vOverlap = (ay + ah > by + 12) && (ay < by + bh - 12);
+    const vOverlap = (ay + ah > by + 2) && (ay < by + bh - 2);
     if (hAdjacency && vOverlap) return true;
 
     const vAdjacency = (Math.abs((ay + ah + g) - by) <= tol) || (Math.abs((by + bh + g) - ay) <= tol);
-    const hOverlap = (ax + aw > bx + 12) && (ax < bx + bw - 12);
+    const hOverlap = (ax + aw > bx + 2) && (ax < bx + bw - 2);
     if (vAdjacency && hOverlap) return true;
 
     return false;
@@ -557,49 +563,126 @@ function updateDockingBtnUI() {
     btn.innerHTML = `<span>🧲</span> Dock: <span style="display: inline-flex; align-items: center; gap: 5px; color: ${dotColor};"><span style="width: 7px; height: 7px; border-radius: 50%; background: ${dotColor}; box-shadow: 0 0 6px ${dotColor};"></span>${modeText}</span>`;
 }
 
-function attachDockingToggleBtn() {
-    if (document.getElementById("zombiehaus-docking-mode-btn")) {
-        updateDockingBtnUI();
-        return;
+function attachTopBarControls() {
+    let container = document.getElementById("zombiehaus-topbar-controls");
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "zombiehaus-topbar-controls";
+        container.className = "zombiehaus-topbar-group";
+        container.style.cssText = "display: inline-flex; align-items: center; gap: 4px; margin: 2px 6px; z-index: 100020; user-select: none;";
     }
 
-    const btn = document.createElement("button");
-    btn.id = "zombiehaus-docking-mode-btn";
-    btn.type = "button";
-    btn.style.cssText = "display: inline-flex; align-items: center; gap: 6px; background: rgba(22, 22, 34, 0.85); border: 1px solid rgba(137, 180, 250, 0.4); border-radius: 6px; padding: 4px 10px; color: #cdd6f4; font-size: 11px; font-weight: 700; cursor: pointer; margin: 2px 4px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); z-index: 99990; user-select: none;";
-    btn.title = "Node-to-Node Edge Docking & Magnetic Snapping. Click to cycle modes (Sticky -> Snap -> Off). Hold Alt while dragging to peel nodes away.";
+    // 1. Theme Studio Button
+    let themeBtn = document.getElementById("zombiehaus-card-theme-btn");
+    if (!themeBtn) {
+        themeBtn = document.createElement("button");
+        themeBtn.id = "zombiehaus-card-theme-btn";
+        themeBtn.type = "button";
+        themeBtn.innerHTML = "<span>🎨</span> Themes";
+        themeBtn.title = "Zombiehaus Card Theme & Theme Studio (Customize Colors, Borders, Presets)";
+        themeBtn.style.cssText = "display: inline-flex; align-items: center; gap: 5px; background: rgba(22, 22, 34, 0.9); border: 1px solid rgba(137, 180, 250, 0.45); border-radius: 6px; padding: 4px 10px; color: #cdd6f4; font-size: 11px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);";
+        themeBtn.onclick = (e) => {
+            e.preventDefault();
+            openThemeStudioModal();
+        };
+        container.appendChild(themeBtn);
+    }
 
-    btn.onclick = (e) => {
-        e.preventDefault();
-        const nextMode = (_dockingMode === "sticky") ? "snap" : ((_dockingMode === "snap") ? "off" : "sticky");
-        setDockingMode(nextMode);
-    };
-
-    const menuBar = (
-        document.querySelector(".comfyui-menu") ||
-        document.querySelector(".comfy-menu") ||
-        document.querySelector("#comfy-menu") ||
-        document.querySelector(".side-bar-button-selected")?.parentElement ||
-        document.querySelector(".comfyui-action-bar") ||
-        document.querySelector(".comfyui-body-top") ||
-        document.querySelector("header.comfyui-menu") ||
-        document.querySelector(".comfyui-nav")
-    );
-
-    if (menuBar) {
-        menuBar.appendChild(btn);
-    } else {
-        btn.style.position = "fixed";
-        btn.style.top = "10px";
-        btn.style.right = "230px";
-        document.body.appendChild(btn);
+    // 2. Docking Mode Button
+    let dockBtn = document.getElementById("zombiehaus-docking-mode-btn");
+    if (!dockBtn) {
+        dockBtn = document.createElement("button");
+        dockBtn.id = "zombiehaus-docking-mode-btn";
+        dockBtn.type = "button";
+        dockBtn.style.cssText = "display: inline-flex; align-items: center; gap: 6px; background: rgba(22, 22, 34, 0.9); border: 1px solid rgba(137, 180, 250, 0.45); border-radius: 6px; padding: 4px 10px; color: #cdd6f4; font-size: 11px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);";
+        dockBtn.title = "Node-to-Node Edge Docking & Magnetic Snapping. Click to cycle modes (Sticky -> Snap -> Off). Hold Alt while dragging to peel nodes away.";
+        dockBtn.onclick = (e) => {
+            e.preventDefault();
+            const nextMode = (_dockingMode === "sticky") ? "snap" : ((_dockingMode === "snap") ? "off" : "sticky");
+            setDockingMode(nextMode);
+        };
+        container.appendChild(dockBtn);
     }
 
     updateDockingBtnUI();
+
+    // Insertion strategy:
+    // A. Next to settings in ComfyUI modern top bar:
+    if (window.app?.menu?.settingsGroup?.element?.parentElement) {
+        if (container.parentElement !== window.app.menu.settingsGroup.element.parentElement) {
+            window.app.menu.settingsGroup.element.before(container);
+            container.style.position = "";
+            container.style.top = "";
+            container.style.right = "";
+        }
+        return;
+    }
+
+    // B. Inside top menu bar / action bar:
+    const menuBar = (
+        document.querySelector(".comfyui-menu .comfyui-button-group") ||
+        document.querySelector(".comfyui-menu") ||
+        document.querySelector("header.comfyui-menu") ||
+        document.querySelector(".action-bar") ||
+        document.querySelector(".comfy-menu") ||
+        document.querySelector("#comfy-menu") ||
+        document.querySelector(".side-bar-button-selected")?.parentElement
+    );
+
+    if (menuBar) {
+        if (container.parentElement !== menuBar) {
+            menuBar.appendChild(container);
+            container.style.position = "";
+            container.style.top = "";
+            container.style.right = "";
+        }
+        return;
+    }
+
+    // C. Floating top bar pill over canvas:
+    if (container.parentElement !== document.body) {
+        container.style.position = "fixed";
+        container.style.top = "10px";
+        container.style.right = "180px";
+        document.body.appendChild(container);
+    }
+}
+
+function attachDockingToggleBtn() {
+    attachTopBarControls();
 }
 
 function setupNodeEdgeDocking() {
     if (typeof LGraphCanvas === "undefined") return;
+
+    // 0. Process Mouse Down to lock initial cluster before any position shifts occur
+    const origProcessMouseDown = LGraphCanvas.prototype.processMouseDown;
+    LGraphCanvas.prototype.processMouseDown = function (e) {
+        const res = origProcessMouseDown ? origProcessMouseDown.apply(this, arguments) : undefined;
+
+        _activeSnapGuides = [];
+        _dragCluster.clear();
+        _clusterOffsets = new Map();
+        _lastDragPrimary = null;
+        _lastPrimaryPos = null;
+
+        if (_dockingMode === "sticky" && !e.altKey && this.graph?._nodes) {
+            const draggedNodes = Object.values(this.selected_nodes || {});
+            const primary = draggedNodes[0] || this.node_dragged;
+            if (primary && primary.pos && primary.size) {
+                _lastDragPrimary = primary;
+                _lastPrimaryPos = [primary.pos[0], primary.pos[1]];
+                const cluster = findDockedCluster([primary], this.graph._nodes, _dockingGap);
+                if (cluster.size > 1) {
+                    for (const item of cluster) {
+                        _dragCluster.add(item);
+                        _clusterOffsets.set(item, [item.pos[0] - primary.pos[0], item.pos[1] - primary.pos[1]]);
+                    }
+                }
+            }
+        }
+        return res;
+    };
 
     // 1. Process Mouse Move for Magnetic Edge Snapping & Sticky Dragging
     const origProcessMouseMove = LGraphCanvas.prototype.processMouseMove;
@@ -612,7 +695,7 @@ function setupNodeEdgeDocking() {
 
         if (!this.graph || !this.graph._nodes) return res;
 
-        const isDragging = (this.isDragging || (this.pointer?.isDown && this.selected_nodes && Object.keys(this.selected_nodes).length > 0));
+        const isDragging = (this.isDragging || (this.pointer?.isDown && this.selected_nodes && Object.keys(this.selected_nodes).length > 0) || this.node_dragged);
         if (!isDragging) {
             if (_activeSnapGuides.length > 0) {
                 _activeSnapGuides = [];
@@ -621,37 +704,43 @@ function setupNodeEdgeDocking() {
             _lastDragPrimary = null;
             _lastPrimaryPos = null;
             _dragCluster.clear();
+            _clusterOffsets = new Map();
             return res;
         }
 
         const draggedNodes = Object.values(this.selected_nodes || {});
-        if (draggedNodes.length === 0) return res;
+        if (draggedNodes.length === 0 && !this.node_dragged) return res;
 
-        const primary = draggedNodes[0];
+        const primary = draggedNodes[0] || this.node_dragged;
         if (!primary || !primary.pos || !primary.size) return res;
 
-        // Initialize drag cluster on new drag
-        if (_lastDragPrimary !== primary) {
-            _lastDragPrimary = primary;
-            _lastPrimaryPos = [primary.pos[0], primary.pos[1]];
-            _dragCluster.clear();
-            if (_dockingMode === "sticky" && !e.altKey) {
-                const cluster = findDockedCluster(draggedNodes, this.graph._nodes, _dockingGap);
-                for (const item of cluster) {
-                    _dragCluster.add(item);
+        // Initialize drag cluster on new drag if not already captured in processMouseDown
+        if (_lastDragPrimary !== primary || _dragCluster.size === 0) {
+            if (_lastDragPrimary !== primary) {
+                _lastDragPrimary = primary;
+                _lastPrimaryPos = [primary.pos[0], primary.pos[1]];
+                _dragCluster.clear();
+                _clusterOffsets = new Map();
+            }
+            if (_dockingMode === "sticky" && !e.altKey && _dragCluster.size === 0) {
+                const cluster = findDockedCluster([primary], this.graph._nodes, _dockingGap);
+                if (cluster.size > 1) {
+                    for (const item of cluster) {
+                        _dragCluster.add(item);
+                        _clusterOffsets.set(item, [item.pos[0] - primary.pos[0], item.pos[1] - primary.pos[1]]);
+                    }
                 }
             }
         }
 
-        // Propagate sticky cluster movement
-        if (_dockingMode === "sticky" && !e.altKey && _dragCluster.size > 1 && _lastPrimaryPos) {
-            const dX = primary.pos[0] - _lastPrimaryPos[0];
-            const dY = primary.pos[1] - _lastPrimaryPos[1];
-            if (dX !== 0 || dY !== 0) {
-                for (const companion of _dragCluster) {
-                    if (companion !== primary && !this.selected_nodes[companion.id]) {
-                        companion.pos[0] += dX;
-                        companion.pos[1] += dY;
+        // Propagate sticky cluster movement rigidly to all companion nodes
+        if (_dockingMode === "sticky" && !e.altKey && _dragCluster.size > 1 && _clusterOffsets) {
+            for (const companion of _dragCluster) {
+                if (companion !== primary && (!this.selected_nodes || !this.selected_nodes[companion.id])) {
+                    const offset = _clusterOffsets.get(companion);
+                    if (offset) {
+                        companion.pos[0] = primary.pos[0] + offset[0];
+                        companion.pos[1] = primary.pos[1] + offset[1];
                         companion.setDirtyCanvas?.(true, true);
                     }
                 }
@@ -683,7 +772,7 @@ function setupNodeEdgeDocking() {
         const gap = _dockingGap;
 
         for (const other of this.graph._nodes) {
-            if (!other || other === primary || _dragCluster.has(other) || this.selected_nodes[other.id]) continue;
+            if (!other || other === primary || _dragCluster.has(other) || (this.selected_nodes && this.selected_nodes[other.id])) continue;
             if (other.flags?.collapsed || !other.pos || !other.size) continue;
 
             const oX = other.pos[0];
@@ -692,7 +781,7 @@ function setupNodeEdgeDocking() {
             const oH = other.size[1];
 
             // Horizontal Snap Candidates (when within vertical overlap range)
-            const vOverlap = (pY + pH > oY - 15) && (pY < oY + oH + 15);
+            const vOverlap = (pY + pH > oY - _snapThreshold) && (pY < oY + oH + _snapThreshold);
             if (vOverlap) {
                 // 1. Primary Left flush to Other Right (+ gap)
                 const targetX1 = oX + oW + gap;
@@ -750,7 +839,7 @@ function setupNodeEdgeDocking() {
             }
 
             // Vertical Snap Candidates (when within horizontal overlap range)
-            const hOverlap = (pX + pW > oX - 15) && (pX < oX + oW + 15);
+            const hOverlap = (pX + pW > oX - _snapThreshold) && (pX < oX + oW + _snapThreshold);
             if (hOverlap) {
                 // 1. Primary Top flush to Other Bottom (+ gap)
                 const targetY1 = oY + oH + gap;
@@ -812,19 +901,27 @@ function setupNodeEdgeDocking() {
         const newGuides = [];
         if (bestSnapX !== null && Math.abs(bestSnapX) <= _snapThreshold) {
             primary.pos[0] += bestSnapX;
-            for (const c of _dragCluster) {
-                if (c !== primary) c.pos[0] += bestSnapX;
-            }
             _lastPrimaryPos[0] = primary.pos[0];
             if (snapGuideX) newGuides.push(snapGuideX);
         }
         if (bestSnapY !== null && Math.abs(bestSnapY) <= _snapThreshold) {
             primary.pos[1] += bestSnapY;
-            for (const c of _dragCluster) {
-                if (c !== primary) c.pos[1] += bestSnapY;
-            }
             _lastPrimaryPos[1] = primary.pos[1];
             if (snapGuideY) newGuides.push(snapGuideY);
+        }
+
+        // Synchronize cluster companions rigidly to snapped primary position
+        if (_dockingMode === "sticky" && !e.altKey && _dragCluster.size > 1 && _clusterOffsets) {
+            for (const companion of _dragCluster) {
+                if (companion !== primary && (!this.selected_nodes || !this.selected_nodes[companion.id])) {
+                    const offset = _clusterOffsets.get(companion);
+                    if (offset) {
+                        companion.pos[0] = primary.pos[0] + offset[0];
+                        companion.pos[1] = primary.pos[1] + offset[1];
+                        companion.setDirtyCanvas?.(true, true);
+                    }
+                }
+            }
         }
 
         _activeSnapGuides = newGuides;
@@ -840,6 +937,7 @@ function setupNodeEdgeDocking() {
         _lastDragPrimary = null;
         _lastPrimaryPos = null;
         _dragCluster.clear();
+        _clusterOffsets = new Map();
         const res = origProcessMouseUp ? origProcessMouseUp.apply(this, arguments) : undefined;
         this.setDirty(true, true);
         return res;
@@ -1260,53 +1358,21 @@ app.registerExtension({
         applyCardThemeCSS();
         setupClassicCanvasDecorator();
 
-        // Persistent Menu Button Injection for Theme Studio
-        const attachThemeStudioBtn = () => {
-            if (document.getElementById("zombiehaus-card-theme-btn")) return;
-
-            const btn = document.createElement("button");
-            btn.id = "zombiehaus-card-theme-btn";
-            btn.type = "button";
-            btn.innerHTML = "<span>🎨</span> Themes";
-            btn.title = "Zombiehaus Card Theme & Theme Studio (Customize Colors, Borders, Presets)";
-            btn.style.cssText = "display: inline-flex; align-items: center; gap: 5px; background: rgba(22, 22, 34, 0.85); border: 1px solid rgba(137, 180, 250, 0.4); border-radius: 6px; padding: 4px 10px; color: #cdd6f4; font-size: 11px; font-weight: 700; cursor: pointer; margin: 2px 4px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); z-index: 99990;";
-            btn.onclick = (e) => {
-                e.preventDefault();
-                openThemeStudioModal();
-            };
-
-            const menuBar = (
-                document.querySelector(".comfyui-menu") ||
-                document.querySelector(".comfy-menu") ||
-                document.querySelector("#comfy-menu") ||
-                document.querySelector(".side-bar-button-selected")?.parentElement ||
-                document.querySelector(".comfyui-action-bar") ||
-                document.querySelector(".comfyui-body-top") ||
-                document.querySelector("header.comfyui-menu") ||
-                document.querySelector(".comfyui-nav")
-            );
-
-            if (menuBar) {
-                menuBar.appendChild(btn);
-            } else {
-                btn.style.position = "fixed";
-                btn.style.top = "10px";
-                btn.style.right = "140px";
-                document.body.appendChild(btn);
-            }
-        };
-
-        attachThemeStudioBtn();
-        attachDockingToggleBtn();
+        // Persistent Menu Button Injection for Theme Studio & Docking Controls
+        attachTopBarControls();
 
         const themeBtnTimer = setInterval(() => {
-            attachThemeStudioBtn();
-            attachDockingToggleBtn();
-            if (document.getElementById("zombiehaus-card-theme-btn") && document.getElementById("zombiehaus-docking-mode-btn")) {
-                clearInterval(themeBtnTimer);
-            }
-        }, 1000);
-        setTimeout(() => clearInterval(themeBtnTimer), 8000);
+            attachTopBarControls();
+        }, 1500);
+
+        if (window.MutationObserver) {
+            const mo = new MutationObserver(() => {
+                if (!document.getElementById("zombiehaus-topbar-controls") || !document.getElementById("zombiehaus-topbar-controls").isConnected) {
+                    attachTopBarControls();
+                }
+            });
+            mo.observe(document.body, { childList: true, subtree: true });
+        }
 
         setupNodeEdgeDocking();
 
@@ -1368,6 +1434,23 @@ app.registerExtension({
                     else _dockingGap = 16;
                     try {
                         localStorage.setItem("zombiehaus_node_docking_gap", String(_dockingGap));
+                    } catch (_) {}
+                    if (app.canvas) app.canvas.setDirty(true, true);
+                }
+            });
+
+            app.ui.settings.addSetting({
+                id: "Zombiehaus.NodeDockingSnapDistance",
+                name: "Zombiehaus Magnetic Snap Distance",
+                type: "combo",
+                defaultValue: _snapThreshold === 32 ? "Large (32px)" : (_snapThreshold === 48 ? "Extra Large (48px)" : "Standard (16px)"),
+                options: ["Standard (16px)", "Large (32px)", "Extra Large (48px)"],
+                onChange: (val) => {
+                    if (val === "Standard (16px)") _snapThreshold = 16;
+                    else if (val === "Large (32px)") _snapThreshold = 32;
+                    else _snapThreshold = 48;
+                    try {
+                        localStorage.setItem("zombiehaus_node_docking_snap_threshold", String(_snapThreshold));
                     } catch (_) {}
                     if (app.canvas) app.canvas.setDirty(true, true);
                 }

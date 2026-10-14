@@ -54,6 +54,8 @@ class ZombiehausImageTray {
             toggleBtn.title = this.isEnabled ? "Toggle Zombiehaus Image Tray (Alt+T / F10)" : "Image Tray is Disabled (Click to Enable)";
         }
 
+        this.updateBottomOffset();
+
         if (this.isEnabled && this.items.length === 0) {
             this.fetchRecentOutputs();
         }
@@ -119,7 +121,7 @@ class ZombiehausImageTray {
         this.trayEl.style.left = "var(--zit-left-offset, 0px)";
     }
 
-    // ── Dynamic ComfyUI Docking (Bottom Menu Bar & Left Sidebar) ──────────────
+    // ── Dynamic ComfyUI Docking (Bottom Dock & Left Sidebar Offset) ────────────
     updateBottomOffset() {
         if (!this.trayEl) return;
 
@@ -133,6 +135,7 @@ class ZombiehausImageTray {
             this.trayEl.style.zIndex = "99992";
             this.trayEl.style.setProperty("--zit-bottom-offset", "0px");
             this.trayEl.style.setProperty("--zit-left-offset", "0px");
+            this.pushBottomElements(0);
             return;
         }
 
@@ -167,25 +170,27 @@ class ZombiehausImageTray {
         this.trayEl.style.left = `${leftOffset}px`;
         this.trayEl.style.setProperty("--zit-left-offset", `${leftOffset}px`);
 
-        // ── 2. Detect Bottom Elements (Resize Feed / Comfy Menu Bars) ──────────
-        let offset = 0;
+        // ── 2. Dock at Bottom 0 and Push Floating ComfyUI UI Up (rgthree style) ─
+        this.trayEl.style.bottom = "0px";
+        this.trayEl.style.setProperty("--zit-bottom-offset", "0px");
 
-        // Check manual override if user configured one
-        try {
-            const manual = localStorage.getItem("zombiehaus_image_tray_bottom_offset");
-            if (manual !== null && manual !== "auto" && !isNaN(parseInt(manual, 10)) && parseInt(manual, 10) > 0) {
-                offset = parseInt(manual, 10);
-                this.trayEl.style.bottom = `${offset}px`;
-                this.trayEl.style.setProperty("--zit-bottom-offset", `${offset}px`);
-                return;
-            }
-        } catch (_) {}
+        const trayHeight = (!this.isEnabled || this.isHidden)
+            ? 0
+            : (this.isCollapsed ? 36 : (this.trayEl.offsetHeight || 140));
 
-        // ComfyUI bottom bar / menu selectors across versions
+        this.pushBottomElements(trayHeight);
+    }
+
+    // ── Push ComfyUI Bottom UI Up Above Tray (rgthree style docking) ──────────
+    pushBottomElements(trayHeight) {
+        // Set CSS variables on documentElement & body for native ComfyUI layout support
+        document.documentElement.style.setProperty("--comfyui-menu-bottom", `${trayHeight}px`);
+        document.documentElement.style.setProperty("--body-bottom-height", `${trayHeight}px`);
+        document.documentElement.style.setProperty("--zit-tray-height", `${trayHeight}px`);
+
+        const vh = window.innerHeight;
         const candidates = [
             ".comfyui-body-bottom",
-            ".comfyui-body-bottom .comfyui-menu",
-            ".comfyui-body-bottom > *",
             ".comfyui-menu.bottom",
             ".comfyui-menu[data-position='bottom']",
             ".comfyui-bottom-bar",
@@ -193,14 +198,8 @@ class ZombiehausImageTray {
             "footer.comfyui-footer",
             ".comfy-menu.bottom",
             ".comfyui-action-bar",
-            ".comfyui-menu",
             ".comfy-menu",
-            "#comfy-menu",
-            "header.comfyui-menu",
-            "footer",
-            ".comfyui-nav",
-            "[class*='image-feed']",
-            ".pysssss-image-feed"
+            "#comfy-menu"
         ];
 
         for (const sel of candidates) {
@@ -210,6 +209,10 @@ class ZombiehausImageTray {
                 if (el.closest("#zombiehaus-image-tray") || el.closest("#zombiehaus-deck-studio") || el.closest("#zombiehaus-settings-modal")) {
                     continue;
                 }
+                // Avoid styling children if parent container is already adjusted
+                if (el.parentElement && el.parentElement.closest(".comfyui-body-bottom")) {
+                    continue;
+                }
 
                 const style = window.getComputedStyle(el);
                 if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
@@ -217,28 +220,44 @@ class ZombiehausImageTray {
                 }
 
                 const rect = el.getBoundingClientRect();
-                // Check if element is docked/touching the bottom edge of the viewport
-                if (rect.height > 0 && rect.bottom >= vh - 10 && rect.top > vh * 0.4) {
-                    const h = Math.round(vh - rect.top);
-                    // Standard bottom menu bars range from ~24px to 180px
-                    if (h >= 24 && h <= 180 && h > offset) {
-                        offset = h;
-                    }
+                const isNearBottom = rect.bottom >= vh - 220 && rect.top > vh * 0.3;
+                if (!isNearBottom && !el.dataset.zitPushed) {
+                    continue;
+                }
+
+                if (!el.dataset.zitOrigBottom) {
+                    el.dataset.zitOrigBottom = el.style.bottom || "";
+                }
+
+                if (trayHeight > 0) {
+                    el.dataset.zitPushed = "true";
+                    el.style.bottom = `${trayHeight}px`;
+                    el.style.transition = "bottom 0.25s cubic-bezier(0.16, 1, 0.3, 1)";
+                } else if (el.dataset.zitPushed) {
+                    delete el.dataset.zitPushed;
+                    el.style.bottom = el.dataset.zitOrigBottom || "";
                 }
             }
         }
 
-        // Also inspect app.ui.menuContainer if available
+        // Also adjust app.ui.menuContainer if present and docked near bottom
         if (window.app?.ui?.menuContainer) {
-            const rect = window.app.ui.menuContainer.getBoundingClientRect();
-            if (rect.height > 0 && rect.bottom >= vh - 10 && rect.top > vh * 0.4) {
-                const h = Math.round(vh - rect.top);
-                if (h >= 24 && h <= 180 && h > offset) offset = h;
+            const mc = window.app.ui.menuContainer;
+            const rect = mc.getBoundingClientRect();
+            if ((rect.bottom >= vh - 220 && rect.top > vh * 0.3) || mc.dataset.zitPushed) {
+                if (!mc.dataset.zitOrigBottom) {
+                    mc.dataset.zitOrigBottom = mc.style.bottom || "";
+                }
+                if (trayHeight > 0) {
+                    mc.dataset.zitPushed = "true";
+                    mc.style.bottom = `${trayHeight}px`;
+                    mc.style.transition = "bottom 0.25s cubic-bezier(0.16, 1, 0.3, 1)";
+                } else if (mc.dataset.zitPushed) {
+                    delete mc.dataset.zitPushed;
+                    mc.style.bottom = mc.dataset.zitOrigBottom || "";
+                }
             }
         }
-
-        this.trayEl.style.bottom = `${offset}px`;
-        this.trayEl.style.setProperty("--zit-bottom-offset", `${offset}px`);
     }
 
     // ── Event Handlers ────────────────────────────────────────────────────────
@@ -294,6 +313,7 @@ class ZombiehausImageTray {
             if (this.size === "small") this.filmstripEl.classList.add("zit-size-small");
             if (this.size === "large") this.filmstripEl.classList.add("zit-size-large");
             this.sizeLabel.textContent = this.size.charAt(0).toUpperCase() + this.size.slice(1);
+            setTimeout(() => this.updateBottomOffset(), 50);
         };
 
         // Disable Button
@@ -465,11 +485,13 @@ class ZombiehausImageTray {
     toggleCollapse() {
         this.isCollapsed = !this.isCollapsed;
         this.trayEl.classList.toggle("zit-collapsed", this.isCollapsed);
+        this.updateBottomOffset();
     }
 
     toggleHidden() {
         this.isHidden = !this.isHidden;
         this.trayEl.classList.toggle("zit-hidden", this.isHidden);
+        this.updateBottomOffset();
     }
 
     // ── Lightbox & Metadata Inspector with Click-to-Zoom & Pan ──────────────
@@ -483,6 +505,16 @@ class ZombiehausImageTray {
             <div class="zit-lightbox-modal">
                 <div class="zit-lightbox-main">
                     <button type="button" class="zit-lightbox-close" id="zit-lb-close" title="Close Lightbox (Esc)">✕</button>
+                    <button type="button" class="zit-lightbox-nav zit-lightbox-prev" id="zit-lb-prev" title="Previous Image (Left Arrow)">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events: none; margin-right: 2px;">
+                            <polyline points="15 18 9 12 15 6"></polyline>
+                        </svg>
+                    </button>
+                    <button type="button" class="zit-lightbox-nav zit-lightbox-next" id="zit-lb-next" title="Next Image (Right Arrow)">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events: none; margin-left: 2px;">
+                            <polyline points="9 18 15 12 9 6"></polyline>
+                        </svg>
+                    </button>
                     <div class="zit-lightbox-viewport" id="zit-lb-viewport" title="Click to Zoom In / Drag to Pan / Click to Zoom Out">
                         <img src="${url}" class="zit-lightbox-image" id="zit-lb-img" alt="${item.filename}" draggable="false" />
                     </div>
@@ -495,9 +527,12 @@ class ZombiehausImageTray {
                     </div>
                 </div>
                 <div class="zit-lightbox-sidebar">
-                    <div class="zit-sidebar-title">
-                        <span>Image Details</span>
-                        <span style="font-size: 11px; font-weight: normal; color: var(--zit-text-muted);">${item.filename}</span>
+                    <div class="zit-sidebar-title" style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span>Image Details</span>
+                            <span id="zit-lb-count" style="font-size: 11px; font-weight: 600; color: #a855f7; font-family: var(--zit-font-mono, monospace);"></span>
+                        </div>
+                        <span id="zit-lb-filename" style="font-size: 11px; font-weight: normal; color: var(--zit-text-muted); max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.filename}">${item.filename}</span>
                     </div>
 
                     <div class="zit-sidebar-actions">
@@ -510,10 +545,10 @@ class ZombiehausImageTray {
                         <button type="button" class="zit-sidebar-btn" id="zit-lb-copy">
                             <span>📋</span> Copy Image to Clipboard
                         </button>
-                        <a href="${url}" download="${item.filename}" class="zit-sidebar-btn" style="text-decoration: none;">
+                        <a href="${url}" download="${item.filename}" class="zit-sidebar-btn" id="zit-lb-download" style="text-decoration: none;">
                             <span>⬇️</span> Download File
                         </a>
-                        <a href="${url}" target="_blank" class="zit-sidebar-btn" style="text-decoration: none;">
+                        <a href="${url}" target="_blank" class="zit-sidebar-btn" id="zit-lb-tab" style="text-decoration: none;">
                             <span>🔗</span> Open in New Tab
                         </a>
                     </div>
@@ -529,6 +564,168 @@ class ZombiehausImageTray {
         const viewport = overlay.querySelector("#zit-lb-viewport");
         const img = overlay.querySelector("#zit-lb-img");
         const zoomBadge = overlay.querySelector("#zit-zoom-badge");
+        const prevBtn = overlay.querySelector("#zit-lb-prev");
+        const nextBtn = overlay.querySelector("#zit-lb-next");
+        const filenameEl = overlay.querySelector("#zit-lb-filename");
+        const countEl = overlay.querySelector("#zit-lb-count");
+        const downloadLink = overlay.querySelector("#zit-lb-download");
+        const tabLink = overlay.querySelector("#zit-lb-tab");
+        const metaEl = overlay.querySelector("#zit-lb-meta");
+
+        // Style the navigation buttons
+        const navBtnBaseStyle = `
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: rgba(14, 16, 26, 0.78);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 15;
+            transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+            user-select: none;
+            outline: none;
+            padding: 0;
+        `;
+        prevBtn.style.cssText = navBtnBaseStyle + "left: 20px;";
+        nextBtn.style.cssText = navBtnBaseStyle + "right: 20px;";
+
+        let activeItem = item;
+        let activeUrl = url;
+        let currentIndex = this.items.findIndex((i) => i.filename === item.filename);
+        if (currentIndex < 0) {
+            currentIndex = 0;
+        }
+
+        const setupNavBtnHover = (btn, isNext) => {
+            btn.onmouseenter = () => {
+                const isAtBoundary = isNext ? (currentIndex >= this.items.length - 1) : (currentIndex <= 0);
+                if (isAtBoundary) return;
+                btn.style.background = "rgba(168, 85, 247, 0.35)";
+                btn.style.borderColor = "rgba(168, 85, 247, 0.8)";
+                btn.style.transform = "translateY(-50%) scale(1.1)";
+                btn.style.boxShadow = "0 12px 30px rgba(0, 0, 0, 0.75), 0 0 20px rgba(168, 85, 247, 0.5)";
+            };
+            btn.onmouseleave = () => {
+                btn.style.background = "rgba(14, 16, 26, 0.78)";
+                btn.style.borderColor = "rgba(255, 255, 255, 0.16)";
+                btn.style.transform = "translateY(-50%) scale(1)";
+                btn.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.15)";
+            };
+            btn.onmousedown = () => {
+                const isAtBoundary = isNext ? (currentIndex >= this.items.length - 1) : (currentIndex <= 0);
+                if (isAtBoundary) return;
+                btn.style.transform = "translateY(-50%) scale(0.95)";
+            };
+            btn.onmouseup = () => {
+                const isAtBoundary = isNext ? (currentIndex >= this.items.length - 1) : (currentIndex <= 0);
+                if (isAtBoundary) return;
+                btn.style.transform = "translateY(-50%) scale(1.1)";
+            };
+        };
+        setupNavBtnHover(prevBtn, false);
+        setupNavBtnHover(nextBtn, true);
+
+        const updateNavState = () => {
+            const hasMultiple = this.items && this.items.length > 1;
+            if (!hasMultiple) {
+                prevBtn.style.display = "none";
+                nextBtn.style.display = "none";
+                if (countEl) countEl.textContent = "";
+                return;
+            }
+
+            prevBtn.style.display = "flex";
+            nextBtn.style.display = "flex";
+            if (countEl) countEl.textContent = `${currentIndex + 1} / ${this.items.length}`;
+
+            const isFirst = currentIndex <= 0;
+            const isLast = currentIndex >= this.items.length - 1;
+
+            prevBtn.style.opacity = isFirst ? "0.2" : "1";
+            prevBtn.style.cursor = isFirst ? "not-allowed" : "pointer";
+
+            nextBtn.style.opacity = isLast ? "0.2" : "1";
+            nextBtn.style.cursor = isLast ? "not-allowed" : "pointer";
+        };
+
+        const loadMetadata = async (filename) => {
+            metaEl.textContent = "Loading metadata...";
+            try {
+                const metaRes = await fetch(`/zombiehaus/gallery/metadata?path=${encodeURIComponent(filename)}`);
+                const metaData = await metaRes.json();
+
+                if (metaData?.success && metaData.data) {
+                    const info = metaData.data;
+                    let text = "";
+                    if (info.prompt) text += `--- PROMPT ---\n${typeof info.prompt === "object" ? JSON.stringify(info.prompt, null, 2) : info.prompt}\n\n`;
+                    if (info.workflow) text += `--- WORKFLOW ---\n(Embedded graph data available)\n\n`;
+                    if (info.extra) text += `--- EXTRA INFO ---\n${JSON.stringify(info.extra, null, 2)}`;
+                    metaEl.textContent = text || JSON.stringify(info, null, 2);
+                } else {
+                    metaEl.textContent = "No generation metadata found in image headers.";
+                }
+            } catch (_) {
+                metaEl.textContent = "Unable to read metadata.";
+            }
+        };
+
+        const navigateTo = (index) => {
+            if (index < 0 || index >= this.items.length) return;
+            currentIndex = index;
+            const curItem = this.items[currentIndex];
+            const curUrl = `/view?filename=${encodeURIComponent(curItem.filename)}&subfolder=${encodeURIComponent(curItem.subfolder || "")}&type=${encodeURIComponent(curItem.type || "output")}`;
+
+            activeItem = curItem;
+            activeUrl = curUrl;
+
+            resetZoom();
+
+            img.style.opacity = "0.5";
+            img.src = curUrl;
+            img.alt = curItem.filename;
+            img.onload = () => { img.style.opacity = "1"; };
+            img.onerror = () => { img.style.opacity = "1"; };
+
+            if (filenameEl) {
+                filenameEl.textContent = curItem.filename;
+                filenameEl.title = curItem.filename;
+            }
+
+            if (downloadLink) {
+                downloadLink.href = curUrl;
+                downloadLink.download = curItem.filename;
+            }
+            if (tabLink) {
+                tabLink.href = curUrl;
+            }
+
+            updateNavState();
+            loadMetadata(curItem.filename);
+        };
+
+        prevBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (currentIndex > 0) {
+                navigateTo(currentIndex - 1);
+            }
+        };
+
+        nextBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (currentIndex < this.items.length - 1) {
+                navigateTo(currentIndex + 1);
+            }
+        };
 
         // ── Zoom & Pan Interactive State ──
         let scale = 1.0;
@@ -576,7 +773,7 @@ class ZombiehausImageTray {
 
         // Mouse Down for dragging / pan
         viewport.onmousedown = (e) => {
-            if (e.target.closest(".zit-zoom-toolbar") || e.target.closest("#zit-lb-close")) return;
+            if (e.target.closest(".zit-zoom-toolbar") || e.target.closest("#zit-lb-close") || e.target.closest("#zit-lb-prev") || e.target.closest("#zit-lb-next")) return;
             isDragging = true;
             hasMoved = false;
             startX = e.clientX - panX;
@@ -610,7 +807,7 @@ class ZombiehausImageTray {
 
         // Click on image: if user didn't drag, toggle zoom!
         viewport.onclick = (e) => {
-            if (e.target.closest(".zit-zoom-toolbar") || e.target.closest("#zit-lb-close")) return;
+            if (e.target.closest(".zit-zoom-toolbar") || e.target.closest("#zit-lb-close") || e.target.closest("#zit-lb-prev") || e.target.closest("#zit-lb-next")) return;
             if (hasMoved) return; // user dragged to pan, don't toggle zoom
 
             if (!isZoomed) {
@@ -648,47 +845,47 @@ class ZombiehausImageTray {
             resetZoom();
         };
 
+        const onKeyDown = (e) => {
+            if (e.code === "ArrowLeft" || e.key === "ArrowLeft") {
+                if (currentIndex > 0) {
+                    e.preventDefault();
+                    navigateTo(currentIndex - 1);
+                }
+            } else if (e.code === "ArrowRight" || e.key === "ArrowRight") {
+                if (currentIndex < this.items.length - 1) {
+                    e.preventDefault();
+                    navigateTo(currentIndex + 1);
+                }
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+
         const close = () => {
             window.removeEventListener("mousemove", onMouseMove);
             window.removeEventListener("mouseup", onMouseUp);
+            window.removeEventListener("keydown", onKeyDown);
             overlay.remove();
         };
         overlay.querySelector("#zit-lb-close").onclick = close;
         overlay.onclick = (e) => { if (e.target === overlay) close(); };
 
         overlay.querySelector("#zit-lb-load-wf").onclick = () => {
-            this.loadWorkflowFromImage(url);
+            this.loadWorkflowFromImage(activeUrl);
             close();
         };
 
         overlay.querySelector("#zit-lb-send-node").onclick = () => {
-            this.sendToLoadImage(item.filename);
+            this.sendToLoadImage(activeItem.filename);
             close();
         };
 
         overlay.querySelector("#zit-lb-copy").onclick = () => {
-            this.copyImageToClipboard(url);
+            this.copyImageToClipboard(activeUrl);
         };
 
-        // Fetch Metadata
-        try {
-            const metaRes = await fetch(`/zombiehaus/gallery/metadata?path=${encodeURIComponent(item.filename)}`);
-            const metaData = await metaRes.json();
-            const metaEl = overlay.querySelector("#zit-lb-meta");
-
-            if (metaData?.success && metaData.data) {
-                const info = metaData.data;
-                let text = "";
-                if (info.prompt) text += `--- PROMPT ---\n${typeof info.prompt === "object" ? JSON.stringify(info.prompt, null, 2) : info.prompt}\n\n`;
-                if (info.workflow) text += `--- WORKFLOW ---\n(Embedded graph data available)\n\n`;
-                if (info.extra) text += `--- EXTRA INFO ---\n${JSON.stringify(info.extra, null, 2)}`;
-                metaEl.textContent = text || JSON.stringify(info, null, 2);
-            } else {
-                metaEl.textContent = "No generation metadata found in image headers.";
-            }
-        } catch (_) {
-            overlay.querySelector("#zit-lb-meta").textContent = "Unable to read metadata.";
-        }
+        // Initialize navigation states and fetch metadata for the initial image
+        updateNavState();
+        loadMetadata(item.filename);
     }
 
     // ── Load Workflow from Image File ─────────────────────────────────────────

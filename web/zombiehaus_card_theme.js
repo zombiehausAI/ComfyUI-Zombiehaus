@@ -464,18 +464,20 @@ function setupClassicCanvasDecorator() {
 // ── Node-to-Node Magnetic Docking & Sticky Movement Logic ─────────────────────
 function areNodesDocked(nodeA, nodeB, gap) {
     if (!nodeA || !nodeB || !nodeA.pos || !nodeB.pos || !nodeA.size || !nodeB.size) return false;
-    const tol = 10;
+    const tol = 16;
     const g = gap || 0;
     const ax = nodeA.pos[0], ay = nodeA.pos[1], aw = nodeA.size[0], ah = nodeA.size[1];
     const bx = nodeB.pos[0], by = nodeB.pos[1], bw = nodeB.size[0], bh = nodeB.size[1];
 
+    // 1. Horizontal Adjacency (Side to Side Docking)
     const hAdjacency = (Math.abs((ax + aw + g) - bx) <= tol) || (Math.abs((bx + bw + g) - ax) <= tol);
-    const vOverlap = (ay + ah > by + 2) && (ay < by + bh - 2);
-    if (hAdjacency && vOverlap) return true;
+    const vOverlapAmount = Math.min(ay + ah, by + bh) - Math.max(ay, by);
+    if (hAdjacency && vOverlapAmount >= -tol) return true;
 
+    // 2. Vertical Adjacency (Top and Bottom Docking)
     const vAdjacency = (Math.abs((ay + ah + g) - by) <= tol) || (Math.abs((by + bh + g) - ay) <= tol);
-    const hOverlap = (ax + aw > bx + 2) && (ax < bx + bw - 2);
-    if (vAdjacency && hOverlap) return true;
+    const hOverlapAmount = Math.min(ax + aw, bx + bw) - Math.max(ax, bx);
+    if (vAdjacency && hOverlapAmount >= -tol) return true;
 
     return false;
 }
@@ -780,118 +782,154 @@ function setupNodeEdgeDocking() {
             const oW = other.size[0];
             const oH = other.size[1];
 
-            // Horizontal Snap Candidates (when within vertical overlap range)
-            const vOverlap = (pY + pH > oY - _snapThreshold) && (pY < oY + oH + _snapThreshold);
-            if (vOverlap) {
-                // 1. Primary Left flush to Other Right (+ gap)
-                const targetX1 = oX + oW + gap;
-                const d1 = targetX1 - pX;
-                if (Math.abs(d1) < minDiffX) {
-                    minDiffX = Math.abs(d1);
-                    bestSnapX = d1;
-                    snapGuideX = {
-                        x: targetX1,
-                        y1: Math.min(pY, oY) - 8,
-                        y2: Math.max(pY + pH, oY + oH) + 8,
-                        type: "dock_right"
-                    };
-                }
+            // Calculate cross-axis distances
+            const hDist = Math.max(0, Math.max(pX, oX) - Math.min(pX + pW, oX + oW));
+            const vDist = Math.max(0, Math.max(pY, oY) - Math.min(pY + pH, oY + oH));
 
-                // 2. Primary Right flush to Other Left (- gap)
-                const targetX2 = oX - pW - gap;
-                const d2 = targetX2 - pX;
-                if (Math.abs(d2) < minDiffX) {
-                    minDiffX = Math.abs(d2);
-                    bestSnapX = d2;
-                    snapGuideX = {
-                        x: oX,
-                        y1: Math.min(pY, oY) - 8,
-                        y2: Math.max(pY + pH, oY + oH) + 8,
-                        type: "dock_left"
-                    };
-                }
-
-                // 3. Primary Left align to Other Left
-                const d3 = oX - pX;
-                if (Math.abs(d3) < minDiffX) {
-                    minDiffX = Math.abs(d3);
-                    bestSnapX = d3;
-                    snapGuideX = {
-                        x: oX,
-                        y1: Math.min(pY, oY) - 8,
-                        y2: Math.max(pY + pH, oY + oH) + 8,
-                        type: "align_left"
-                    };
-                }
-
-                // 4. Primary Right align to Other Right
-                const d4 = (oX + oW) - (pX + pW);
-                if (Math.abs(d4) < minDiffX) {
-                    minDiffX = Math.abs(d4);
-                    bestSnapX = d4;
-                    snapGuideX = {
-                        x: oX + oW,
-                        y1: Math.min(pY, oY) - 8,
-                        y2: Math.max(pY + pH, oY + oH) + 8,
-                        type: "align_right"
-                    };
-                }
-            }
-
-            // Vertical Snap Candidates (when within horizontal overlap range)
-            const hOverlap = (pX + pW > oX - _snapThreshold) && (pX < oX + oW + _snapThreshold);
-            if (hOverlap) {
-                // 1. Primary Top flush to Other Bottom (+ gap)
-                const targetY1 = oY + oH + gap;
-                const d1 = targetY1 - pY;
-                if (Math.abs(d1) < minDiffY) {
-                    minDiffY = Math.abs(d1);
-                    bestSnapY = d1;
-                    snapGuideY = {
-                        y: targetY1,
-                        x1: Math.min(pX, oX) - 8,
-                        x2: Math.max(pX + pW, oX + oW) + 8,
-                        type: "dock_bottom"
-                    };
-                }
-
-                // 2. Primary Bottom flush to Other Top (- gap)
-                const targetY2 = oY - pH - gap;
-                const d2 = targetY2 - pY;
-                if (Math.abs(d2) < minDiffY) {
-                    minDiffY = Math.abs(d2);
-                    bestSnapY = d2;
+            // ── 1. Vertical Snapping (Top & Bottom Docking + Y Alignments) ─────────
+            // Eligible if in horizontal proximity (overlapping or close to same column)
+            if (hDist <= _snapThreshold * 2) {
+                // A. Dock Top: Primary Bottom flush to Other Top (- gap)
+                const targetY_top = oY - pH - gap;
+                const dY_top = targetY_top - pY;
+                if (Math.abs(dY_top) < minDiffY) {
+                    minDiffY = Math.abs(dY_top);
+                    bestSnapY = dY_top;
                     snapGuideY = {
                         y: oY,
-                        x1: Math.min(pX, oX) - 8,
-                        x2: Math.max(pX + pW, oX + oW) + 8,
+                        x1: Math.min(pX, oX) - 12,
+                        x2: Math.max(pX + pW, oX + oW) + 12,
                         type: "dock_top"
                     };
                 }
 
-                // 3. Primary Top align to Other Top
-                const d3 = oY - pY;
-                if (Math.abs(d3) < minDiffY) {
-                    minDiffY = Math.abs(d3);
-                    bestSnapY = d3;
+                // B. Dock Bottom: Primary Top flush to Other Bottom (+ gap)
+                const targetY_bottom = oY + oH + gap;
+                const dY_bottom = targetY_bottom - pY;
+                if (Math.abs(dY_bottom) < minDiffY) {
+                    minDiffY = Math.abs(dY_bottom);
+                    bestSnapY = dY_bottom;
+                    snapGuideY = {
+                        y: targetY_bottom,
+                        x1: Math.min(pX, oX) - 12,
+                        x2: Math.max(pX + pW, oX + oW) + 12,
+                        type: "dock_bottom"
+                    };
+                }
+
+                // C. Align Top: Primary Top to Other Top
+                const targetY_alignTop = oY;
+                const dY_alignTop = targetY_alignTop - pY;
+                if (Math.abs(dY_alignTop) < minDiffY) {
+                    minDiffY = Math.abs(dY_alignTop);
+                    bestSnapY = dY_alignTop;
                     snapGuideY = {
                         y: oY,
-                        x1: Math.min(pX, oX) - 8,
-                        x2: Math.max(pX + pW, oX + oW) + 8,
+                        x1: Math.min(pX, oX) - 12,
+                        x2: Math.max(pX + pW, oX + oW) + 12,
                         type: "align_top"
                     };
                 }
 
-                // 4. Primary Bottom align to Other Bottom
-                const d4 = (oY + oH) - (pY + pH);
-                if (Math.abs(d4) < minDiffY) {
-                    minDiffY = Math.abs(d4);
-                    bestSnapY = d4;
+                // D. Align Center-Y: Primary Center-Y to Other Center-Y
+                const targetY_alignCenter = oY + (oH - pH) / 2;
+                const dY_alignCenter = targetY_alignCenter - pY;
+                if (Math.abs(dY_alignCenter) < minDiffY) {
+                    minDiffY = Math.abs(dY_alignCenter);
+                    bestSnapY = dY_alignCenter;
+                    snapGuideY = {
+                        y: oY + oH / 2,
+                        x1: Math.min(pX, oX) - 12,
+                        x2: Math.max(pX + pW, oX + oW) + 12,
+                        type: "align_center_y"
+                    };
+                }
+
+                // E. Align Bottom: Primary Bottom to Other Bottom
+                const targetY_alignBottom = oY + oH - pH;
+                const dY_alignBottom = targetY_alignBottom - pY;
+                if (Math.abs(dY_alignBottom) < minDiffY) {
+                    minDiffY = Math.abs(dY_alignBottom);
+                    bestSnapY = dY_alignBottom;
                     snapGuideY = {
                         y: oY + oH,
-                        x1: Math.min(pX, oX) - 8,
-                        x2: Math.max(pX + pW, oX + oW) + 8,
+                        x1: Math.min(pX, oX) - 12,
+                        x2: Math.max(pX + pW, oX + oW) + 12,
                         type: "align_bottom"
+                    };
+                }
+            }
+
+            // ── 2. Horizontal Snapping (Side to Side Docking + X Alignments) ────────
+            // Eligible if in vertical proximity (overlapping or close to same row)
+            if (vDist <= _snapThreshold * 2) {
+                // A. Dock Left: Primary Right flush to Other Left (- gap)
+                const targetX_left = oX - pW - gap;
+                const dX_left = targetX_left - pX;
+                if (Math.abs(dX_left) < minDiffX) {
+                    minDiffX = Math.abs(dX_left);
+                    bestSnapX = dX_left;
+                    snapGuideX = {
+                        x: oX,
+                        y1: Math.min(pY, oY) - 12,
+                        y2: Math.max(pY + pH, oY + oH) + 12,
+                        type: "dock_left"
+                    };
+                }
+
+                // B. Dock Right: Primary Left flush to Other Right (+ gap)
+                const targetX_right = oX + oW + gap;
+                const dX_right = targetX_right - pX;
+                if (Math.abs(dX_right) < minDiffX) {
+                    minDiffX = Math.abs(dX_right);
+                    bestSnapX = dX_right;
+                    snapGuideX = {
+                        x: targetX_right,
+                        y1: Math.min(pY, oY) - 12,
+                        y2: Math.max(pY + pH, oY + oH) + 12,
+                        type: "dock_right"
+                    };
+                }
+
+                // C. Align Left: Primary Left to Other Left
+                const targetX_alignLeft = oX;
+                const dX_alignLeft = targetX_alignLeft - pX;
+                if (Math.abs(dX_alignLeft) < minDiffX) {
+                    minDiffX = Math.abs(dX_alignLeft);
+                    bestSnapX = dX_alignLeft;
+                    snapGuideX = {
+                        x: oX,
+                        y1: Math.min(pY, oY) - 12,
+                        y2: Math.max(pY + pH, oY + oH) + 12,
+                        type: "align_left"
+                    };
+                }
+
+                // D. Align Center-X: Primary Center-X to Other Center-X
+                const targetX_alignCenter = oX + (oW - pW) / 2;
+                const dX_alignCenter = targetX_alignCenter - pX;
+                if (Math.abs(dX_alignCenter) < minDiffX) {
+                    minDiffX = Math.abs(dX_alignCenter);
+                    bestSnapX = dX_alignCenter;
+                    snapGuideX = {
+                        x: oX + oW / 2,
+                        y1: Math.min(pY, oY) - 12,
+                        y2: Math.max(pY + pH, oY + oH) + 12,
+                        type: "align_center_x"
+                    };
+                }
+
+                // E. Align Right: Primary Right to Other Right
+                const targetX_alignRight = oX + oW - pW;
+                const dX_alignRight = targetX_alignRight - pX;
+                if (Math.abs(dX_alignRight) < minDiffX) {
+                    minDiffX = Math.abs(dX_alignRight);
+                    bestSnapX = dX_alignRight;
+                    snapGuideX = {
+                        x: oX + oW,
+                        y1: Math.min(pY, oY) - 12,
+                        y2: Math.max(pY + pH, oY + oH) + 12,
+                        type: "align_right"
                     };
                 }
             }

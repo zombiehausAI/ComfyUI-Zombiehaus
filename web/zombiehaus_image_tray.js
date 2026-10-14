@@ -73,6 +73,37 @@ class ZombiehausImageTray {
             document.head.appendChild(link);
         }
 
+        if (!document.getElementById("zit-grid-integration")) {
+            const style = document.createElement("style");
+            style.id = "zit-grid-integration";
+            style.textContent = `
+                .comfyui-body-bottom #zombiehaus-image-tray {
+                    position: relative !important;
+                    bottom: auto !important;
+                    left: auto !important;
+                    right: auto !important;
+                    width: 100% !important;
+                    z-index: 1000 !important;
+                    box-sizing: border-box !important;
+                    transform: none !important;
+                    transition: height 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+                    overflow: hidden !important;
+                    height: var(--zit-height, 184px) !important;
+                    max-height: var(--zit-height, 184px) !important;
+                }
+                .comfyui-body-bottom #zombiehaus-image-tray.zit-collapsed {
+                    height: 36px !important;
+                    max-height: 36px !important;
+                    transform: none !important;
+                    overflow: hidden !important;
+                }
+                .comfyui-body-bottom #zombiehaus-image-tray.zit-hidden {
+                    display: none !important;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
         const tray = document.createElement("div");
         tray.id = "zombiehaus-image-tray";
         tray.innerHTML = `
@@ -111,19 +142,20 @@ class ZombiehausImageTray {
             </div>
         `;
 
-        document.body.appendChild(tray);
+        const bodyBottom = document.querySelector(".comfyui-body-bottom") || document.getElementById("comfyui-body-bottom");
+        if (bodyBottom) {
+            bodyBottom.prepend(tray);
+        } else {
+            document.body.appendChild(tray);
+        }
         this.trayEl = tray;
         this.filmstripEl = tray.querySelector("#zit-filmstrip-container");
         this.countBadge = tray.querySelector("#zit-count-badge");
         this.sizeLabel = tray.querySelector("#zit-size-label");
-
-        // Elevated z-index so Image Tray is never buried beneath ComfyUI menus or canvas
-        this.trayEl.style.zIndex = "100010";
-        this.trayEl.style.bottom = "var(--zit-bottom-offset, 0px)";
-        this.trayEl.style.left = "var(--zit-left-offset, 0px)";
+        this.pushedElements = new Set();
     }
 
-    // ── Dynamic ComfyUI Docking (Bottom Dock & Left Sidebar Offset) ────────────
+    // ── Dynamic ComfyUI Docking (Native Body-Bottom Grid Integration / rgthree pattern) ──
     updateBottomOffset() {
         if (!this.trayEl) return;
 
@@ -132,286 +164,71 @@ class ZombiehausImageTray {
             !!document.querySelector("#zombiehaus-deck-studio.zds-active");
 
         if (isDeckActive) {
+            if (this.trayEl.parentElement !== document.body) {
+                document.body.appendChild(this.trayEl);
+            }
+            this.trayEl.style.position = "fixed";
             this.trayEl.style.bottom = "0px";
             this.trayEl.style.left = "0px";
+            this.trayEl.style.right = "0px";
+            this.trayEl.style.width = "100%";
             this.trayEl.style.zIndex = "100055";
-            this.trayEl.style.setProperty("--zit-bottom-offset", "0px");
-            this.trayEl.style.setProperty("--zit-left-offset", "0px");
-            this.pushBottomElements(0, 0);
+            this.restorePushedElements();
             return;
         }
 
-        this.trayEl.style.zIndex = "100010";
-
-        const vh = window.innerHeight;
-        const vw = window.innerWidth;
-
-        // ── 1. Detect Left Sidebar (Help, Console, Shortcuts, Settings) ────────
-        let leftOffset = 0;
-        const leftSidebarCandidates = [
-            ".side-tool-bar-container",
-            "nav.side-tool-bar-container",
-            ".side-tool-bar",
-            "aside.comfyui-nav",
-            ".comfyui-nav",
-            "aside"
-        ];
-        for (const sel of leftSidebarCandidates) {
-            const els = document.querySelectorAll(sel);
-            for (const el of els) {
-                if (!el || !el.isConnected) continue;
-                if (el.closest("#zombiehaus-image-tray") || el.closest("#zombiehaus-deck-studio")) continue;
-                const rect = el.getBoundingClientRect();
-                if (rect.width > 0 && rect.left <= 8 && rect.height > vh * 0.4) {
-                    const w = Math.round(rect.right);
-                    if (w >= 30 && w <= 250 && w > leftOffset) {
-                        leftOffset = w;
-                    }
-                }
+        // 1. Check for Modern ComfyUI layout container (.comfyui-body-bottom) - rgthree pattern
+        const bodyBottom = document.querySelector(".comfyui-body-bottom") || document.getElementById("comfyui-body-bottom");
+        if (bodyBottom) {
+            // Mount directly inside ComfyUI's native bottom grid container
+            if (this.trayEl.parentElement !== bodyBottom) {
+                bodyBottom.prepend(this.trayEl);
             }
-        }
-        this.trayEl.style.left = `${leftOffset}px`;
-        this.trayEl.style.setProperty("--zit-left-offset", `${leftOffset}px`);
 
-        // ── 2. Determine Bottom Offset (Manual Setting or ComfyUI Bottom Menu Auto-Detection) ─
-        let bottomOffset = 0;
-        let detectedBottomMenuEl = null;
+            const currentHeight = (!this.isEnabled || this.isHidden)
+                ? 0
+                : (this.isCollapsed ? 36 : (this.size === "small" ? 148 : (this.size === "large" ? 228 : 184)));
 
-        // A. Check user manual override setting from Zombiehaus Settings
-        try {
-            const settingVal = window.app?.ui?.settings?.getSettingValue?.("Zombiehaus.ImageTrayBottomOffset");
-            if (typeof settingVal === "number" && settingVal > 0) {
-                bottomOffset = settingVal;
+            this.trayEl.style.setProperty("--zit-height", `${currentHeight}px`);
+            this.trayEl.style.height = `${currentHeight}px`;
+
+            if (!this.isEnabled || this.isHidden) {
+                this.trayEl.style.display = "none";
             } else {
-                const stored = localStorage?.getItem("zombiehaus_image_tray_bottom_offset");
-                if (stored && stored !== "auto") {
-                    const parsed = parseInt(stored, 10);
-                    if (parsed > 0) bottomOffset = parsed;
-                }
-            }
-        } catch (_) {}
-
-        // B. If no manual offset set, auto-detect ComfyUI bottom menu or bar
-        if (bottomOffset === 0) {
-            const bottomMenuCandidates = [
-                ".comfyui-menu.bottom",
-                ".comfyui-menu[data-position='bottom']",
-                ".comfyui-body-bottom",
-                ".comfyui-bottom-bar",
-                "footer.comfyui-footer",
-                ".comfyui-footer",
-                ".comfy-menu.bottom",
-                ".comfyui-action-bar.bottom",
-                "header.comfyui-menu",
-                ".comfyui-menu",
-                "#comfy-menu",
-                ".comfy-menu"
-            ];
-
-            for (const sel of bottomMenuCandidates) {
-                const els = document.querySelectorAll(sel);
-                for (const el of els) {
-                    if (!el || !el.isConnected) continue;
-                    if (el.closest("#zombiehaus-image-tray") || el.closest("#zombiehaus-deck-studio") || el.closest("#zombiehaus-settings-modal")) continue;
-
-                    const style = window.getComputedStyle(el);
-                    if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") continue;
-
-                    const rect = el.getBoundingClientRect();
-                    // Must be resting near viewport bottom and have reasonable menu height
-                    if (rect.height >= 24 && rect.height <= 180 && rect.bottom >= vh - 6 && rect.top > vh * 0.4) {
-                        if (rect.width >= vw * 0.35 || el.classList.contains("comfyui-menu") || el.id === "comfy-menu") {
-                            const h = Math.round(vh - rect.top);
-                            if (h > bottomOffset && h < 200) {
-                                bottomOffset = h;
-                                detectedBottomMenuEl = el;
-                            }
-                        }
-                    }
-                }
+                this.trayEl.style.display = "flex";
             }
 
-            // General fallback: scan any wide fixed/absolute container touching viewport bottom
-            if (bottomOffset === 0) {
-                const candidateBars = document.querySelectorAll("body > footer, body > nav, #app footer, .comfyui-app footer, [class*='bottom-bar'], [class*='bottom_bar']");
-                for (const bar of candidateBars) {
-                    if (!bar || !bar.isConnected) continue;
-                    if (bar.closest("#zombiehaus-image-tray") || bar.closest("#zombiehaus-deck-studio")) continue;
-                    const rect = bar.getBoundingClientRect();
-                    if (rect.height >= 24 && rect.height <= 140 && rect.bottom >= vh - 4 && rect.top > vh * 0.5 && rect.width >= vw * 0.4) {
-                        const h = Math.round(vh - rect.top);
-                        if (h > bottomOffset && h < 200) {
-                            bottomOffset = h;
-                            detectedBottomMenuEl = bar;
-                        }
-                    }
-                }
-            }
+            // Restore any previously pushed elements so ComfyUI's native grid manages canvas and floating menus cleanly
+            this.restorePushedElements();
+            return;
         }
 
-        this.detectedBottomMenuEl = detectedBottomMenuEl;
-        this.trayEl.style.bottom = `${bottomOffset}px`;
-        this.trayEl.style.setProperty("--zit-bottom-offset", `${bottomOffset}px`);
-
-        const trayHeight = (!this.isEnabled || this.isHidden)
-            ? 0
-            : (this.isCollapsed ? 36 : (this.trayEl.offsetHeight || 184));
-
-        this.pushBottomElements(bottomOffset, trayHeight);
+        // 2. Fallback for non-grid / legacy ComfyUI layout
+        if (this.trayEl.parentElement !== document.body) {
+            document.body.appendChild(this.trayEl);
+        }
+        this.trayEl.style.position = "fixed";
+        this.trayEl.style.zIndex = "1000";
+        this.trayEl.style.left = "0px";
+        this.trayEl.style.right = "0px";
+        this.trayEl.style.bottom = "0px";
     }
 
-    // ── Push ComfyUI Bottom UI Up Above Tray (rgthree style docking) ──────────
-    pushBottomElements(bottomOffset, trayHeight) {
-        if (this.isUpdatingBottom) return;
-        this.isUpdatingBottom = true;
-
-        try {
-            document.documentElement.style.setProperty("--zit-bottom-offset", `${bottomOffset}px`);
-            document.documentElement.style.setProperty("--zit-tray-height", `${trayHeight}px`);
-
-            // If the detected bottom menu was ever modified, restore it completely so it stays anchored at bottom
-            if (this.detectedBottomMenuEl) {
-                const menuEl = this.detectedBottomMenuEl;
-                if (menuEl.dataset.zitPushed || this.pushedElements.has(menuEl)) {
-                    if (menuEl.dataset.zitOrigStyle) {
-                        menuEl.style.setProperty("bottom", menuEl.dataset.zitOrigStyle);
-                    } else {
-                        menuEl.style.removeProperty("bottom");
-                    }
-                    delete menuEl.dataset.zitPushed;
-                    delete menuEl.dataset.zitBaseBottom;
-                    delete menuEl.dataset.zitOrigStyle;
-                    this.pushedElements.delete(menuEl);
+    restorePushedElements() {
+        if (!this.pushedElements || this.pushedElements.size === 0) return;
+        for (const el of this.pushedElements) {
+            if (el && el.isConnected) {
+                if (el.dataset.zitOrigStyle) {
+                    el.style.setProperty("bottom", el.dataset.zitOrigStyle);
+                } else {
+                    el.style.removeProperty("bottom");
                 }
+                delete el.dataset.zitPushed;
+                delete el.dataset.zitBaseBottom;
+                delete el.dataset.zitOrigStyle;
             }
-
-            const vh = window.innerHeight;
-            const vw = window.innerWidth;
-            const elementsToAdjust = new Set();
-
-            // Find floating canvas toolbars (e.g. zoom controls, canvas buttons) that should sit above the tray
-            const floatingSelectors = [
-                ".litegraph.litemenu",
-                ".graph-canvas-menu",
-                ".canvas-menu",
-                ".comfyui-canvas-menu",
-                ".comfyui-floating-menu",
-                ".comfy-floating-menu",
-                "[class*='zoom-control']",
-                "[class*='canvas-menu']",
-                "[class*='graph-menu']",
-                "[class*='floating-menu']"
-            ];
-
-            for (const sel of floatingSelectors) {
-                try {
-                    const found = document.querySelectorAll(sel);
-                    for (const el of found) {
-                        elementsToAdjust.add(el);
-                    }
-                } catch (_) {}
-            }
-
-            // Dynamic scan: find compact floating controls docked near bottom
-            try {
-                const candidates = document.querySelectorAll(
-                    "body > div, body > nav, #app div, .comfyui-app div, [class*='bottom']"
-                );
-                for (const el of candidates) {
-                    if (!el || !el.isConnected) continue;
-                    if (el.closest("#zombiehaus-image-tray") || el.closest("#zombiehaus-deck-studio") || el.closest("#zombiehaus-settings-modal") || el.closest(".zit-lightbox-overlay")) {
-                        continue;
-                    }
-                    if (this.detectedBottomMenuEl && (el === this.detectedBottomMenuEl || this.detectedBottomMenuEl.contains(el))) {
-                        continue;
-                    }
-                    const tag = el.tagName;
-                    if (tag === "CANVAS" || tag === "SVG" || tag === "IMG" || tag === "BODY" || tag === "HTML" || tag === "FOOTER") {
-                        continue;
-                    }
-
-                    const style = window.getComputedStyle(el);
-                    if (style.position !== "fixed" && style.position !== "absolute") continue;
-                    if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") continue;
-
-                    const rect = el.getBoundingClientRect();
-                    // Floating controls are compact (< 150px height, < 40% screen width) and within range of bottom
-                    if (rect.height > 0 && rect.height < 150 && rect.width < vw * 0.4 && rect.bottom >= vh - (bottomOffset + 100) && rect.top > vh * 0.4) {
-                        elementsToAdjust.add(el);
-                    }
-                }
-            } catch (_) {}
-
-            // Remove any element that is the detected bottom menu
-            if (this.detectedBottomMenuEl) {
-                elementsToAdjust.delete(this.detectedBottomMenuEl);
-            }
-
-            // Apply push or restore
-            const totalBottomLift = bottomOffset + trayHeight;
-
-            for (const el of elementsToAdjust) {
-                if (!el || !el.isConnected) {
-                    this.pushedElements.delete(el);
-                    continue;
-                }
-                if (el.closest("#zombiehaus-image-tray") || el.closest("#zombiehaus-deck-studio") || el.closest("#zombiehaus-settings-modal")) {
-                    this.pushedElements.delete(el);
-                    continue;
-                }
-                if (el.parentElement && elementsToAdjust.has(el.parentElement)) {
-                    continue;
-                }
-
-                if (trayHeight > 0) {
-                    if (!el.dataset.zitBaseBottom) {
-                        const rect = el.getBoundingClientRect();
-                        const computedStyle = window.getComputedStyle(el);
-                        const rawBottom = parseInt(computedStyle.bottom, 10);
-                        const distFromBottom = Math.max(0, Math.round(vh - rect.bottom));
-                        const base = (!isNaN(rawBottom) && rawBottom >= 0 && rawBottom < 100) ? rawBottom : distFromBottom;
-                        el.dataset.zitBaseBottom = String(base);
-                        el.dataset.zitOrigStyle = el.style.bottom || "";
-                    }
-
-                    const baseBottom = parseInt(el.dataset.zitBaseBottom, 10) || 0;
-                    const targetBottom = baseBottom + totalBottomLift;
-                    el.style.setProperty("bottom", `${targetBottom}px`, "important");
-                    el.style.transition = "bottom 0.25s cubic-bezier(0.16, 1, 0.3, 1)";
-                    el.dataset.zitPushed = "true";
-                    this.pushedElements.add(el);
-                } else if (el.dataset.zitPushed || this.pushedElements.has(el)) {
-                    if (el.dataset.zitOrigStyle) {
-                        el.style.setProperty("bottom", el.dataset.zitOrigStyle);
-                    } else {
-                        el.style.removeProperty("bottom");
-                    }
-                    delete el.dataset.zitPushed;
-                    delete el.dataset.zitBaseBottom;
-                    delete el.dataset.zitOrigStyle;
-                    this.pushedElements.delete(el);
-                }
-            }
-
-            // Restore any elements no longer targeted
-            for (const el of this.pushedElements) {
-                if (!elementsToAdjust.has(el) || trayHeight === 0) {
-                    if (el && el.isConnected) {
-                        if (el.dataset.zitOrigStyle) {
-                            el.style.setProperty("bottom", el.dataset.zitOrigStyle);
-                        } else {
-                            el.style.removeProperty("bottom");
-                        }
-                        delete el.dataset.zitPushed;
-                        delete el.dataset.zitBaseBottom;
-                        delete el.dataset.zitOrigStyle;
-                    }
-                    this.pushedElements.delete(el);
-                }
-            }
-        } finally {
-            this.isUpdatingBottom = false;
         }
+        this.pushedElements.clear();
     }
 
     // ── Event Handlers ────────────────────────────────────────────────────────

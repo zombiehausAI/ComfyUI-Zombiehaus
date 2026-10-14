@@ -640,7 +640,19 @@ class ZombiehausTextEditor:
             if is_yaml_dict:
                 parsed_full = parse_complex_value("\n".join(lines), local_vars)
                 if isinstance(parsed_full, PromptDict):
-                    return parsed_full
+                    is_all_selection = (count_spec in ("all", "*")) or default_all or (count_spec is None and file_mode_all)
+                    if is_all_selection:
+                        return parsed_full
+                    if parsed_full:
+                        chosen_k = rng.choice(list(parsed_full.keys()))
+                        chosen_v = parsed_full[chosen_k]
+                        if isinstance(chosen_v, dict):
+                            if "name" not in chosen_v:
+                                chosen_v["name"] = chosen_k
+                            if "key" not in chosen_v:
+                                chosen_v["key"] = chosen_k
+                        return chosen_v
+                    return ""
 
             # Multiple entries
             parsed_lines = [parse_complex_value(line, local_vars) for line in lines]
@@ -835,6 +847,20 @@ class ZombiehausTextEditor:
                     elif prop_clean in ("last", "last()"):
                         if isinstance(curr, list) and curr:
                             curr = curr[-1]
+                        else:
+                            curr = ""
+                    elif prop_clean in ("random", "rand", "random()", "rand()", "choose", "choose()", "any", "any()"):
+                        if isinstance(curr, list) and curr:
+                            curr = rng.choice(curr)
+                        elif isinstance(curr, dict) and curr:
+                            chosen_k = rng.choice(list(curr.keys()))
+                            chosen_v = curr[chosen_k]
+                            if isinstance(chosen_v, dict):
+                                if "name" not in chosen_v:
+                                    chosen_v["name"] = chosen_k
+                                if "key" not in chosen_v:
+                                    chosen_v["key"] = chosen_k
+                            curr = chosen_v
                         else:
                             curr = ""
                     elif isinstance(curr, dict):

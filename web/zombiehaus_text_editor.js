@@ -223,6 +223,31 @@ function fetchThemes(callback) {
 }
 
 function injectSyntaxStyles() {
+    if (!window._zombiehausGlobalEditorFocusHook) {
+        window._zombiehausGlobalEditorFocusHook = true;
+        document.addEventListener("focusin", (e) => {
+            const target = e.target;
+            if (target && target.tagName === "TEXTAREA") {
+                const nodeEl = target.closest?.("[data-node-id]");
+                if (nodeEl && window.app?.graph?._nodes) {
+                    const nodeId = nodeEl.getAttribute("data-node-id");
+                    const graphNode = window.app.graph._nodes.find(n => String(n.id) === String(nodeId));
+                    if (graphNode && graphNode.type === "ZombiehausTextEditor") {
+                        const pw = graphNode.widgets?.find(w => w.name === "positive");
+                        const nw = graphNode.widgets?.find(w => w.name === "negative");
+                        if (pw) {
+                            attachSyntaxHighlighter(pw, graphNode);
+                            attachAutocomplete(pw, graphNode);
+                        }
+                        if (nw) {
+                            attachSyntaxHighlighter(nw, graphNode);
+                            attachAutocomplete(nw, graphNode);
+                        }
+                    }
+                }
+            }
+        }, true);
+    }
     if (document.getElementById("zombiehaus-syntax-style")) return;
     const styleEl = document.createElement("style");
     styleEl.id = "zombiehaus-syntax-style";
@@ -1770,7 +1795,12 @@ function hookTextAreaReactivity(ta, widget) {
 function ensureWidgetInputElProxy(widget, node) {
     if (!widget || widget._hasInputElProxy) return;
     widget._hasInputElProxy = true;
-    let _cachedEl = widget._cachedInputEl || widget.inputEl || null;
+    let _cachedEl = widget._cachedInputEl || (widget.element ? (widget.element.tagName === "TEXTAREA" ? widget.element : widget.element.querySelector?.("textarea") || widget.element) : null) || null;
+    if (!_cachedEl && "inputEl" in widget) {
+        try {
+            _cachedEl = widget.inputEl;
+        } catch (_) {}
+    }
     widget._cachedInputEl = _cachedEl;
 
     Object.defineProperty(widget, "inputEl", {
@@ -1812,13 +1842,18 @@ function attachSyntaxHighlighter(widget, node) {
 
     let attempts = 0;
     const bind = () => {
-        const ta = resolveWidgetInputEl(widget, node) || widget.inputEl || widget.element;
+        const ta = (widget instanceof HTMLElement && widget.tagName === "TEXTAREA")
+            ? widget
+            : (resolveWidgetInputEl(widget, node) || (widget?.element?.tagName === "TEXTAREA" ? widget.element : widget?.element?.querySelector?.("textarea")) || widget?.inputEl);
         if (!ta || !ta.parentElement || !ta.isConnected) {
             if (attempts++ < 120) {
                 requestAnimationFrame(bind);
-            } else if (attempts < 200) {
+            } else if (attempts < 300) {
                 attempts += 5;
                 setTimeout(bind, 250);
+            } else if (attempts < 400) {
+                attempts += 10;
+                setTimeout(bind, 1000);
             }
             return;
         }
@@ -2040,10 +2075,16 @@ function attachSyntaxHighlighter(widget, node) {
                 healthBadge.onclick = null;
             }
 
-            const currentThemeName = node._currentSyntaxTheme ||
+            const themeWidget = node.widgets?.find(w => w.name === "syntax_theme");
+            let currentThemeName = themeWidget?.value ||
+                                    node._currentSyntaxTheme ||
                                     (node.properties && node.properties.syntax_theme) ||
                                     (typeof localStorage !== "undefined" && localStorage.getItem("zombiehaus_syntax_theme")) ||
                                     "Zombiehaus Neon (Default)";
+
+            if (!THEMES[currentThemeName] && currentThemeName !== "Off (Plain Text)") {
+                currentThemeName = "Zombiehaus Neon (Default)";
+            }
 
             if (currentThemeName === "Off (Plain Text)") {
                 ta.classList.remove("zombiehaus-syntax-ta");
@@ -2945,6 +2986,8 @@ function getCaretCoordinates(ta, position) {
     return {
         top: top + ta.offsetTop,
         left: left + ta.offsetLeft,
+        relTop: top,
+        relLeft: left,
         lineHeight
     };
 }
@@ -2958,42 +3001,48 @@ function attachAutocomplete(widget, node) {
     const bind = () => {
         const ta = (widget instanceof HTMLElement && widget.tagName === "TEXTAREA")
             ? widget
-            : (resolveWidgetInputEl(widget, node) || widget?.inputEl || widget?.element);
+            : (resolveWidgetInputEl(widget, node) || (widget?.element?.tagName === "TEXTAREA" ? widget.element : widget?.element?.querySelector?.("textarea")) || widget?.inputEl);
         if (!ta || !ta.parentElement || !ta.isConnected) {
             if (attempts++ < 120) {
                 requestAnimationFrame(bind);
-            } else if (attempts < 200) {
+            } else if (attempts < 300) {
                 attempts += 5;
                 setTimeout(bind, 250);
+            } else if (attempts < 400) {
+                attempts += 10;
+                setTimeout(bind, 1000);
             }
             return;
         }
         if (ta._hasAutocomplete) return;
         ta._hasAutocomplete = true;
 
-        const parent = ta.parentElement;
-        const parentPos = window.getComputedStyle(parent).position;
-        if (parentPos === "static") {
-            parent.style.position = "relative";
+        let menu = ta._zombiehausAcMenu;
+        if (!menu || !menu.isConnected) {
+            menu = document.createElement("div");
+            menu.className = "zombiehaus-autocomplete-menu";
+            menu.style.position = "fixed";
+            menu.style.zIndex = "100050";
+            document.body.appendChild(menu);
+            ta._zombiehausAcMenu = menu;
         }
-
-        const menu = document.createElement("div");
-        menu.className = "zombiehaus-autocomplete-menu";
-        parent.appendChild(menu);
 
         let activeItems = [];
         let selectedIndex = 0;
         let currentTrigger = null;
 
         function closeMenu() {
-            menu.style.display = "none";
-            menu.innerHTML = "";
+            if (menu) {
+                menu.style.display = "none";
+                menu.innerHTML = "";
+            }
             activeItems = [];
             selectedIndex = 0;
             currentTrigger = null;
         }
 
         function renderMenu() {
+            if (!menu) return;
             menu.innerHTML = "";
             if (activeItems.length === 0) {
                 closeMenu();
@@ -3052,6 +3101,7 @@ function attachAutocomplete(widget, node) {
         }
 
         function updateSelectionHighlight() {
+            if (!menu) return;
             const rows = menu.querySelectorAll(".zombiehaus-autocomplete-item");
             rows.forEach((r, idx) => {
                 if (idx === selectedIndex) {
@@ -3064,24 +3114,27 @@ function attachAutocomplete(widget, node) {
         }
 
         function positionMenu() {
-            if (!currentTrigger) return;
+            if (!currentTrigger || !ta.isConnected || !menu) return;
             const coords = getCaretCoordinates(ta, currentTrigger.replaceStart);
+            const rect = ta.getBoundingClientRect();
             const menuWidth = 320;
-            const parentW = parent.clientWidth || 480;
-            const parentH = parent.clientHeight || 300;
 
-            let left = coords.left;
-            if (left + menuWidth > parentW - 10) {
-                left = Math.max(8, parentW - menuWidth - 10);
+            const caretX = coords.relLeft != null ? coords.relLeft : (coords.left - ta.offsetLeft);
+            const caretY = coords.relTop != null ? coords.relTop : (coords.top - ta.offsetTop);
+
+            let left = rect.left + caretX;
+            let top = rect.top + caretY + coords.lineHeight + 4;
+            const estMenuH = Math.min(230, activeItems.length * 32 + 20);
+
+            if (top + estMenuH > window.innerHeight - 10 && (rect.top + caretY - estMenuH > 10)) {
+                top = rect.top + caretY - estMenuH - 4;
             }
-            if (left < 4) left = 4;
-
-            let top = coords.top + coords.lineHeight + 4;
-            const estMenuH = Math.min(220, activeItems.length * 32 + 20);
-            if (top + estMenuH > parentH && coords.top - estMenuH > 4) {
-                top = coords.top - estMenuH - 4;
+            if (left + menuWidth > window.innerWidth - 10) {
+                left = Math.max(10, window.innerWidth - menuWidth - 10);
             }
+            if (left < 10) left = 10;
 
+            menu.style.position = "fixed";
             menu.style.left = `${left}px`;
             menu.style.top = `${top}px`;
             menu.style.width = `${menuWidth}px`;
@@ -3182,14 +3235,17 @@ function attachAutocomplete(widget, node) {
             setTimeout(closeMenu, 180);
         });
 
-        ta.addEventListener("scroll", () => {
-            if (menu.style.display !== "none") {
+        const onViewportChange = () => {
+            if (menu && menu.style.display !== "none") {
                 positionMenu();
             }
-        }, { passive: true });
+        };
+        window.addEventListener("resize", onViewportChange, { passive: true });
+        window.addEventListener("scroll", onViewportChange, { passive: true });
+        ta.addEventListener("scroll", onViewportChange, { passive: true });
 
         document.addEventListener("mousedown", (e) => {
-            if (menu.style.display !== "none" && !menu.contains(e.target) && e.target !== ta) {
+            if (menu && menu.style.display !== "none" && !menu.contains(e.target) && e.target !== ta) {
                 closeMenu();
             }
         });
@@ -5686,6 +5742,11 @@ app.registerExtension({
                 if (saw && (!saw.options?.values?.includes(saw.value))) {
                     saw.value = "fixed";
                 }
+
+                // 7. Ensure syntax_theme has a valid theme
+                if (themeW && (!getThemeOptions().includes(themeW.value))) {
+                    themeW.value = "Zombiehaus Neon (Default)";
+                }
             };
 
             // ── onConfigure (workflow load / paste) ───────────────────────────────
@@ -5699,11 +5760,13 @@ app.registerExtension({
                 const themeW = this.widgets?.find(w => w.name === "syntax_theme");
                 const styleW = this.widgets?.find(w => w.name === "prompt_style");
 
-                if (this.properties?.syntax_theme) {
+                if (this.properties?.syntax_theme && getThemeOptions().includes(this.properties.syntax_theme)) {
                     if (themeW) themeW.value = this.properties.syntax_theme;
                     setNodeTheme(this, this.properties.syntax_theme);
-                } else if (themeW && themeW.value) {
+                } else if (themeW && themeW.value && getThemeOptions().includes(themeW.value)) {
                     setNodeTheme(this, themeW.value);
+                } else {
+                    setNodeTheme(this, "Zombiehaus Neon (Default)");
                 }
 
                 if (this.properties?.prompt_style && styleW) {

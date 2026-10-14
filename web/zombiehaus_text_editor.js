@@ -236,6 +236,10 @@ function injectSyntaxStyles() {
             color: transparent !important;
         }
         .zombiehaus-syntax-ta {
+            color: transparent !important;
+            -webkit-text-fill-color: transparent !important;
+            background: transparent !important;
+            background-color: transparent !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             scrollbar-width: thin !important;
@@ -268,6 +272,7 @@ function injectSyntaxStyles() {
             overflow-wrap: break-word;
             user-select: none;
             -webkit-user-select: none;
+            z-index: 0;
         }
         .zombiehaus-editor-status-bar {
             position: absolute;
@@ -1641,18 +1646,169 @@ function detectPromptHealth(text) {
     return { duplicates, heavyWeights };
 }
 
+// ── Universal Widget Input Resolver (Supports Classic Canvas & Modern Vue Nodes 2.0) ──
+function resolveWidgetInputEl(widget, node) {
+    if (!widget) return null;
+    if (widget.inputEl && widget.inputEl.isConnected) {
+        return widget.inputEl;
+    }
+    if (widget.element && widget.element.isConnected) {
+        const ta = widget.element.tagName === "TEXTAREA" ? widget.element : widget.element.querySelector?.("textarea");
+        if (ta && ta.isConnected) {
+            widget.inputEl = ta;
+            return ta;
+        }
+    }
+
+    const nodeId = node?.id != null ? String(node.id) : null;
+    let nodeEl = null;
+    if (nodeId != null) {
+        try {
+            nodeEl = document.querySelector(`[data-node-id="${CSS.escape(nodeId)}"]`) ||
+                     document.querySelector(`[data-testid="node-body-${CSS.escape(nodeId)}"]`)?.closest?.("[data-node-id]") ||
+                     document.querySelector(`[data-node-id="${nodeId}"]`);
+        } catch (_) {
+            nodeEl = document.querySelector(`[data-node-id="${nodeId}"]`);
+        }
+    }
+    if (!nodeEl && node?.domElement && node.domElement.isConnected) {
+        nodeEl = node.domElement;
+    }
+    if (!nodeEl && node?.element && node.element.isConnected) {
+        nodeEl = node.element;
+    }
+
+    if (nodeEl) {
+        const targetLabel = (widget.label || widget.name || "").trim().toLowerCase();
+        if (targetLabel) {
+            const labels = nodeEl.querySelectorAll("label");
+            for (const lbl of labels) {
+                if (lbl.textContent.trim().toLowerCase() === targetLabel) {
+                    const forId = lbl.getAttribute("for");
+                    if (forId) {
+                        try {
+                            const byId = nodeEl.querySelector("#" + CSS.escape(forId)) || document.getElementById(forId);
+                            if (byId && byId.tagName === "TEXTAREA" && byId.isConnected) {
+                                widget.inputEl = byId;
+                                return byId;
+                            }
+                        } catch (_) {}
+                    }
+                    const parentTa = lbl.parentElement?.querySelector("textarea");
+                    if (parentTa && parentTa.isConnected) {
+                        widget.inputEl = parentTa;
+                        return parentTa;
+                    }
+                }
+            }
+        }
+
+        const allTextareas = Array.from(nodeEl.querySelectorAll("textarea"));
+        if (allTextareas.length > 0) {
+            const multilineWidgets = (node?.widgets || []).filter(w =>
+                w.name === "positive" ||
+                w.name === "negative" ||
+                w.type === "customtext" ||
+                w.type === "textarea" ||
+                w.options?.multiline
+            );
+            const wIdx = multilineWidgets.indexOf(widget);
+            if (wIdx >= 0 && allTextareas[wIdx] && allTextareas[wIdx].isConnected) {
+                widget.inputEl = allTextareas[wIdx];
+                return allTextareas[wIdx];
+            }
+            if (widget.name === "positive" && allTextareas[0] && allTextareas[0].isConnected) {
+                widget.inputEl = allTextareas[0];
+                return allTextareas[0];
+            }
+            if (widget.name === "negative" && allTextareas[1] && allTextareas[1].isConnected) {
+                widget.inputEl = allTextareas[1];
+                return allTextareas[1];
+            }
+        }
+    }
+
+    return null;
+}
+
+function hookTextAreaReactivity(ta, widget) {
+    if (!ta || ta._hasZombiehausReactivityHook) return;
+    ta._hasZombiehausReactivityHook = true;
+
+    try {
+        const desc = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
+        if (desc) {
+            Object.defineProperty(ta, "value", {
+                configurable: true,
+                enumerable: true,
+                get() {
+                    return desc.get.call(this);
+                },
+                set(v) {
+                    desc.set.call(this, v);
+                    if (widget && widget.value !== v) {
+                        widget.value = v;
+                    }
+                    this.dispatchEvent(new Event("input", { bubbles: true }));
+                }
+            });
+        }
+    } catch (_) {}
+}
+
+function ensureWidgetInputElProxy(widget, node) {
+    if (!widget || widget._hasInputElProxy) return;
+    widget._hasInputElProxy = true;
+    let _cachedEl = widget.inputEl || null;
+
+    Object.defineProperty(widget, "inputEl", {
+        configurable: true,
+        enumerable: true,
+        get() {
+            if (_cachedEl && _cachedEl.isConnected) {
+                return _cachedEl;
+            }
+            const found = resolveWidgetInputEl(widget, node);
+            if (found) {
+                _cachedEl = found;
+                hookTextAreaReactivity(found, widget);
+                return found;
+            }
+            return _cachedEl;
+        },
+        set(val) {
+            _cachedEl = val;
+            if (val && val instanceof HTMLElement) {
+                hookTextAreaReactivity(val, widget);
+            }
+        }
+    });
+}
+
 function attachSyntaxHighlighter(widget, node) {
     if (!widget) return;
     injectSyntaxStyles();
+    ensureWidgetInputElProxy(widget, node);
 
     let attempts = 0;
     const bind = () => {
-        const ta = widget.inputEl || widget.element;
-        if (!ta || !ta.parentElement) {
-            if (attempts++ < 30) requestAnimationFrame(bind);
+        const ta = resolveWidgetInputEl(widget, node) || widget.inputEl || widget.element;
+        if (!ta || !ta.parentElement || !ta.isConnected) {
+            if (attempts++ < 120) {
+                requestAnimationFrame(bind);
+            } else if (attempts < 200) {
+                attempts += 5;
+                setTimeout(bind, 250);
+            }
             return;
         }
-        if (ta._hasSyntaxHighlighter) return;
+
+        hookTextAreaReactivity(ta, widget);
+
+        if (ta._hasSyntaxHighlighter && ta._syntaxBackdrop && ta._syntaxBackdrop.isConnected) {
+            ta._syntaxBackdropRender?.();
+            return;
+        }
         ta._hasSyntaxHighlighter = true;
 
         const parent = ta.parentElement;
@@ -1661,9 +1817,13 @@ function attachSyntaxHighlighter(widget, node) {
             parent.style.position = "relative";
         }
 
-        const backdrop = document.createElement("div");
-        backdrop.className = "zombiehaus-syntax-backdrop";
-        parent.insertBefore(backdrop, ta);
+        let backdrop = ta._syntaxBackdrop;
+        if (!backdrop || !backdrop.isConnected) {
+            backdrop = document.createElement("div");
+            backdrop.className = "zombiehaus-syntax-backdrop";
+            parent.insertBefore(backdrop, ta);
+            ta._syntaxBackdrop = backdrop;
+        }
 
         ta.classList.add("zombiehaus-syntax-ta");
         ta.style.position = "relative";
@@ -1680,6 +1840,10 @@ function attachSyntaxHighlighter(widget, node) {
         ta.style.letterSpacing = "normal";
         ta.style.paddingBottom = "28px";
         ta.style.boxSizing = "border-box";
+        ta.style.setProperty("color", "transparent", "important");
+        ta.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+        ta.style.setProperty("background", "transparent", "important");
+        ta.style.setProperty("background-color", "transparent", "important");
 
         function syncGeometry() {
             if (!ta || !backdrop) return;
@@ -1693,7 +1857,7 @@ function attachSyntaxHighlighter(widget, node) {
             const borderRight = parseFloat(cs.borderRightWidth) || 0;
             const scrollbarWidth = Math.max(0, ta.offsetWidth - ta.clientWidth - borderLeft - borderRight);
 
-            backdrop.style.fontFamily = MONOSPACE_FONT;
+            backdrop.style.fontFamily = cs.fontFamily || MONOSPACE_FONT;
             backdrop.style.fontSize = cs.fontSize || "13px";
             backdrop.style.lineHeight = cs.lineHeight || "1.45";
             backdrop.style.letterSpacing = cs.letterSpacing || "normal";
@@ -1732,37 +1896,52 @@ function attachSyntaxHighlighter(widget, node) {
             }
         }
 
-        const statusBar = document.createElement("div");
-        statusBar.className = "zombiehaus-editor-status-bar";
-        statusBar.addEventListener("click", (e) => {
-            if (e.target === statusBar) {
-                ta.focus();
-            }
-        });
-        parent.appendChild(statusBar);
-
-        const healthBadge = document.createElement("div");
-        healthBadge.className = "zombiehaus-health-badge";
-        healthBadge.title = "Prompt Health & Deduplication";
-        statusBar.appendChild(healthBadge);
-
-        const tokenBadge = document.createElement("div");
-        tokenBadge.className = "zombiehaus-token-badge";
-        tokenBadge.title = "Estimated words / CLIP tokens (75-token chunks)";
-        statusBar.appendChild(tokenBadge);
-
-        const waveformStrip = document.createElement("div");
-        waveformStrip.className = "zombiehaus-waveform-strip";
-        waveformStrip.title = "CLIP 75-token Chunk Attention Waveform";
-        for (let c = 0; c < 3; c++) {
-            const chunkEl = document.createElement("div");
-            chunkEl.className = "zombiehaus-waveform-chunk";
-            const fill = document.createElement("div");
-            fill.className = "zombiehaus-waveform-fill";
-            chunkEl.appendChild(fill);
-            waveformStrip.appendChild(chunkEl);
+        let statusBar = ta._syntaxStatusBar;
+        if (!statusBar || !statusBar.isConnected) {
+            statusBar = document.createElement("div");
+            statusBar.className = "zombiehaus-editor-status-bar";
+            statusBar.addEventListener("pointerdown", (e) => e.stopPropagation());
+            statusBar.addEventListener("click", (e) => {
+                if (e.target === statusBar) {
+                    ta.focus();
+                }
+            });
+            parent.appendChild(statusBar);
+            ta._syntaxStatusBar = statusBar;
         }
-        parent.appendChild(waveformStrip);
+
+        let healthBadge = statusBar.querySelector(".zombiehaus-health-badge");
+        if (!healthBadge) {
+            healthBadge = document.createElement("div");
+            healthBadge.className = "zombiehaus-health-badge";
+            healthBadge.title = "Prompt Health & Deduplication";
+            statusBar.appendChild(healthBadge);
+        }
+
+        let tokenBadge = statusBar.querySelector(".zombiehaus-token-badge");
+        if (!tokenBadge) {
+            tokenBadge = document.createElement("div");
+            tokenBadge.className = "zombiehaus-token-badge";
+            tokenBadge.title = "Estimated words / CLIP tokens (75-token chunks)";
+            statusBar.appendChild(tokenBadge);
+        }
+
+        let waveformStrip = ta._syntaxWaveformStrip;
+        if (!waveformStrip || !waveformStrip.isConnected) {
+            waveformStrip = document.createElement("div");
+            waveformStrip.className = "zombiehaus-waveform-strip";
+            waveformStrip.title = "CLIP 75-token Chunk Attention Waveform";
+            for (let c = 0; c < 3; c++) {
+                const chunkEl = document.createElement("div");
+                chunkEl.className = "zombiehaus-waveform-chunk";
+                const fill = document.createElement("div");
+                fill.className = "zombiehaus-waveform-fill";
+                chunkEl.appendChild(fill);
+                waveformStrip.appendChild(chunkEl);
+            }
+            parent.appendChild(waveformStrip);
+            ta._syntaxWaveformStrip = waveformStrip;
+        }
 
         function render() {
             const stats = estimateTokens(ta.value || "");
@@ -1847,18 +2026,24 @@ function attachSyntaxHighlighter(widget, node) {
                                     "Zombiehaus Neon (Default)";
 
             if (currentThemeName === "Off (Plain Text)") {
-                ta.style.color = "";
-                ta.style.background = "";
-                ta.style.caretColor = "";
+                ta.classList.remove("zombiehaus-syntax-ta");
+                ta.style.removeProperty("color");
+                ta.style.removeProperty("-webkit-text-fill-color");
+                ta.style.removeProperty("background");
+                ta.style.removeProperty("background-color");
+                ta.style.removeProperty("caret-color");
                 backdrop.style.display = "none";
                 return;
             }
 
             const theme = getThemeByName(currentThemeName);
+            ta.classList.add("zombiehaus-syntax-ta");
             backdrop.style.display = "block";
-            ta.style.color = "transparent";
-            ta.style.background = "transparent";
-            ta.style.caretColor = theme.caret_color || "#ffffff";
+            ta.style.setProperty("color", "transparent", "important");
+            ta.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+            ta.style.setProperty("background", "transparent", "important");
+            ta.style.setProperty("background-color", "transparent", "important");
+            ta.style.setProperty("caret-color", theme.caret_color || "#ffffff", "important");
             backdrop.style.backgroundColor = theme.bg_color || "#181825";
 
             backdrop.innerHTML = tokenizeAndHighlight(ta.value || "", theme);
@@ -1867,6 +2052,7 @@ function attachSyntaxHighlighter(widget, node) {
 
         widget._updateSyntaxHighlight = render;
         widget._applyTheme = render;
+        ta._syntaxBackdropRender = render;
 
         attachTabPasteNormalization(ta, () => {
             widget.value = ta.value;
@@ -1899,6 +2085,18 @@ function attachSyntaxHighlighter(widget, node) {
                 syncGeometry();
             });
             ro.observe(ta);
+            if (parent) ro.observe(parent);
+        }
+
+        if (window.MutationObserver && !widget._hasSyntaxDomObserver) {
+            widget._hasSyntaxDomObserver = true;
+            const mo = new MutationObserver(() => {
+                if (!ta.isConnected) {
+                    bind();
+                }
+            });
+            const rootTarget = parent.closest?.("[data-node-id]") || parent.parentElement || document.body;
+            mo.observe(rootTarget, { childList: true, subtree: true });
         }
 
         render();
@@ -2734,14 +2932,20 @@ function getCaretCoordinates(ta, position) {
 function attachAutocomplete(widget, node) {
     if (!widget) return;
     injectSyntaxStyles();
+    ensureWidgetInputElProxy(widget, node);
 
     let attempts = 0;
     const bind = () => {
         const ta = (widget instanceof HTMLElement && widget.tagName === "TEXTAREA")
             ? widget
-            : (widget?.inputEl || widget?.element);
-        if (!ta || !ta.parentElement) {
-            if (attempts++ < 30) requestAnimationFrame(bind);
+            : (resolveWidgetInputEl(widget, node) || widget?.inputEl || widget?.element);
+        if (!ta || !ta.parentElement || !ta.isConnected) {
+            if (attempts++ < 120) {
+                requestAnimationFrame(bind);
+            } else if (attempts < 200) {
+                attempts += 5;
+                setTimeout(bind, 250);
+            }
             return;
         }
         if (ta._hasAutocomplete) return;
@@ -4999,20 +5203,29 @@ app.registerExtension({
                 const dropdownWidget  = node.widgets?.find(w => w.name === "saved_prompt");
 
                 const hookCanvasUndoInput = (w) => {
-                    const el = w?.inputEl || w?.element;
-                    if (!el || el._hasCanvasUndoInputHook) return;
-                    el._hasCanvasUndoInputHook = true;
-                    let typeDebounce = null;
-                    el.addEventListener("input", () => {
-                        clearTimeout(typeDebounce);
-                        typeDebounce = setTimeout(() => {
-                            pushCanvasUndo(node, "Typing");
-                        }, 350);
-                    });
+                    let attempts = 0;
+                    const bind = () => {
+                        const el = resolveWidgetInputEl(w, node) || w?.inputEl || w?.element;
+                        if (!el || !el.isConnected) {
+                            if (attempts++ < 60) requestAnimationFrame(bind);
+                            return;
+                        }
+                        if (el._hasCanvasUndoInputHook) return;
+                        el._hasCanvasUndoInputHook = true;
+                        let typeDebounce = null;
+                        el.addEventListener("input", () => {
+                            clearTimeout(typeDebounce);
+                            typeDebounce = setTimeout(() => {
+                                pushCanvasUndo(node, "Typing");
+                            }, 350);
+                        });
+                    };
+                    bind();
                 };
 
                 if (positiveWidget) {
                     positiveWidget.label = "Positive";
+                    ensureWidgetInputElProxy(positiveWidget, node);
                     attachCommentShortcuts(positiveWidget, node);
                     attachSyntaxHighlighter(positiveWidget, node);
                     attachAutocomplete(positiveWidget, node);
@@ -5020,7 +5233,7 @@ app.registerExtension({
                     attachOllamaSelectionContextMenu(positiveWidget, positiveWidget, node);
                     hookCanvasUndoInput(positiveWidget);
                     requestAnimationFrame(() => {
-                        const ta = positiveWidget.inputEl || positiveWidget.element;
+                        const ta = resolveWidgetInputEl(positiveWidget, node) || positiveWidget.inputEl || positiveWidget.element;
                         if (ta) {
                             ta.style.overflowY = "auto";
                             ta.style.overflowX = "hidden";
@@ -5029,6 +5242,7 @@ app.registerExtension({
                 }
                 if (negativeWidget) {
                     negativeWidget.label = "Negative";
+                    ensureWidgetInputElProxy(negativeWidget, node);
                     attachCommentShortcuts(negativeWidget, node);
                     attachSyntaxHighlighter(negativeWidget, node);
                     attachAutocomplete(negativeWidget, node);
@@ -5039,21 +5253,102 @@ app.registerExtension({
 
                 pushCanvasUndo(node, "Initial State");
 
-                // ── Negative widget height control ────────────────────────────────
-                const NEG_H = 95;
-                if (negativeWidget) {
-                    negativeWidget.computeSize = function() {
-                        return [0, NEG_H];
-                    };
-                    requestAnimationFrame(() => {
-                        const ta = negativeWidget.inputEl || negativeWidget.element;
-                        if (ta) {
-                            ta.style.resize = "none";
-                            ta.style.overflowY = "auto";
-                            ta.style.overflowX = "hidden";
+                // ── Dynamic Proportional Text Area Resizing (Positive Large, Negative 1/4 size) ──
+                function updateTextEditorProportions(targetNode) {
+                    if (!targetNode) return;
+                    const pw = targetNode.widgets?.find(w => w.name === "positive");
+                    const nw = targetNode.widgets?.find(w => w.name === "negative");
+                    if (!pw && !nw) return;
+
+                    // Locate node element in DOM if running Modern Nodes 2.0
+                    const nodeId = targetNode.id != null ? String(targetNode.id) : null;
+                    let nodeEl = null;
+                    if (nodeId != null) {
+                        try {
+                            nodeEl = document.querySelector(`[data-node-id="${CSS.escape(nodeId)}"]`) ||
+                                     document.querySelector(`[data-testid="node-body-${CSS.escape(nodeId)}"]`)?.closest?.("[data-node-id]") ||
+                                     document.querySelector(`[data-node-id="${nodeId}"]`);
+                        } catch (_) {
+                            nodeEl = document.querySelector(`[data-node-id="${nodeId}"]`);
                         }
-                    });
+                    }
+                    if (!nodeEl && targetNode.domElement) nodeEl = targetNode.domElement;
+
+                    // Compute node height
+                    let totalH = (nodeEl && nodeEl.clientHeight > 200) ? nodeEl.clientHeight : (targetNode.size ? targetNode.size[1] : 605);
+
+                    // Reserved height for header bar, filter combos, category input, action buttons (~275px)
+                    const availH = Math.max(160, totalH - 275);
+                    // Positive gets 80%, Negative gets 20% (exactly 1/4 the size of positive)
+                    const posH = Math.max(120, Math.round(availH * 0.80));
+                    const negH = Math.max(48, Math.round(availH * 0.20));
+
+                    // 1. LiteGraph computeSize hook (Classic mode)
+                    if (pw) {
+                        pw.computeSize = function(width) {
+                            return [width || (targetNode.size ? targetNode.size[0] - 20 : 540), posH];
+                        };
+                    }
+                    if (nw) {
+                        nw.computeSize = function(width) {
+                            return [width || (targetNode.size ? targetNode.size[0] - 20 : 540), negH];
+                        };
+                    }
+
+                    // 2. DOM element heights (Modern Nodes 2.0 & DOM widgets)
+                    const posTa = pw ? (resolveWidgetInputEl(pw, targetNode) || pw.inputEl || pw.element) : null;
+                    const negTa = nw ? (resolveWidgetInputEl(nw, targetNode) || nw.inputEl || nw.element) : null;
+
+                    if (posTa) {
+                        posTa.style.minHeight = `${posH}px`;
+                        posTa.style.height = `${posH}px`;
+                        posTa.style.resize = "none";
+                        posTa.style.overflowY = "auto";
+                        posTa.style.overflowX = "hidden";
+                        if (posTa.parentElement) {
+                            posTa.parentElement.style.minHeight = `${posH}px`;
+                            posTa.parentElement.style.height = `${posH}px`;
+                        }
+                    }
+
+                    if (negTa) {
+                        negTa.style.minHeight = `${negH}px`;
+                        negTa.style.height = `${negH}px`;
+                        negTa.style.resize = "none";
+                        negTa.style.overflowY = "auto";
+                        negTa.style.overflowX = "hidden";
+                        if (negTa.parentElement) {
+                            negTa.parentElement.style.minHeight = `${negH}px`;
+                            negTa.parentElement.style.height = `${negH}px`;
+                        }
+                    }
+
+                    pw?._updateSyntaxHighlight?.();
+                    nw?._updateSyntaxHighlight?.();
+
+                    // 3. Attach ResizeObserver on modern node container if not yet attached
+                    if (nodeEl && window.ResizeObserver && !targetNode._hasProportionResizeObserver) {
+                        targetNode._hasProportionResizeObserver = true;
+                        const ro = new ResizeObserver(() => {
+                            updateTextEditorProportions(targetNode);
+                        });
+                        ro.observe(nodeEl);
+                    }
                 }
+
+                node._updateProportions = () => updateTextEditorProportions(node);
+
+                // Hook Classic LiteGraph onResize for dynamic 4:1 proportional prompt scaling
+                const origOnResize = node.onResize;
+                node.onResize = function (size) {
+                    const r = origOnResize ? origOnResize.apply(this, arguments) : undefined;
+                    updateTextEditorProportions(node);
+                    return r;
+                };
+
+                updateTextEditorProportions(node);
+                requestAnimationFrame(() => updateTextEditorProportions(node));
+                setTimeout(() => updateTextEditorProportions(node), 250);
 
                 // Hook selection and initial registration with IDE
                 const origOnSelected = node.onSelected;
@@ -5348,6 +5643,7 @@ app.registerExtension({
                 const pw = this.widgets?.find(w => w.name === "positive");
                 const nw = this.widgets?.find(w => w.name === "negative");
                 if (pw) {
+                    ensureWidgetInputElProxy(pw, this);
                     attachCommentShortcuts(pw, this);
                     attachSyntaxHighlighter(pw, this);
                     attachAutocomplete(pw, this);
@@ -5355,23 +5651,31 @@ app.registerExtension({
                     attachOllamaSelectionContextMenu(pw, pw, this);
                 }
                 if (nw) {
+                    ensureWidgetInputElProxy(nw, this);
                     attachCommentShortcuts(nw, this);
                     attachSyntaxHighlighter(nw, this);
                     attachAutocomplete(nw, this);
                     attachNegativePedalboard(nw, this);
                     attachOllamaSelectionContextMenu(nw, nw, this);
                 }
-                setTimeout(() => reportCanvasNode(this, false), 500);
+                setTimeout(() => {
+                    this._updateProportions ? this._updateProportions() : null;
+                    reportCanvasNode(this, false);
+                }, 500);
             };
 
             // ── onResize ──────────────────────────────────────────────────────────
             const onResize = nodeType.prototype.onResize;
             nodeType.prototype.onResize = function(size) {
                 const r = onResize ? onResize.apply(this, arguments) : undefined;
-                const pw = this.widgets?.find(w => w.name === "positive");
-                const nw = this.widgets?.find(w => w.name === "negative");
-                pw?._updateSyntaxHighlight?.();
-                nw?._updateSyntaxHighlight?.();
+                if (this._updateProportions) {
+                    this._updateProportions();
+                } else {
+                    const pw = this.widgets?.find(w => w.name === "positive");
+                    const nw = this.widgets?.find(w => w.name === "negative");
+                    pw?._updateSyntaxHighlight?.();
+                    nw?._updateSyntaxHighlight?.();
+                }
                 return r;
             };
 
@@ -5400,13 +5704,18 @@ app.registerExtension({
             function setTextValue(widget, value) {
                 if (!widget) return;
                 widget.value = value;
-                if (widget.inputEl) widget.inputEl.value = value;
+                const el = resolveWidgetInputEl(widget, node) || widget.inputEl;
+                if (el) {
+                    el.value = value;
+                    el.dispatchEvent(new Event("input", { bubbles: true }));
+                }
                 widget._updateSyntaxHighlight?.();
             }
 
             // ── Helper: Attach comment keyboard shortcuts (Ctrl+/, Ctrl+Shift+/, Shift+Alt+A) ──
             function attachCommentShortcuts(widget, node) {
                 if (!widget) return;
+                ensureWidgetInputElProxy(widget, node);
                 const bindEl = (ta) => {
                     if (!ta || ta._hasCommentHandler) return;
                     ta._hasCommentHandler = true;
@@ -5778,11 +6087,23 @@ app.registerExtension({
                     });
                 };
 
-                if (widget.inputEl) bindEl(widget.inputEl);
-                requestAnimationFrame(() => {
-                    const ta = widget.inputEl || widget.element;
-                    if (ta) bindEl(ta);
-                });
+                let attempts = 0;
+                const bind = () => {
+                    const ta = (widget instanceof HTMLElement && widget.tagName === "TEXTAREA")
+                        ? widget
+                        : (resolveWidgetInputEl(widget, node) || widget?.inputEl || widget?.element);
+                    if (!ta || !ta.isConnected) {
+                        if (attempts++ < 120) {
+                            requestAnimationFrame(bind);
+                        } else if (attempts < 200) {
+                            attempts += 5;
+                            setTimeout(bind, 250);
+                        }
+                        return;
+                    }
+                    bindEl(ta);
+                };
+                bind();
             }
 
             // ── Load a JSON prompt file into the text boxes ───────────────────────
@@ -7223,9 +7544,20 @@ app.registerExtension({
 
             function attachNegativePedalboard(widget, node) {
                 if (!widget) return;
-                requestAnimationFrame(() => {
-                    const ta = widget.inputEl || widget.element;
-                    if (!ta || !ta.parentElement || ta._hasPedalboard) return;
+                ensureWidgetInputElProxy(widget, node);
+                let attempts = 0;
+                const bind = () => {
+                    const ta = resolveWidgetInputEl(widget, node) || widget.inputEl || widget.element;
+                    if (!ta || !ta.parentElement || !ta.isConnected) {
+                        if (attempts++ < 120) {
+                            requestAnimationFrame(bind);
+                        } else if (attempts < 200) {
+                            attempts += 5;
+                            setTimeout(bind, 250);
+                        }
+                        return;
+                    }
+                    if (ta._hasPedalboard) return;
                     ta._hasPedalboard = true;
 
                     const parent = ta.parentElement;
@@ -7465,9 +7797,20 @@ app.registerExtension({
 
             function setupTagStudio(widget, node) {
                 if (!widget) return;
-                requestAnimationFrame(() => {
-                    const ta = widget.inputEl || widget.element;
-                    if (!ta || !ta.parentElement || ta._tagStudioContainer) return;
+                ensureWidgetInputElProxy(widget, node);
+                let attempts = 0;
+                const bind = () => {
+                    const ta = resolveWidgetInputEl(widget, node) || widget.inputEl || widget.element;
+                    if (!ta || !ta.parentElement || !ta.isConnected) {
+                        if (attempts++ < 120) {
+                            requestAnimationFrame(bind);
+                        } else if (attempts < 200) {
+                            attempts += 5;
+                            setTimeout(bind, 250);
+                        }
+                        return;
+                    }
+                    if (ta._tagStudioContainer && ta._tagStudioContainer.isConnected) return;
 
                     const parent = ta.parentElement;
                     const container = document.createElement("div");

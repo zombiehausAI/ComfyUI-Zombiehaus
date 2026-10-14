@@ -272,17 +272,27 @@ function injectSyntaxStyles() {
         .litegraph textarea.zombiehaus-negative-prompt-ta,
         .comfy-multiline-input.zombiehaus-negative-prompt-ta,
         [data-node-id] textarea.zombiehaus-negative-prompt-ta {
-            height: 60px !important;
+            height: 56px !important;
             min-height: 56px !important;
-            max-height: 72px !important;
+            max-height: 56px !important;
+            flex: 0 0 56px !important;
             resize: none !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
+            box-sizing: border-box !important;
+            padding-bottom: 24px !important;
         }
-        [data-node-id] .zombiehaus-negative-wrapper {
-            max-height: 72px !important;
-            height: 60px !important;
-            min-height: 56px !important;
+        .zombiehaus-negative-container,
+        [data-node-id] .zombiehaus-negative-container {
+            display: flex !important;
+            flex-direction: column !important;
+            height: 84px !important;
+            min-height: 84px !important;
+            max-height: 84px !important;
+            flex: 0 0 84px !important;
+            overflow: hidden !important;
+            box-sizing: border-box !important;
+            margin-bottom: 6px !important;
         }
         .zombiehaus-syntax-ta,
         textarea.zombiehaus-syntax-ta,
@@ -407,36 +417,48 @@ function injectSyntaxStyles() {
             to { opacity: 1; transform: translateY(0) scale(1); }
         }
         .zombiehaus-pedal-bar {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            margin-bottom: 5px;
-            user-select: none;
-            flex-wrap: wrap;
+            display: flex !important;
+            align-items: center !important;
+            gap: 4px !important;
+            margin-bottom: 4px !important;
+            user-select: none !important;
+            flex-wrap: nowrap !important;
+            flex-shrink: 0 !important;
+            flex: 0 0 24px !important;
+            height: 24px !important;
+            min-height: 24px !important;
+            max-height: 24px !important;
+            box-sizing: border-box !important;
+            z-index: 5 !important;
+            overflow: hidden !important;
+            width: 100% !important;
         }
         .zombiehaus-pedal-btn {
-            background: rgba(30, 30, 46, 0.75);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            border-radius: 5px;
-            padding: 2px 8px;
+            background: rgba(30, 30, 46, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+            padding: 1px 7px;
             font-size: 11px;
+            font-weight: 500;
             color: #a6adc8;
             cursor: pointer;
             transition: all 0.15s ease;
             font-family: inherit;
-            line-height: 1.3;
+            line-height: 1.4;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
         .zombiehaus-pedal-btn:hover {
             border-color: #89b4fa;
             color: #cdd6f4;
-            background: rgba(30, 30, 46, 0.95);
+            background: rgba(45, 45, 68, 0.95);
         }
         .zombiehaus-pedal-btn.active {
-            background: rgba(137, 180, 250, 0.22);
+            background: rgba(137, 180, 250, 0.25);
             border-color: #89b4fa;
             color: #89b4fa;
             font-weight: 600;
-            box-shadow: 0 0 8px rgba(137, 180, 250, 0.3);
+            box-shadow: 0 0 8px rgba(137, 180, 250, 0.35);
         }
         /* ── Section Banners ── */
         .zombiehaus-section-banner {
@@ -820,44 +842,51 @@ function injectSyntaxStyles() {
             overflow: visible;
             background: #181825;
         }
-        .zombiehaus-popout-ta {
-            width: 100%;
-            height: 100%;
-            box-sizing: border-box;
-            background: transparent;
-            color: transparent;
-            caret-color: #ffffff;
-            font-family: var(--mf-popout-font-family, ui-monospace, SFMono-Regular, monospace);
-            font-size: var(--mf-popout-font-size, 14px);
-            line-height: 1.5;
-            padding: 12px 12px 34px 12px;
-            border: none;
-            outline: none;
-            resize: none;
-            position: relative;
-            z-index: 1;
-            tab-size: 4;
-            white-space: pre-wrap;
-            word-wrap: break-word;
+        .zombiehaus-popout-ta,
+        textarea.zombiehaus-popout-ta {
+            width: 100% !important;
+            height: 100% !important;
+            box-sizing: border-box !important;
+            background: transparent !important;
+            background-color: transparent !important;
+            color: transparent !important;
+            -webkit-text-fill-color: transparent !important;
+            caret-color: #ffffff !important;
+            font-family: var(--mf-popout-font-family, ui-monospace, SFMono-Regular, monospace) !important;
+            font-size: var(--mf-popout-font-size, 14px) !important;
+            line-height: 1.5 !important;
+            padding: 12px 12px 34px 12px !important;
+            border: none !important;
+            outline: none !important;
+            resize: none !important;
+            position: relative !important;
+            z-index: 1 !important;
+            tab-size: 4 !important;
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
         }
-        .zombiehaus-popout-backdrop {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            padding: 12px;
-            font-family: var(--mf-popout-font-family, ui-monospace, SFMono-Regular, monospace);
-            font-size: var(--mf-popout-font-size, 14px);
-            line-height: 1.5;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            pointer-events: none;
-            user-select: none;
-            tab-size: 4;
-            overflow: hidden;
-            color: #cdd6f4;
-            box-sizing: border-box;
+        .zombiehaus-popout-backdrop,
+        div.zombiehaus-popout-backdrop {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            padding: 12px 12px 34px 12px !important;
+            font-family: var(--mf-popout-font-family, ui-monospace, SFMono-Regular, monospace) !important;
+            font-size: var(--mf-popout-font-size, 14px) !important;
+            line-height: 1.5 !important;
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            pointer-events: none !important;
+            user-select: none !important;
+            tab-size: 4 !important;
+            overflow: hidden !important;
+            color: #cdd6f4 !important;
+            box-sizing: border-box !important;
+            z-index: 0 !important;
         }
 
         /* ── Color Spectrum Studio & Sliders ── */
@@ -1786,28 +1815,9 @@ function resolveWidgetInputEl(widget, node) {
 }
 
 function hookTextAreaReactivity(ta, widget) {
-    if (!ta || ta._hasZombiehausReactivityHook) return;
-    ta._hasZombiehausReactivityHook = true;
-
-    try {
-        const desc = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
-        if (desc) {
-            Object.defineProperty(ta, "value", {
-                configurable: true,
-                enumerable: true,
-                get() {
-                    return desc.get.call(this);
-                },
-                set(v) {
-                    desc.set.call(this, v);
-                    if (widget && widget.value !== v) {
-                        widget.value = v;
-                    }
-                    this.dispatchEvent(new Event("input", { bubbles: true }));
-                }
-            });
-        }
-    } catch (_) {}
+    // Intentionally no-op. Overriding HTMLTextAreaElement.prototype.value triggers an infinite
+    // recursive setter loop with ComfyUI's reactive Pinia/Vue DOMWidgetImpl proxy, causing
+    // RangeError: Maximum call stack size exceeded, state rollbacks, and cascading autocomplete re-renders.
 }
 
 function ensureWidgetInputElProxy(widget, node) {
@@ -1837,16 +1847,9 @@ function ensureWidgetInputElProxy(widget, node) {
                     widget._cachedInputEl = found;
                     hookTextAreaReactivity(found, widget);
                     if (widget.name === "negative") {
-                        found.classList.add("zombiehaus-negative-prompt-ta");
-                        found.style.setProperty("height", "60px", "important");
-                        found.style.setProperty("min-height", "56px", "important");
-                        found.style.setProperty("max-height", "72px", "important");
-                        found.style.setProperty("resize", "none", "important");
-                        if (found.parentElement) {
-                            found.parentElement.style.setProperty("min-height", "90px", "important");
-                            found.parentElement.style.setProperty("max-height", "108px", "important");
-                            found.parentElement.style.setProperty("height", "98px", "important");
-                        }
+                        applyNegativeContainerStyles(found);
+                        attachNegativePedalboard(widget, node);
+                        found._ensurePedalboardMounted?.();
                     }
                     return found;
                 }
@@ -1861,16 +1864,9 @@ function ensureWidgetInputElProxy(widget, node) {
             if (val && val instanceof HTMLElement) {
                 hookTextAreaReactivity(val, widget);
                 if (widget.name === "negative") {
-                    val.classList.add("zombiehaus-negative-prompt-ta");
-                    val.style.setProperty("height", "60px", "important");
-                    val.style.setProperty("min-height", "56px", "important");
-                    val.style.setProperty("max-height", "72px", "important");
-                    val.style.setProperty("resize", "none", "important");
-                    if (val.parentElement) {
-                        val.parentElement.style.setProperty("min-height", "90px", "important");
-                        val.parentElement.style.setProperty("max-height", "108px", "important");
-                        val.parentElement.style.setProperty("height", "98px", "important");
-                    }
+                    applyNegativeContainerStyles(val);
+                    attachNegativePedalboard(widget, node);
+                    val._ensurePedalboardMounted?.();
                 }
             }
         }
@@ -1944,6 +1940,9 @@ function attachSyntaxHighlighter(widget, node) {
 
         function syncGeometry() {
             if (!ta || !backdrop) return;
+            if (widget.name === "negative" && ta._ensurePedalboardMounted) {
+                ta._ensurePedalboardMounted();
+            }
             backdrop.style.top = ta.offsetTop + "px";
             backdrop.style.left = ta.offsetLeft + "px";
             backdrop.style.width = ta.offsetWidth + "px";
@@ -2151,6 +2150,7 @@ function attachSyntaxHighlighter(widget, node) {
 
             backdrop.innerHTML = tokenizeAndHighlight(ta.value || "", theme);
             syncGeometry();
+            ta._ensurePedalboardMounted?.();
         }
 
         widget._updateSyntaxHighlight = render;
@@ -2158,12 +2158,17 @@ function attachSyntaxHighlighter(widget, node) {
         ta._syntaxBackdropRender = render;
 
         attachTabPasteNormalization(ta, () => {
-            widget.value = ta.value;
+            if (widget && widget.value !== ta.value) {
+                widget.value = ta.value;
+            }
             render();
         });
 
         ta.addEventListener("input", () => {
             normalizeRawTabs(ta);
+            if (widget && widget.value !== ta.value) {
+                widget.value = ta.value;
+            }
             render();
             reportCanvasNode(node, true);
         });
@@ -5300,6 +5305,193 @@ function attachImageDropHandlers(node) {
     });
 }
 
+// ── Negative Pedalboard Modules & Attachment ────────────────────────────
+const PEDALBOARD_MODULES = [
+    {
+        id: "quality",
+        label: "✦ Quality",
+        tooltip: "Toggle baseline quality guard (worst quality, low quality, normal quality)",
+        matchTag: "worst quality",
+        text: "(worst quality, low quality, normal quality:1.4)",
+        unweightedText: "worst quality, low quality, normal quality"
+    },
+    {
+        id: "anatomy",
+        label: "🚫 Anatomy",
+        tooltip: "Toggle anatomical & hand deformity guard",
+        matchTag: "bad anatomy",
+        text: "(bad anatomy, bad hands, missing fingers, extra digits:1.3)",
+        unweightedText: "bad anatomy, bad hands, missing fingers, extra digits"
+    },
+    {
+        id: "cgi",
+        label: "🎨 3D Guard",
+        tooltip: "Toggle 3D render / CGI guard for 2D or realistic styles",
+        matchTag: "3d render",
+        text: "(cgi, 3d render, cartoon, illustration:1.2)",
+        unweightedText: "cgi, 3d render, cartoon, illustration"
+    },
+    {
+        id: "watermark",
+        label: "💧 Watermark",
+        tooltip: "Toggle watermark, text, and signature suppression",
+        matchTag: "watermark",
+        text: "(watermark, text, signature, username:1.2)",
+        unweightedText: "watermark, text, signature, username"
+    }
+];
+
+function applyNegativeContainerStyles(el) {
+    if (!el || !el.style) return;
+    el.classList.add("zombiehaus-negative-prompt-ta");
+    el.style.setProperty("display", "block", "important");
+    el.style.setProperty("flex", "0 0 56px", "important");
+    el.style.setProperty("height", "56px", "important");
+    el.style.setProperty("min-height", "56px", "important");
+    el.style.setProperty("max-height", "56px", "important");
+    el.style.setProperty("resize", "none", "important");
+    el.style.setProperty("box-sizing", "border-box", "important");
+    el.style.setProperty("padding-bottom", "24px", "important");
+    el.style.overflowY = "auto";
+    el.style.overflowX = "hidden";
+    const p = el.parentElement;
+    if (p && p.style) {
+        p.classList.add("zombiehaus-negative-container");
+        p.style.setProperty("display", "flex", "important");
+        p.style.setProperty("flex-direction", "column", "important");
+        p.style.setProperty("flex", "0 0 84px", "important");
+        p.style.setProperty("min-height", "84px", "important");
+        p.style.setProperty("max-height", "84px", "important");
+        p.style.setProperty("height", "84px", "important");
+        p.style.setProperty("overflow", "hidden", "important");
+        p.style.setProperty("box-sizing", "border-box", "important");
+        p.style.setProperty("margin-bottom", "6px", "important");
+    }
+}
+
+function attachNegativePedalboard(widget, node) {
+    if (!widget) return;
+    ensureWidgetInputElProxy(widget, node);
+    let attempts = 0;
+    const bind = () => {
+        const ta = resolveWidgetInputEl(widget, node) || widget.inputEl || widget.element;
+        if (!ta || !ta.parentElement || !ta.isConnected) {
+            if (attempts++ < 120) {
+                requestAnimationFrame(bind);
+            } else if (attempts < 200) {
+                attempts += 5;
+                setTimeout(bind, 250);
+            }
+            return;
+        }
+
+        const parent = ta.parentElement;
+        let pedalBar = parent.querySelector(".zombiehaus-pedal-bar") || ta._pedalBar;
+
+        if (!pedalBar || !pedalBar.isConnected) {
+            pedalBar = document.createElement("div");
+            pedalBar.className = "zombiehaus-pedal-bar";
+            pedalBar.style.setProperty("display", "flex", "important");
+            pedalBar.style.setProperty("flex", "0 0 24px", "important");
+            pedalBar.style.setProperty("height", "24px", "important");
+            pedalBar.style.setProperty("min-height", "24px", "important");
+            pedalBar.style.setProperty("max-height", "24px", "important");
+            pedalBar.style.setProperty("margin-bottom", "4px", "important");
+            pedalBar.style.setProperty("box-sizing", "border-box", "important");
+            pedalBar.style.setProperty("width", "100%", "important");
+            pedalBar.addEventListener("pointerdown", (e) => e.stopPropagation());
+            pedalBar.addEventListener("mousedown", (e) => e.stopPropagation());
+
+            const label = document.createElement("span");
+            label.textContent = "Guards:";
+            label.style.cssText = "font-size: 10px; color: #6c7086; text-transform: uppercase; letter-spacing: 0.5px; margin-right: 4px; font-weight: 600; white-space: nowrap; flex-shrink: 0;";
+            pedalBar.appendChild(label);
+
+            const buttons = [];
+
+            PEDALBOARD_MODULES.forEach(mod => {
+                const btn = document.createElement("button");
+                btn.className = "zombiehaus-pedal-btn";
+                btn.textContent = mod.label;
+                btn.title = mod.tooltip;
+                btn.type = "button";
+                btn.addEventListener("pointerdown", (e) => e.stopPropagation());
+                btn.addEventListener("mousedown", (e) => e.stopPropagation());
+
+                btn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    let cur = (ta.value || "").trim();
+                    const hasTag = cur.toLowerCase().includes(mod.matchTag.toLowerCase());
+
+                    const styleVal = (node.widgets?.find(w => w.name === "prompt_style")?.value || "").toLowerCase();
+                    const isExpressions = styleVal.includes("expression");
+                    const insertText = isExpressions ? mod.unweightedText : mod.text;
+
+                    if (hasTag) {
+                        cur = cur.replace(mod.text, "");
+                        cur = cur.replace(mod.unweightedText, "");
+                        const escTag = mod.matchTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        cur = cur.replace(new RegExp(`\\([^)]*${escTag}[^)]*\\)`, "gi"), "");
+                        cur = cur.replace(/,\s*,+/g, ", ").replace(/^,\s*/, "").replace(/,\s*$/, "").trim();
+                        showStudioToast(`Disengaged [${mod.label}] guard`, "info");
+                    } else {
+                        if (cur && !cur.endsWith(",")) cur += ", ";
+                        else if (cur && cur.endsWith(",")) cur += " ";
+                        cur += insertText;
+                        showStudioToast(`Engaged [${mod.label}] guard${isExpressions ? ' (unweighted)' : ''}`);
+                    }
+
+                    ta.value = cur;
+                    widget.value = cur;
+                    widget._updateSyntaxHighlight?.();
+                    updateStates();
+                    if (node._popoutSyncFromNode) {
+                        node._popoutSyncFromNode();
+                    }
+                    pushPromptHistory(node, `Pedalboard: ${mod.label}`);
+                    app.graph?.setDirtyCanvas(true, true);
+                };
+
+                buttons.push({ btn, mod });
+                pedalBar.appendChild(btn);
+            });
+
+            function updateStates() {
+                const val = (ta.value || "").toLowerCase();
+                buttons.forEach(({ btn, mod }) => {
+                    if (val.includes(mod.matchTag.toLowerCase())) {
+                        btn.classList.add("active");
+                    } else {
+                        btn.classList.remove("active");
+                    }
+                });
+            }
+
+            ta._pedalButtons = buttons;
+            ta._updatePedalboardStates = updateStates;
+            ta.addEventListener("input", updateStates);
+            updateStates();
+
+            ta._pedalBar = pedalBar;
+        }
+
+        const ensureMounted = () => {
+            const p = ta.parentElement;
+            if (!p || !pedalBar) return;
+            applyNegativeContainerStyles(ta);
+            if (!p.contains(pedalBar)) {
+                p.insertBefore(pedalBar, ta);
+            }
+            ta._updatePedalboardStates?.();
+        };
+
+        ta._ensurePedalboardMounted = ensureMounted;
+        ensureMounted();
+    };
+    bind();
+}
+
 // ── Universal Proportional Prompt Sizing (Positive Expansive, Negative Compact) ──
 function updateTextEditorProportions(targetNode) {
     if (!targetNode || targetNode._updatingProportions) return;
@@ -5314,16 +5506,18 @@ function updateTextEditorProportions(targetNode) {
             targetNode.size = [560, 830];
         }
 
-        // 1. Negative Widget: Fixed compact slot for pedalboard (~24px) + textarea (60px) + margins = 98px
+        // 1. Negative Widget: Fixed compact slot for pedalboard (24px) + textarea (56px) + margin = 84px
+        // Allocating 96px in computeSize gives a 12px clear buffer gap so it never touches saved_prompt
         if (nw) {
-            delete nw.computeSize;
-            nw.computeLayoutSize = function() {
-                return { minHeight: 98, maxHeight: 98, minWidth: 0 };
+            nw.computeSize = function(width) {
+                return [width || 400, 96];
             };
+            delete nw.computeLayoutSize;
             if (!nw.options) nw.options = {};
-            nw.options.getMinHeight = () => 98;
-            nw.options.getMaxHeight = () => 98;
+            nw.options.getMinHeight = () => 96;
+            nw.options.getMaxHeight = () => 96;
             delete nw.options.getHeight;
+            attachNegativePedalboard(nw, targetNode);
         }
 
         // 2. Positive Widget: Expansive dynamic slot absorbing all available vertical space
@@ -5346,29 +5540,25 @@ function updateTextEditorProportions(targetNode) {
             posTa.style.setProperty("min-height", "140px", "important");
             posTa.style.setProperty("height", "100%", "important");
             posTa.style.removeProperty("max-height");
+            posTa.style.setProperty("flex", "1 1 0%", "important");
             posTa.style.setProperty("resize", "none", "important");
             posTa.style.setProperty("box-sizing", "border-box", "important");
             posTa.style.overflowY = "auto";
             posTa.style.overflowX = "hidden";
             if (posTa.parentElement) {
+                posTa.parentElement.style.setProperty("display", "flex", "important");
+                posTa.parentElement.style.setProperty("flex-direction", "column", "important");
                 posTa.parentElement.style.setProperty("min-height", "140px", "important");
+                posTa.parentElement.style.setProperty("height", "100%", "important");
+                posTa.parentElement.style.setProperty("flex", "1 1 0%", "important");
                 posTa.parentElement.style.removeProperty("max-height");
             }
         }
 
-        if (negTa && negTa.style) {
-            negTa.classList.add("zombiehaus-negative-prompt-ta");
-            negTa.style.setProperty("min-height", "50px", "important");
-            negTa.style.setProperty("max-height", "64px", "important");
-            negTa.style.setProperty("height", "60px", "important");
-            negTa.style.setProperty("resize", "none", "important");
-            negTa.style.setProperty("box-sizing", "border-box", "important");
-            negTa.style.overflowY = "auto";
-            negTa.style.overflowX = "hidden";
-            if (negTa.parentElement) {
-                negTa.parentElement.style.setProperty("min-height", "90px", "important");
-                negTa.parentElement.style.setProperty("max-height", "108px", "important");
-                negTa.parentElement.style.setProperty("height", "98px", "important");
+        if (negTa) {
+            applyNegativeContainerStyles(negTa);
+            if (negTa._ensurePedalboardMounted) {
+                negTa._ensurePedalboardMounted();
             }
         }
 
@@ -5393,24 +5583,22 @@ function updateTextEditorProportions(targetNode) {
                 firstTa.style.setProperty("min-height", "140px", "important");
                 firstTa.style.setProperty("height", "100%", "important");
                 firstTa.style.removeProperty("max-height");
+                firstTa.style.setProperty("flex", "1 1 0%", "important");
                 firstTa.style.setProperty("resize", "none", "important");
                 firstTa.style.setProperty("box-sizing", "border-box", "important");
                 if (firstTa.parentElement) {
+                    firstTa.parentElement.style.setProperty("display", "flex", "important");
+                    firstTa.parentElement.style.setProperty("flex-direction", "column", "important");
                     firstTa.parentElement.style.setProperty("min-height", "140px", "important");
+                    firstTa.parentElement.style.setProperty("height", "100%", "important");
+                    firstTa.parentElement.style.setProperty("flex", "1 1 0%", "important");
                     firstTa.parentElement.style.removeProperty("max-height");
                 }
 
                 const secondTa = textareas[1];
-                secondTa.classList.add("zombiehaus-negative-prompt-ta");
-                secondTa.style.setProperty("min-height", "50px", "important");
-                secondTa.style.setProperty("max-height", "64px", "important");
-                secondTa.style.setProperty("height", "60px", "important");
-                secondTa.style.setProperty("resize", "none", "important");
-                secondTa.style.setProperty("box-sizing", "border-box", "important");
-                if (secondTa.parentElement) {
-                    secondTa.parentElement.style.setProperty("min-height", "90px", "important");
-                    secondTa.parentElement.style.setProperty("max-height", "108px", "important");
-                    secondTa.parentElement.style.setProperty("height", "98px", "important");
+                applyNegativeContainerStyles(secondTa);
+                if (secondTa._ensurePedalboardMounted) {
+                    secondTa._ensurePedalboardMounted();
                 }
             }
         }
@@ -5499,6 +5687,7 @@ app.registerExtension({
                 const origOnResize = node.onResize;
                 node.onResize = function (size) {
                     const r = origOnResize ? origOnResize.apply(this, arguments) : undefined;
+                    updateTextEditorProportions(node);
                     return r;
                 };
 
@@ -5863,8 +6052,11 @@ app.registerExtension({
             const onResize = nodeType.prototype.onResize;
             nodeType.prototype.onResize = function(size) {
                 const r = onResize ? onResize.apply(this, arguments) : undefined;
+                updateTextEditorProportions(this);
                 const pw = this.widgets?.find(w => w.name === "positive");
                 pw?._updateSyntaxHighlight?.();
+                const nw = this.widgets?.find(w => w.name === "negative");
+                nw?._updateSyntaxHighlight?.();
                 return r;
             };
 
@@ -7702,131 +7894,7 @@ app.registerExtension({
                 }
             }
 
-            // ── Negative Pedalboard Implementation ────────────────────────────────
-            const PEDALBOARD_MODULES = [
-                {
-                    id: "quality",
-                    label: "✦ Quality",
-                    tooltip: "Toggle baseline quality guard (worst quality, low quality, normal quality)",
-                    matchTag: "worst quality",
-                    text: "(worst quality, low quality, normal quality:1.4)",
-                    unweightedText: "worst quality, low quality, normal quality"
-                },
-                {
-                    id: "anatomy",
-                    label: "🚫 Anatomy",
-                    tooltip: "Toggle anatomical & hand deformity guard",
-                    matchTag: "bad anatomy",
-                    text: "(bad anatomy, bad hands, missing fingers, extra digits:1.3)",
-                    unweightedText: "bad anatomy, bad hands, missing fingers, extra digits"
-                },
-                {
-                    id: "cgi",
-                    label: "🎨 3D Guard",
-                    tooltip: "Toggle 3D render / CGI guard for 2D or realistic styles",
-                    matchTag: "3d render",
-                    text: "(cgi, 3d render, cartoon, illustration:1.2)",
-                    unweightedText: "cgi, 3d render, cartoon, illustration"
-                },
-                {
-                    id: "watermark",
-                    label: "💧 Watermark",
-                    tooltip: "Toggle watermark, text, and signature suppression",
-                    matchTag: "watermark",
-                    text: "(watermark, text, signature, username:1.2)",
-                    unweightedText: "watermark, text, signature, username"
-                }
-            ];
-
-            function attachNegativePedalboard(widget, node) {
-                if (!widget) return;
-                ensureWidgetInputElProxy(widget, node);
-                let attempts = 0;
-                const bind = () => {
-                    const ta = resolveWidgetInputEl(widget, node) || widget.inputEl || widget.element;
-                    if (!ta || !ta.parentElement || !ta.isConnected) {
-                        if (attempts++ < 120) {
-                            requestAnimationFrame(bind);
-                        } else if (attempts < 200) {
-                            attempts += 5;
-                            setTimeout(bind, 250);
-                        }
-                        return;
-                    }
-                    if (ta._hasPedalboard) return;
-                    ta._hasPedalboard = true;
-
-                    const parent = ta.parentElement;
-                    const pedalBar = document.createElement("div");
-                    pedalBar.className = "zombiehaus-pedal-bar";
-
-                    const label = document.createElement("span");
-                    label.textContent = "Pedalboard:";
-                    label.style.cssText = "font-size: 10px; color: #6c7086; text-transform: uppercase; letter-spacing: 0.5px; margin-right: 4px; font-weight: 600;";
-                    pedalBar.appendChild(label);
-
-                    const buttons = [];
-
-                    PEDALBOARD_MODULES.forEach(mod => {
-                        const btn = document.createElement("button");
-                        btn.className = "zombiehaus-pedal-btn";
-                        btn.textContent = mod.label;
-                        btn.title = mod.tooltip;
-                        btn.type = "button";
-
-                        btn.onclick = (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            let cur = (ta.value || "").trim();
-                            const hasTag = cur.toLowerCase().includes(mod.matchTag.toLowerCase());
-
-                            const styleVal = (node.widgets?.find(w => w.name === "prompt_style")?.value || "").toLowerCase();
-                            const isExpressions = styleVal.includes("expression");
-                            const insertText = isExpressions ? mod.unweightedText : mod.text;
-
-                            if (hasTag) {
-                                cur = cur.replace(mod.text, "");
-                                cur = cur.replace(mod.unweightedText, "");
-                                const escTag = mod.matchTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                                cur = cur.replace(new RegExp(`\\([^)]*${escTag}[^)]*\\)`, "gi"), "");
-                                cur = cur.replace(/,\s*,+/g, ", ").replace(/^,\s*/, "").replace(/,\s*$/, "").trim();
-                                showStudioToast(`Disengaged [${mod.label}] guard`, "info");
-                            } else {
-                                if (cur && !cur.endsWith(",")) cur += ", ";
-                                else if (cur && cur.endsWith(",")) cur += " ";
-                                cur += insertText;
-                                showStudioToast(`Engaged [${mod.label}] guard${isExpressions ? ' (unweighted)' : ''}`);
-                            }
-
-                            ta.value = cur;
-                            widget.value = cur;
-                            widget._updateSyntaxHighlight?.();
-                            updateStates();
-                            pushPromptHistory(node, `Pedalboard: ${mod.label}`);
-                        };
-
-                        buttons.push({ btn, mod });
-                        pedalBar.appendChild(btn);
-                    });
-
-                    function updateStates() {
-                        const val = (ta.value || "").toLowerCase();
-                        buttons.forEach(({ btn, mod }) => {
-                            if (val.includes(mod.matchTag.toLowerCase())) {
-                                btn.classList.add("active");
-                            } else {
-                                btn.classList.remove("active");
-                            }
-                        });
-                    }
-
-                    ta.addEventListener("input", updateStates);
-                    updateStates();
-
-                    parent.insertBefore(pedalBar, ta);
-                };
-                bind();
-            }
+            // ── Negative Pedalboard Implementation (Delegated to module-level) ──
 
             // ── Clean Prompt & JSON Exporters ─────────────────────────────────────
             function copyCleanPrompt(node) {
@@ -9638,45 +9706,57 @@ app.registerExtension({
                 }
 
                 function updatePopoutBackdrops() {
-                    const themeName = node._currentSyntaxTheme || "Zombiehaus Neon (Default)";
+                    const themeName = node._currentSyntaxTheme ||
+                        (typeof localStorage !== "undefined" && localStorage.getItem("zombiehaus_syntax_theme")) ||
+                        "Zombiehaus Neon (Default)";
                     const theme = getThemeByName(themeName);
                     const bgColor = theme.bg_color || "#181825";
                     const caretColor = theme.caret_color || "#ffffff";
                     const isOff = (themeName === "Off (Plain Text)");
 
                     if (isOff) {
-                        if (posBackdrop) posBackdrop.style.display = "none";
-                        if (negBackdrop) negBackdrop.style.display = "none";
+                        if (posBackdrop) posBackdrop.style.setProperty("display", "none", "important");
+                        if (negBackdrop) negBackdrop.style.setProperty("display", "none", "important");
                         if (posTa) {
-                            posTa.style.color = "#cdd6f4";
-                            posTa.style.backgroundColor = bgColor;
-                            posTa.style.caretColor = caretColor;
+                            posTa.style.setProperty("color", "#cdd6f4", "important");
+                            posTa.style.setProperty("-webkit-text-fill-color", "#cdd6f4", "important");
+                            posTa.style.setProperty("background", bgColor, "important");
+                            posTa.style.setProperty("background-color", bgColor, "important");
+                            posTa.style.setProperty("caret-color", caretColor, "important");
                         }
                         if (negTa) {
-                            negTa.style.color = "#cdd6f4";
-                            negTa.style.backgroundColor = bgColor;
-                            negTa.style.caretColor = caretColor;
+                            negTa.style.setProperty("color", "#cdd6f4", "important");
+                            negTa.style.setProperty("-webkit-text-fill-color", "#cdd6f4", "important");
+                            negTa.style.setProperty("background", bgColor, "important");
+                            negTa.style.setProperty("background-color", bgColor, "important");
+                            negTa.style.setProperty("caret-color", caretColor, "important");
                         }
                     } else {
                         if (posBackdrop) {
-                            posBackdrop.style.display = "block";
+                            posBackdrop.style.setProperty("display", "block", "important");
                             posBackdrop.innerHTML = tokenizeAndHighlight(posTa.value || "", theme);
-                            posBackdrop.style.backgroundColor = bgColor;
+                            posBackdrop.style.setProperty("background-color", bgColor, "important");
+                            syncPopoutBackdropGeometry(posTa, posBackdrop);
                         }
                         if (negBackdrop) {
-                            negBackdrop.style.display = "block";
+                            negBackdrop.style.setProperty("display", "block", "important");
                             negBackdrop.innerHTML = tokenizeAndHighlight(negTa.value || "", theme);
-                            negBackdrop.style.backgroundColor = bgColor;
+                            negBackdrop.style.setProperty("background-color", bgColor, "important");
+                            syncPopoutBackdropGeometry(negTa, negBackdrop);
                         }
                         if (posTa) {
-                            posTa.style.color = "transparent";
-                            posTa.style.backgroundColor = "transparent";
-                            posTa.style.caretColor = caretColor;
+                            posTa.style.setProperty("color", "transparent", "important");
+                            posTa.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+                            posTa.style.setProperty("background", "transparent", "important");
+                            posTa.style.setProperty("background-color", "transparent", "important");
+                            posTa.style.setProperty("caret-color", caretColor, "important");
                         }
                         if (negTa) {
-                            negTa.style.color = "transparent";
-                            negTa.style.backgroundColor = "transparent";
-                            negTa.style.caretColor = caretColor;
+                            negTa.style.setProperty("color", "transparent", "important");
+                            negTa.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+                            negTa.style.setProperty("background", "transparent", "important");
+                            negTa.style.setProperty("background-color", "transparent", "important");
+                            negTa.style.setProperty("caret-color", caretColor, "important");
                         }
                     }
 
@@ -9690,10 +9770,16 @@ app.registerExtension({
                     const borderLeft = parseFloat(cs.borderLeftWidth) || 0;
                     const borderRight = parseFloat(cs.borderRightWidth) || 0;
                     const scrollbarWidth = Math.max(0, ta.offsetWidth - ta.clientWidth - borderLeft - borderRight);
-                    backdrop.style.paddingTop = cs.paddingTop;
-                    backdrop.style.paddingBottom = cs.paddingBottom;
-                    backdrop.style.paddingLeft = cs.paddingLeft;
+                    backdrop.style.paddingTop = cs.paddingTop || "12px";
+                    backdrop.style.paddingBottom = cs.paddingBottom || "34px";
+                    backdrop.style.paddingLeft = cs.paddingLeft || "12px";
                     backdrop.style.paddingRight = (parseFloat(cs.paddingRight) || 0) + scrollbarWidth + "px";
+                    backdrop.style.fontSize = cs.fontSize;
+                    backdrop.style.fontFamily = cs.fontFamily;
+                    backdrop.style.lineHeight = cs.lineHeight;
+                    backdrop.style.letterSpacing = cs.letterSpacing;
+                    backdrop.style.wordBreak = cs.wordBreak;
+                    backdrop.style.whiteSpace = cs.whiteSpace;
                     backdrop.scrollTop = ta.scrollTop;
                     backdrop.scrollLeft = ta.scrollLeft;
                 }
@@ -9704,11 +9790,17 @@ app.registerExtension({
                     if (pw.inputEl) pw.inputEl.value = posTa.value;
                     pw._updateSyntaxHighlight?.();
 
-                    const themeName = node._currentSyntaxTheme || "Zombiehaus Neon (Default)";
+                    const themeName = node._currentSyntaxTheme ||
+                        (typeof localStorage !== "undefined" && localStorage.getItem("zombiehaus_syntax_theme")) ||
+                        "Zombiehaus Neon (Default)";
                     if (themeName !== "Off (Plain Text)") {
                         const theme = getThemeByName(themeName);
                         posBackdrop.innerHTML = tokenizeAndHighlight(posTa.value || "", theme);
                         syncPopoutBackdropGeometry(posTa, posBackdrop);
+                        posTa.style.setProperty("color", "transparent", "important");
+                        posTa.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+                        posTa.style.setProperty("background", "transparent", "important");
+                        posTa.style.setProperty("background-color", "transparent", "important");
                     }
 
                     const stats = estimateTokens(posTa.value || "");
@@ -9757,11 +9849,17 @@ app.registerExtension({
                     if (nw.inputEl) nw.inputEl.value = negTa.value;
                     nw._updateSyntaxHighlight?.();
 
-                    const themeName = node._currentSyntaxTheme || "Zombiehaus Neon (Default)";
+                    const themeName = node._currentSyntaxTheme ||
+                        (typeof localStorage !== "undefined" && localStorage.getItem("zombiehaus_syntax_theme")) ||
+                        "Zombiehaus Neon (Default)";
                     if (themeName !== "Off (Plain Text)") {
                         const theme = getThemeByName(themeName);
                         negBackdrop.innerHTML = tokenizeAndHighlight(negTa.value || "", theme);
                         syncPopoutBackdropGeometry(negTa, negBackdrop);
+                        negTa.style.setProperty("color", "transparent", "important");
+                        negTa.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+                        negTa.style.setProperty("background", "transparent", "important");
+                        negTa.style.setProperty("background-color", "transparent", "important");
                     }
 
                     const stats = estimateTokens(negTa.value || "");

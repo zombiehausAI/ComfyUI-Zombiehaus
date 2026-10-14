@@ -298,7 +298,54 @@ class ZombiehausImageTray {
                 }
             };
         }
+        // Horizontal mouse-wheel scroll on the filmstrip (converts vertical wheel up/down to horizontal scroll)
+        if (this.filmstripEl) {
+            this.filmstripEl.addEventListener("wheel", (e) => {
+                let delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+                if (delta === 0) return;
+                if (e.deltaMode === 1) delta *= 28;
+                else if (e.deltaMode === 2) delta *= 100;
+                e.preventDefault();
+                e.stopPropagation();
+                this.filmstripEl.scrollBy({ left: delta, behavior: "auto" });
+            }, { passive: false });
 
+            // Click-and-drag mouse panning on the filmstrip
+            let isDown = false;
+            let startX = 0;
+            let scrollStart = 0;
+            let hasDragged = false;
+
+            this.filmstripEl.addEventListener("mousedown", (e) => {
+                if (e.target.closest("button") || e.target.closest(".zit-quick-btn")) return;
+                isDown = true;
+                hasDragged = false;
+                startX = e.pageX - this.filmstripEl.offsetLeft;
+                scrollStart = this.filmstripEl.scrollLeft;
+            });
+
+            window.addEventListener("mouseup", () => {
+                isDown = false;
+            });
+
+            this.filmstripEl.addEventListener("mousemove", (e) => {
+                if (!isDown) return;
+                const x = e.pageX - this.filmstripEl.offsetLeft;
+                const walk = (x - startX) * 1.5;
+                if (Math.abs(walk) > 4) {
+                    hasDragged = true;
+                }
+                this.filmstripEl.scrollLeft = scrollStart - walk;
+            });
+
+            this.filmstripEl.addEventListener("click", (e) => {
+                if (hasDragged) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    hasDragged = false;
+                }
+            }, true);
+        }
 
         // ComfyUI Real-time Execution Listener
         api.addEventListener("executed", (e) => {

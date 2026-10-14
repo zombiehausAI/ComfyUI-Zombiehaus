@@ -5307,40 +5307,45 @@ function updateTextEditorProportions(targetNode) {
         const nw = targetNode.widgets?.find(w => w.name === "negative");
         if (!pw && !nw) return;
 
-        // Guaranteed compact negative height (3 lines of text: ~60-64px)
-        const negH = 64;
-        const posH = 180;
+        // Negative prompt slot: 28px pedalboard + 60px textarea + margins = ~98px
+        const negSlotH = 98;
+        const negTaH = 60;
 
-        // Force reset any runaway node heights to standard card height
-        if (!targetNode.size || targetNode.size[1] > 820 || targetNode.size[1] < 720) {
-            targetNode.size = [560, 780];
+        // Reset runaway heights from prior loop bugs (> 2500)
+        if (!targetNode.size || targetNode.size[1] > 2500) {
+            targetNode.size = [560, 830];
+        } else if (targetNode.size[1] < 760) {
+            targetNode.size[1] = 830;
         }
 
-        // 1. Configure layout engine hooks on Negative Widget with FIXED dimensions
+        const currentTotalH = (targetNode.size && targetNode.size[1]) ? targetNode.size[1] : 830;
+        const posH = Math.max(190, Math.floor(currentTotalH - 620));
+
+        // 1. Configure layout engine hooks on Negative Widget (allocates space for pedalboard + textarea)
         if (nw) {
             nw.computeSize = function(width) {
-                return [width || 540, negH];
+                return [width || 540, negSlotH];
             };
             nw.computeLayoutSize = function() {
-                return { minHeight: 56, maxHeight: 72, minWidth: 0 };
+                return { minHeight: 90, maxHeight: 110, minWidth: 0 };
             };
             if (!nw.options) nw.options = {};
-            nw.options.getMinHeight = () => 56;
-            nw.options.getMaxHeight = () => 72;
-            nw.options.getHeight = () => negH;
+            nw.options.getMinHeight = () => 90;
+            nw.options.getMaxHeight = () => 110;
+            nw.options.getHeight = () => negSlotH;
         }
 
-        // 2. Configure layout engine hooks on Positive Widget with FIXED dimensions
+        // 2. Configure layout engine hooks on Positive Widget
         if (pw) {
             pw.computeSize = function(width) {
-                return [width || 540, posH];
+                return [width || (targetNode.size ? targetNode.size[0] - 20 : 540), posH];
             };
             pw.computeLayoutSize = function() {
-                return { minHeight: 120, maxHeight: 240, minWidth: 0 };
+                return { minHeight: 140, maxHeight: 10000, minWidth: 0 };
             };
             if (!pw.options) pw.options = {};
-            pw.options.getMinHeight = () => 120;
-            pw.options.getMaxHeight = () => 240;
+            pw.options.getMinHeight = () => 140;
+            pw.options.getMaxHeight = () => 10000;
             pw.options.getHeight = () => posH;
         }
 
@@ -5349,34 +5354,34 @@ function updateTextEditorProportions(targetNode) {
         const negTa = nw ? (resolveWidgetInputEl(nw, targetNode) || nw.inputEl || nw.element) : null;
 
         if (posTa && posTa.style) {
-            posTa.style.setProperty("min-height", "120px", "important");
+            posTa.style.setProperty("min-height", "140px", "important");
             posTa.style.setProperty("height", `${posH}px`, "important");
-            posTa.style.setProperty("max-height", "240px", "important");
+            posTa.style.setProperty("max-height", `${posH}px`, "important");
             posTa.style.setProperty("resize", "none", "important");
             posTa.style.overflowY = "auto";
             posTa.style.overflowX = "hidden";
             if (posTa.parentElement) {
-                posTa.parentElement.style.setProperty("min-height", "120px", "important");
+                posTa.parentElement.style.setProperty("min-height", "140px", "important");
                 posTa.parentElement.style.setProperty("height", `${posH}px`, "important");
-                posTa.parentElement.style.setProperty("max-height", "240px", "important");
+                posTa.parentElement.style.setProperty("max-height", `${posH}px`, "important");
             }
         }
 
         if (negTa && negTa.style) {
             negTa.classList.add("zombiehaus-negative-prompt-ta");
-            negTa.style.setProperty("min-height", "56px", "important");
-            negTa.style.setProperty("max-height", "72px", "important");
-            negTa.style.setProperty("height", `${negH}px`, "important");
+            negTa.style.setProperty("min-height", "50px", "important");
+            negTa.style.setProperty("max-height", "64px", "important");
+            negTa.style.setProperty("height", `${negTaH}px`, "important");
             negTa.style.setProperty("resize", "none", "important");
-            negTa.style.setProperty("--comfy-widget-height", `${negH}px`, "important");
-            negTa.style.setProperty("--comfy-widget-max-height", "72px", "important");
-            negTa.style.setProperty("--comfy-widget-min-height", "56px", "important");
+            negTa.style.setProperty("--comfy-widget-height", `${negTaH}px`, "important");
+            negTa.style.setProperty("--comfy-widget-max-height", "64px", "important");
+            negTa.style.setProperty("--comfy-widget-min-height", "50px", "important");
             negTa.style.overflowY = "auto";
             negTa.style.overflowX = "hidden";
             if (negTa.parentElement) {
-                negTa.parentElement.style.setProperty("min-height", "56px", "important");
-                negTa.parentElement.style.setProperty("max-height", "72px", "important");
-                negTa.parentElement.style.setProperty("height", `${negH}px`, "important");
+                negTa.parentElement.style.setProperty("min-height", `${negSlotH}px`, "important");
+                negTa.parentElement.style.setProperty("max-height", `${negSlotH + 10}px`, "important");
+                negTa.parentElement.style.setProperty("height", `${negSlotH}px`, "important");
             }
         }
 
@@ -5398,20 +5403,20 @@ function updateTextEditorProportions(targetNode) {
             const textareas = nodeEl.querySelectorAll("textarea");
             if (textareas.length >= 2) {
                 const firstTa = textareas[0];
-                firstTa.style.setProperty("min-height", "120px", "important");
+                firstTa.style.setProperty("min-height", "140px", "important");
                 firstTa.style.setProperty("height", `${posH}px`, "important");
-                firstTa.style.setProperty("max-height", "240px", "important");
+                firstTa.style.setProperty("max-height", `${posH}px`, "important");
 
                 const secondTa = textareas[1];
                 secondTa.classList.add("zombiehaus-negative-prompt-ta");
-                secondTa.style.setProperty("min-height", "56px", "important");
-                secondTa.style.setProperty("max-height", "72px", "important");
-                secondTa.style.setProperty("height", `${negH}px`, "important");
+                secondTa.style.setProperty("min-height", "50px", "important");
+                secondTa.style.setProperty("max-height", "64px", "important");
+                secondTa.style.setProperty("height", `${negTaH}px`, "important");
                 secondTa.style.setProperty("resize", "none", "important");
                 if (secondTa.parentElement) {
-                    secondTa.parentElement.style.setProperty("min-height", "56px", "important");
-                    secondTa.parentElement.style.setProperty("max-height", "72px", "important");
-                    secondTa.parentElement.style.setProperty("height", `${negH}px`, "important");
+                    secondTa.parentElement.style.setProperty("min-height", `${negSlotH}px`, "important");
+                    secondTa.parentElement.style.setProperty("max-height", `${negSlotH + 10}px`, "important");
+                    secondTa.parentElement.style.setProperty("height", `${negSlotH}px`, "important");
                 }
             }
         }
@@ -5639,7 +5644,7 @@ app.registerExtension({
                 attachImageDropHandlers(node);
 
                 // ── Initial size ──────────────────────────────────────────────────
-                node.size = [560, 780];
+                node.size = [560, 830];
                 node.resizable = true;
 
                 updateTextEditorProportions(node);
@@ -5864,7 +5869,14 @@ app.registerExtension({
             const onResize = nodeType.prototype.onResize;
             nodeType.prototype.onResize = function(size) {
                 const r = onResize ? onResize.apply(this, arguments) : undefined;
+                updateTextEditorProportions(this);
                 return r;
+            };
+
+            // ── computeSize (Floor prevents runaway auto-expansion loops) ─────────
+            nodeType.prototype.computeSize = function(minHeight) {
+                const w = Math.max(560, this.size ? this.size[0] : 560);
+                return [w, 830];
             };
 
             // ── onDrawForeground ──────────────────────────────────────────────────

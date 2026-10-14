@@ -5300,161 +5300,131 @@ function attachImageDropHandlers(node) {
 
 // ── Universal Proportional Prompt Sizing (Positive Expansive, Negative Compact) ──
 function updateTextEditorProportions(targetNode) {
-    if (!targetNode) return;
-    const pw = targetNode.widgets?.find(w => w.name === "positive");
-    const nw = targetNode.widgets?.find(w => w.name === "negative");
-    if (!pw && !nw) return;
+    if (!targetNode || targetNode._updatingProportions) return;
+    targetNode._updatingProportions = true;
+    try {
+        const pw = targetNode.widgets?.find(w => w.name === "positive");
+        const nw = targetNode.widgets?.find(w => w.name === "negative");
+        if (!pw && !nw) return;
 
-    // 1. Locate node DOM container for Modern Nodes 2.0 / Vue mode
-    const nodeId = targetNode.id != null ? String(targetNode.id) : null;
-    let nodeEl = null;
-    if (nodeId != null) {
-        try {
-            nodeEl = document.querySelector(`[data-node-id="${CSS.escape(nodeId)}"]`) ||
-                     document.querySelector(`[data-testid="node-body-${CSS.escape(nodeId)}"]`)?.closest?.("[data-node-id]") ||
-                     document.querySelector(`[data-node-id="${nodeId}"]`);
-        } catch (_) {
-            nodeEl = document.querySelector(`[data-node-id="${nodeId}"]`);
-        }
-    }
-    if (!nodeEl && targetNode.domElement) nodeEl = targetNode.domElement;
-    if (!nodeEl && targetNode.element) nodeEl = targetNode.element;
+        // Guaranteed compact negative height (3 lines of text: ~60-64px)
+        const negH = 64;
 
-    // 2. Calculate height required by non-prompt widgets (combos, toggles, action buttons)
-    let otherWidgetsH = 0;
-    if (targetNode.widgets) {
-        for (const w of targetNode.widgets) {
-            if (w.name === "positive" || w.name === "negative") continue;
-            otherWidgetsH += 28;
-        }
-    }
-    // Guarantee minimum height for all 17 non-prompt widgets
-    if (otherWidgetsH < 476) otherWidgetsH = 476;
-
-    // Strictly enforce compact height for negative prompt (3 lines of text: 60px)
-    const negH = 60;
-    const basePosH = 140;
-    const reservedNonPromptH = 42 + otherWidgetsH + 28; // Title bar + all controls + margin
-    const minNodeH = reservedNonPromptH + basePosH + negH; // ~746px
-
-    // Ensure node height is never smaller than required to show all controls and buttons
-    if (targetNode.size) {
-        if (!targetNode.size[1] || targetNode.size[1] < minNodeH) {
-            targetNode.size[1] = minNodeH;
-        }
-    }
-
-    let totalH = (nodeEl && nodeEl.clientHeight > 200)
-        ? nodeEl.clientHeight
-        : (targetNode.size ? targetNode.size[1] : minNodeH);
-
-    // Extra vertical height beyond the minimum goes directly to the positive prompt
-    const extraH = Math.max(0, totalH - minNodeH);
-    const posH = basePosH + extraH;
-
-    // 3. Configure layout engine hooks on Negative Widget
-    if (nw) {
-        nw.computeSize = function(width) {
-            return [width || (targetNode.size ? targetNode.size[0] - 20 : 540), negH];
-        };
-        nw.computeLayoutSize = function() {
-            return { minHeight: 56, maxHeight: 72, minWidth: 0 };
-        };
-        if (!nw.options) nw.options = {};
-        nw.options.getMinHeight = () => 56;
-        nw.options.getMaxHeight = () => 72;
-        nw.options.getHeight = () => negH;
-    }
-
-    // 4. Configure layout engine hooks on Positive Widget
-    if (pw) {
-        pw.computeSize = function(width) {
-            return [width || (targetNode.size ? targetNode.size[0] - 20 : 540), posH];
-        };
-        pw.computeLayoutSize = function() {
-            return { minHeight: 120, maxHeight: 10000, minWidth: 0 };
-        };
-        if (!pw.options) pw.options = {};
-        pw.options.getMinHeight = () => 120;
-        pw.options.getHeight = () => posH;
-    }
-
-    // 5. Enforce DOM element styles on both textareas
-    const posTa = pw ? (resolveWidgetInputEl(pw, targetNode) || pw.inputEl || pw.element) : null;
-    const negTa = nw ? (resolveWidgetInputEl(nw, targetNode) || nw.inputEl || nw.element) : null;
-
-    if (posTa && posTa.style) {
-        posTa.style.setProperty("min-height", `${posH}px`, "important");
-        posTa.style.setProperty("height", `${posH}px`, "important");
-        posTa.style.setProperty("max-height", `${posH}px`, "important");
-        posTa.style.setProperty("resize", "none", "important");
-        posTa.style.overflowY = "auto";
-        posTa.style.overflowX = "hidden";
-        if (posTa.parentElement) {
-            posTa.parentElement.style.setProperty("min-height", `${posH}px`, "important");
-            posTa.parentElement.style.setProperty("height", `${posH}px`, "important");
-        }
-    }
-
-    if (negTa && negTa.style) {
-        negTa.classList.add("zombiehaus-negative-prompt-ta");
-        negTa.style.setProperty("min-height", "56px", "important");
-        negTa.style.setProperty("max-height", "72px", "important");
-        negTa.style.setProperty("height", `${negH}px`, "important");
-        negTa.style.setProperty("resize", "none", "important");
-        negTa.style.setProperty("--comfy-widget-height", `${negH}px`, "important");
-        negTa.style.setProperty("--comfy-widget-max-height", "72px", "important");
-        negTa.style.setProperty("--comfy-widget-min-height", "56px", "important");
-        negTa.style.overflowY = "auto";
-        negTa.style.overflowX = "hidden";
-        if (negTa.parentElement) {
-            negTa.parentElement.style.setProperty("min-height", "56px", "important");
-            negTa.parentElement.style.setProperty("max-height", "72px", "important");
-            negTa.parentElement.style.setProperty("height", `${negH}px`, "important");
-        }
-    }
-
-    if (nodeEl) {
-        const textareas = nodeEl.querySelectorAll("textarea");
-        if (textareas.length >= 2) {
-            const secondTa = textareas[1];
-            secondTa.classList.add("zombiehaus-negative-prompt-ta");
-            secondTa.style.setProperty("min-height", "56px", "important");
-            secondTa.style.setProperty("max-height", "72px", "important");
-            secondTa.style.setProperty("height", `${negH}px`, "important");
-            secondTa.style.setProperty("resize", "none", "important");
-            if (secondTa.parentElement) {
-                secondTa.parentElement.style.setProperty("min-height", "56px", "important");
-                secondTa.parentElement.style.setProperty("max-height", "72px", "important");
-                secondTa.parentElement.style.setProperty("height", `${negH}px`, "important");
+        // One-time sanitization of runaway node heights from previous loops
+        if (!targetNode._sizeSanitized) {
+            targetNode._sizeSanitized = true;
+            if (targetNode.size && targetNode.size[1] > 2000) {
+                targetNode.size[1] = 780;
             }
         }
-    }
 
-    // If DOM elements were not ready yet, retry up to 15 times
-    if (!negTa || !posTa) {
-        if (!targetNode._pendingProportionRetries || targetNode._pendingProportionRetries < 15) {
-            targetNode._pendingProportionRetries = (targetNode._pendingProportionRetries || 0) + 1;
-            requestAnimationFrame(() => updateTextEditorProportions(targetNode));
+        const totalNodeH = (targetNode.size && targetNode.size[1]) ? targetNode.size[1] : 780;
+        const posH = Math.max(120, Math.floor(totalNodeH - 560));
+
+        // 1. Configure layout engine hooks on Negative Widget
+        if (nw) {
+            nw.computeSize = function(width) {
+                return [width || (targetNode.size ? targetNode.size[0] - 20 : 540), negH];
+            };
+            nw.computeLayoutSize = function() {
+                return { minHeight: 56, maxHeight: 72, minWidth: 0 };
+            };
+            if (!nw.options) nw.options = {};
+            nw.options.getMinHeight = () => 56;
+            nw.options.getMaxHeight = () => 72;
+            nw.options.getHeight = () => negH;
         }
-    } else {
-        targetNode._pendingProportionRetries = 0;
-    }
 
-    pw?._updateSyntaxHighlight?.();
-    nw?._updateSyntaxHighlight?.();
+        // 2. Configure layout engine hooks on Positive Widget
+        if (pw) {
+            pw.computeSize = function(width) {
+                return [width || (targetNode.size ? targetNode.size[0] - 20 : 540), posH];
+            };
+            pw.computeLayoutSize = function() {
+                return { minHeight: 120, maxHeight: 1000, minWidth: 0 };
+            };
+            if (!pw.options) pw.options = {};
+            pw.options.getMinHeight = () => 120;
+            pw.options.getMaxHeight = () => 1000;
+            pw.options.getHeight = () => posH;
+        }
 
-    if (app.canvas) {
-        app.canvas.setDirty(true, true);
-    }
+        // 3. Enforce DOM element styles on both textareas
+        const posTa = pw ? (resolveWidgetInputEl(pw, targetNode) || pw.inputEl || pw.element) : null;
+        const negTa = nw ? (resolveWidgetInputEl(nw, targetNode) || nw.inputEl || nw.element) : null;
 
-    // 6. Attach ResizeObserver on modern node container if available
-    if (nodeEl && window.ResizeObserver && !targetNode._hasProportionResizeObserver) {
-        targetNode._hasProportionResizeObserver = true;
-        const ro = new ResizeObserver(() => {
-            updateTextEditorProportions(targetNode);
-        });
-        ro.observe(nodeEl);
+        if (posTa && posTa.style) {
+            posTa.style.setProperty("min-height", "120px", "important");
+            posTa.style.setProperty("height", `${posH}px`, "important");
+            posTa.style.setProperty("max-height", `${posH}px`, "important");
+            posTa.style.setProperty("resize", "none", "important");
+            posTa.style.overflowY = "auto";
+            posTa.style.overflowX = "hidden";
+            if (posTa.parentElement) {
+                posTa.parentElement.style.setProperty("min-height", "120px", "important");
+                posTa.parentElement.style.setProperty("height", `${posH}px`, "important");
+                posTa.parentElement.style.removeProperty("max-height");
+            }
+        }
+
+        if (negTa && negTa.style) {
+            negTa.classList.add("zombiehaus-negative-prompt-ta");
+            negTa.style.setProperty("min-height", "56px", "important");
+            negTa.style.setProperty("max-height", "72px", "important");
+            negTa.style.setProperty("height", `${negH}px`, "important");
+            negTa.style.setProperty("resize", "none", "important");
+            negTa.style.setProperty("--comfy-widget-height", `${negH}px`, "important");
+            negTa.style.setProperty("--comfy-widget-max-height", "72px", "important");
+            negTa.style.setProperty("--comfy-widget-min-height", "56px", "important");
+            negTa.style.overflowY = "auto";
+            negTa.style.overflowX = "hidden";
+            if (negTa.parentElement) {
+                negTa.parentElement.style.setProperty("min-height", "56px", "important");
+                negTa.parentElement.style.setProperty("max-height", "72px", "important");
+                negTa.parentElement.style.setProperty("height", `${negH}px`, "important");
+            }
+        }
+
+        const nodeId = targetNode.id != null ? String(targetNode.id) : null;
+        let nodeEl = null;
+        if (nodeId != null) {
+            try {
+                nodeEl = document.querySelector(`[data-node-id="${CSS.escape(nodeId)}"]`) ||
+                         document.querySelector(`[data-testid="node-body-${CSS.escape(nodeId)}"]`)?.closest?.("[data-node-id]") ||
+                         document.querySelector(`[data-node-id="${nodeId}"]`);
+            } catch (_) {
+                nodeEl = document.querySelector(`[data-node-id="${nodeId}"]`);
+            }
+        }
+        if (!nodeEl && targetNode.domElement) nodeEl = targetNode.domElement;
+        if (!nodeEl && targetNode.element) nodeEl = targetNode.element;
+
+        if (nodeEl) {
+            const textareas = nodeEl.querySelectorAll("textarea");
+            if (textareas.length >= 2) {
+                const firstTa = textareas[0];
+                firstTa.style.setProperty("min-height", "120px", "important");
+                firstTa.style.setProperty("height", `${posH}px`, "important");
+                firstTa.style.setProperty("max-height", `${posH}px`, "important");
+
+                const secondTa = textareas[1];
+                secondTa.classList.add("zombiehaus-negative-prompt-ta");
+                secondTa.style.setProperty("min-height", "56px", "important");
+                secondTa.style.setProperty("max-height", "72px", "important");
+                secondTa.style.setProperty("height", `${negH}px`, "important");
+                secondTa.style.setProperty("resize", "none", "important");
+                if (secondTa.parentElement) {
+                    secondTa.parentElement.style.setProperty("min-height", "56px", "important");
+                    secondTa.parentElement.style.setProperty("max-height", "72px", "important");
+                    secondTa.parentElement.style.setProperty("height", `${negH}px`, "important");
+                }
+            }
+        }
+
+        pw?._updateSyntaxHighlight?.();
+        nw?._updateSyntaxHighlight?.();
+    } finally {
+        targetNode._updatingProportions = false;
     }
 }
 
@@ -5539,11 +5509,7 @@ app.registerExtension({
                     return r;
                 };
 
-                updateTextEditorProportions(node);
-                requestAnimationFrame(() => updateTextEditorProportions(node));
-                setTimeout(() => updateTextEditorProportions(node), 100);
-                setTimeout(() => updateTextEditorProportions(node), 300);
-                setTimeout(() => updateTextEditorProportions(node), 800);
+
 
                 // Hook selection and initial registration with IDE
                 const origOnSelected = node.onSelected;
@@ -5683,10 +5649,7 @@ app.registerExtension({
                 node.resizable = true;
 
                 updateTextEditorProportions(node);
-                requestAnimationFrame(() => {
-                    updateTextEditorProportions(node);
-                    refreshPrompts(node);
-                });
+                refreshPrompts(node);
 
                 return r;
             };
@@ -5898,10 +5861,6 @@ app.registerExtension({
 
                 this._updateProportions = () => updateTextEditorProportions(this);
                 updateTextEditorProportions(this);
-                setTimeout(() => updateTextEditorProportions(this), 50);
-                setTimeout(() => updateTextEditorProportions(this), 250);
-                setTimeout(() => updateTextEditorProportions(this), 600);
-                setTimeout(() => updateTextEditorProportions(this), 1200);
                 setTimeout(() => {
                     reportCanvasNode(this, false);
                 }, 500);
@@ -5919,10 +5878,6 @@ app.registerExtension({
             const origOnDrawForeground = nodeType.prototype.onDrawForeground;
             nodeType.prototype.onDrawForeground = function(ctx) {
                 const r = origOnDrawForeground ? origOnDrawForeground.apply(this, arguments) : undefined;
-                if (!this._proportionsEnforced && !this.flags?.collapsed) {
-                    this._proportionsEnforced = true;
-                    updateTextEditorProportions(this);
-                }
                 return r;
             };
 

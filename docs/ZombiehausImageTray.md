@@ -27,12 +27,12 @@ Hovering over any card reveals one-click actions:
 
 ---
 
-### 3. Click-to-Zoom & Pan Navigation (Full Image Detail Inspection)
-Unlike basic modal viewers, the Zombiehaus Image Tray features an interactive pan-and-zoom inspection engine:
-- **Click to Zoom In**: Clicking anywhere on the fitted image immediately zooms into high-resolution magnification ($2.5\times$ or 1:1 pixel scale) centered right on the clicked point.
-- **Drag to Pan**: While zoomed in, click-and-drag to smoothly explore fine micro-details across the full image (e.g. skin pores, eyes, hair strands, fabric textures, background sharpness).
-- **Mouse Wheel Zoom**: Scroll the mouse wheel to continuously zoom anywhere between $0.5\times$ and $8.0\times$ magnification.
-- **Click to Zoom Out**: Clicking the image again instantly zooms back out to the full-fit view.
+### 3. Lightbox Navigation, Zoom & Pan Controls
+Unlike basic modal viewers, the Zombiehaus Image Tray features an intuitive carousel and inspection engine:
+- **Scroll to Change Images**: Scrolling (mouse wheel up/down, trackpad horizontal swipe, or Shift + wheel) seamlessly steps to the previous or next image in the tray.
+- **Click to Zoom In**: Clicking anywhere on the fitted image immediately zooms into high-resolution magnification ($2.5\times$) centered directly on the clicked coordinates. Clicking again cleanly resets back to fit view.
+- **Drag to Pan**: Click and drag across the viewport to smoothly pan and inspect fine micro-details across the image (e.g. skin pores, eyes, hair strands, fabric textures, background sharpness).
+- **Navigation Buttons & Keys**: On-screen `[ < ]` and `[ > ]` buttons as well as keyboard `ArrowLeft` and `ArrowRight` remain available for standard sequential browsing.
 - **Dedicated Zoom Toolbar**: Includes `[-]`, `[+]`, `[1:1]` native resolution, and `[⊡ Fit]` reset buttons alongside a live magnification badge (`Fit`, `100%`, `250%`).
 
 ---

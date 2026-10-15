@@ -534,7 +534,7 @@ class ZombiehausImageTray {
                             <polyline points="9 18 15 12 9 6"></polyline>
                         </svg>
                     </button>
-                    <div class="zit-lightbox-viewport" id="zit-lb-viewport" title="Click to Zoom In / Drag to Pan / Click to Zoom Out">
+                    <div class="zit-lightbox-viewport" id="zit-lb-viewport" title="Click to Zoom In · Drag to Pan · Scroll to Change Images">
                         <img src="${url}" class="zit-lightbox-image" id="zit-lb-img" alt="${item.filename}" draggable="false" />
                     </div>
                     <div class="zit-zoom-toolbar">
@@ -677,23 +677,184 @@ class ZombiehausImageTray {
             nextBtn.style.cursor = isLast ? "not-allowed" : "pointer";
         };
 
-        const loadMetadata = async (filename) => {
+        const parsePngMetadata = async (imageUrl) => {
+            try {
+                const res = await fetch(imageUrl);
+                const buf = await res.arrayBuffer();
+                const view = new DataView(buf);
+                if (buf.byteLength < 8) return null;
+                // Verify PNG signature (0x89504E47, 0x0D0A1A0A)
+                if (view.getUint32(0) !== 0x89504e47 || view.getUint32(4) !== 0x0d0a1a0a) {
+                    return null;
+                }
+                let offset = 8;
+                const result = {};
+                const utf8 = new TextDecoder("utf-8");
+                const latin1 = new TextDecoder("latin1");
+
+                while (offset + 8 <= buf.byteLength) {
+                    const length = view.getUint32(offset);
+                    const type = String.fromCharCode(
+                        view.getUint8(offset + 4),
+                        view.getUint8(offset + 5),
+                        view.getUint8(offset + 6),
+                        view.getUint8(offset + 7)
+                    );
+                    const chunkDataOffset = offset + 8;
+                    if (chunkDataOffset + length > buf.byteLength) break;
+
+                    if (type === "tEXt") {
+                        const bytes = new Uint8Array(buf, chunkDataOffset, length);
+                        const nullIdx = bytes.indexOf(0);
+                        if (nullIdx > 0) {
+                            const key = latin1.decode(bytes.subarray(0, nullIdx));
+                            const val = latin1.decode(bytes.subarray(nullIdx + 1));
+                            try {
+                                result[key] = JSON.parse(val);
+                            } catch (_) {
+                                result[key] = val;
+                            }
+                        }
+                    } else if (type === "iTXt") {
+                        const bytes = new Uint8Array(buf, chunkDataOffset, length);
+                        const nullIdx = bytes.indexOf(0);
+                        if (nullIdx > 0) {
+                            const key = utf8.decode(bytes.subarray(0, nullIdx));
+                            const compFlag = bytes[nullIdx + 1];
+                            if (compFlag === 0) {
+                                const secondNull = bytes.indexOf(0, nullIdx + 3);
+                                const thirdNull = secondNull >= 0 ? bytes.indexOf(0, secondNull + 1) : -1;
+                                const textStart = thirdNull >= 0 ? thirdNull + 1 : nullIdx + 3;
+                                const val = utf8.decode(bytes.subarray(textStart));
+                                try {
+                                    result[key] = JSON.parse(val);
+                                } catch (_) {
+                                    result[key] = val;
+                                }
+                            }
+                        }
+                    } else if (type === "IEND") {
+                        break;
+                    }
+
+                    offset += 12 + length;
+                }
+                return Object.keys(result).length > 0 ? result : null;
+            } catch (_) {
+                return null;
+            }
+        };
+
+        const loadMetadata = async (curItem, curUrl) => {
             metaEl.textContent = "Loading metadata...";
             try {
-                const metaRes = await fetch(`/zombiehaus/gallery/metadata?path=${encodeURIComponent(filename)}`);
-                const metaData = await metaRes.json();
+                const filename = typeof curItem === "object" ? curItem.filename : curItem;
+                const subfolder = (typeof curItem === "object" ? curItem.subfolder : "") || "";
+                const imgUrl = curUrl || (typeof curItem === "object" && curItem.url) || `/view?filename=${encodeURIComponent(filename)}&subfolder=${encodeURIComponent(subfolder)}&type=output`;
 
-                if (metaData?.success && metaData.data) {
-                    const info = metaData.data;
-                    let text = "";
-                    if (info.prompt) text += `--- PROMPT ---\n${typeof info.prompt === "object" ? JSON.stringify(info.prompt, null, 2) : info.prompt}\n\n`;
-                    if (info.workflow) text += `--- WORKFLOW ---\n(Embedded graph data available)\n\n`;
-                    if (info.extra) text += `--- EXTRA INFO ---\n${JSON.stringify(info.extra, null, 2)}`;
-                    metaEl.textContent = text || JSON.stringify(info, null, 2);
+                let info = null;
+
+                // 1. Primary: fetch from backend gallery metadata endpoint with correct query parameters
+                try {
+                    const metaRes = await fetch(`/zombiehaus/gallery/metadata?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(subfolder)}`);
+                    const metaData = await metaRes.json();
+                    if (metaData?.success && (metaData.metadata || metaData.data)) {
+                        info = metaData.metadata || metaData.data;
+                    }
+                } catch (e) {
+                    console.warn("[Zombiehaus Image Tray] Gallery metadata endpoint fetch failed:", e);
+                }
+
+                // 2. Fallback: direct PNG header parse if backend metadata missing or image is newly generated
+                if (!info || (!info.prompt && !info.workflow && !info.parameters)) {
+                    try {
+                        const directMeta = await parsePngMetadata(imgUrl);
+                        if (directMeta) {
+                            info = Object.assign({}, directMeta, info || {});
+                        }
+                    } catch (e) {
+                        console.warn("[Zombiehaus Image Tray] Direct PNG chunk parse failed:", e);
+                    }
+                }
+
+                if (info && (info.prompt || info.workflow || info.parameters || info._image_info || info._file_info)) {
+                    const sections = [];
+
+                    // Extract high-level generation parameters if prompt node graph is present
+                    const promptNodes = [];
+                    let samplerInfo = null;
+                    let modelName = "";
+                    const loras = [];
+
+                    if (info.prompt && typeof info.prompt === "object") {
+                        for (const [nodeId, nodeData] of Object.entries(info.prompt)) {
+                            const cls = nodeData?.class_type || "";
+                            const inputs = nodeData?.inputs || {};
+                            if (cls.includes("CLIPTextEncode") || cls.includes("PromptRefiner") || cls.includes("ShowText") || cls.includes("ZombiehausTextEditor")) {
+                                if (inputs.text && typeof inputs.text === "string" && inputs.text.trim()) {
+                                    promptNodes.push(inputs.text.trim());
+                                }
+                            }
+                            if (cls.includes("KSampler")) {
+                                samplerInfo = inputs;
+                            }
+                            if (cls.includes("CheckpointLoader") && inputs.ckpt_name) {
+                                modelName = inputs.ckpt_name;
+                            }
+                            if (cls.includes("LoraLoader") || cls.includes("LoRALoader")) {
+                                if (inputs.lora_name) {
+                                    loras.push(`${inputs.lora_name} (strength: ${inputs.strength_model ?? 1.0})`);
+                                }
+                            }
+                        }
+                    }
+
+                    if (modelName) {
+                        sections.push(`--- MODEL ---\n${modelName}`);
+                    }
+
+                    if (loras.length > 0) {
+                        sections.push(`--- LORAS ---\n${loras.join("\n")}`);
+                    }
+
+                    if (samplerInfo) {
+                        const lines = ["--- GENERATION SETTINGS ---"];
+                        if (samplerInfo.seed !== undefined) lines.push(`Seed: ${samplerInfo.seed}`);
+                        if (samplerInfo.steps !== undefined) lines.push(`Steps: ${samplerInfo.steps}`);
+                        if (samplerInfo.cfg !== undefined) lines.push(`CFG: ${samplerInfo.cfg}`);
+                        if (samplerInfo.sampler_name) lines.push(`Sampler: ${samplerInfo.sampler_name}`);
+                        if (samplerInfo.scheduler) lines.push(`Scheduler: ${samplerInfo.scheduler}`);
+                        if (samplerInfo.denoise !== undefined) lines.push(`Denoise: ${samplerInfo.denoise}`);
+                        sections.push(lines.join("\n"));
+                    }
+
+                    if (promptNodes.length > 0) {
+                        const uniquePrompts = [...new Set(promptNodes)];
+                        sections.push(`--- PROMPT TEXT ---\n${uniquePrompts.join("\n\n---\n\n")}`);
+                    }
+
+                    if (info.parameters && typeof info.parameters === "string") {
+                        sections.push(`--- RAW PARAMETERS ---\n${info.parameters}`);
+                    }
+
+                    if (info.prompt) {
+                        sections.push(`--- NODE GRAPH (PROMPT JSON) ---\n${typeof info.prompt === "object" ? JSON.stringify(info.prompt, null, 2) : info.prompt}`);
+                    }
+
+                    if (info.workflow) {
+                        sections.push(`--- EMBEDDED WORKFLOW ---\n(Full graph data available · Click "Load This Workflow" to restore canvas)`);
+                    }
+
+                    if (info._image_info || info._file_info) {
+                        sections.push(`--- FILE DETAILS ---\n${JSON.stringify({ ...(info._image_info || {}), ...(info._file_info || {}) }, null, 2)}`);
+                    }
+
+                    metaEl.textContent = sections.join("\n\n") || JSON.stringify(info, null, 2);
                 } else {
                     metaEl.textContent = "No generation metadata found in image headers.";
                 }
-            } catch (_) {
+            } catch (err) {
+                console.error("[Zombiehaus Image Tray] Error reading metadata:", err);
                 metaEl.textContent = "Unable to read metadata.";
             }
         };
@@ -729,7 +890,7 @@ class ZombiehausImageTray {
             }
 
             updateNavState();
-            loadMetadata(curItem.filename);
+            loadMetadata(curItem, curUrl);
         };
 
         prevBtn.onclick = (e) => {
@@ -746,7 +907,7 @@ class ZombiehausImageTray {
             }
         };
 
-        // ── Zoom & Pan Interactive State ──
+        // ── Zoom, Pan & Scroll Navigation Interactive State ──
         let scale = 1.0;
         let panX = 0;
         let panY = 0;
@@ -754,6 +915,8 @@ class ZombiehausImageTray {
         let isDragging = false;
         let startX = 0;
         let startY = 0;
+        let downX = 0;
+        let downY = 0;
         let hasMoved = false;
 
         const updateTransform = (withTransition = true) => {
@@ -761,7 +924,9 @@ class ZombiehausImageTray {
             img.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
             zoomBadge.textContent = scale <= 1.05 ? "Fit" : `${Math.round(scale * 100)}%`;
             viewport.classList.toggle("zit-is-zoomed", scale > 1.05);
-            viewport.title = scale > 1.05 ? "Click to Zoom Out · Drag to Pan" : "Click to Zoom In · Drag to Pan";
+            viewport.title = scale > 1.05
+                ? "Click to Zoom Out · Drag to Pan · Scroll to Change Images"
+                : "Click to Zoom In · Drag to Pan · Scroll to Change Images";
         };
 
         const zoomInAt = (targetScale, clientX, clientY) => {
@@ -792,58 +957,97 @@ class ZombiehausImageTray {
 
         // Mouse Down for dragging / pan
         viewport.onmousedown = (e) => {
+            if (e.button !== 0) return;
             if (e.target.closest(".zit-zoom-toolbar") || e.target.closest("#zit-lb-close") || e.target.closest("#zit-lb-prev") || e.target.closest("#zit-lb-next")) return;
             isDragging = true;
             hasMoved = false;
+            downX = e.clientX;
+            downY = e.clientY;
             startX = e.clientX - panX;
             startY = e.clientY - panY;
-            if (isZoomed) {
-                viewport.classList.add("zit-is-dragging");
-            }
         };
 
         const onMouseMove = (e) => {
             if (!isDragging) return;
-            const newPanX = e.clientX - startX;
-            const newPanY = e.clientY - startY;
-            if (Math.abs(newPanX - panX) > 4 || Math.abs(newPanY - panY) > 4) {
+            const dist = Math.hypot(e.clientX - downX, e.clientY - downY);
+            if (dist > 5) {
                 hasMoved = true;
+                viewport.classList.add("zit-is-dragging");
             }
-            if (isZoomed) {
-                panX = newPanX;
-                panY = newPanY;
+            if (hasMoved) {
+                panX = e.clientX - startX;
+                panY = e.clientY - startY;
                 updateTransform(false);
             }
         };
 
         const onMouseUp = () => {
-            isDragging = false;
-            viewport.classList.remove("zit-is-dragging");
+            if (isDragging) {
+                isDragging = false;
+                viewport.classList.remove("zit-is-dragging");
+            }
         };
 
         window.addEventListener("mousemove", onMouseMove);
         window.addEventListener("mouseup", onMouseUp);
 
-        // Click on image: if user didn't drag, toggle zoom!
+        // Click on image: if user didn't drag, zoom in / out
         viewport.onclick = (e) => {
             if (e.target.closest(".zit-zoom-toolbar") || e.target.closest("#zit-lb-close") || e.target.closest("#zit-lb-prev") || e.target.closest("#zit-lb-next")) return;
-            if (hasMoved) return; // user dragged to pan, don't toggle zoom
+            if (hasMoved) return; // User dragged to pan, don't trigger zoom click
 
             if (!isZoomed) {
-                // Click zooms in to 2.5x full resolution
+                // Click zooms in to 2.5x centered on click location
                 zoomInAt(2.5, e.clientX, e.clientY);
             } else {
-                // Click again zooms back out to full fit!
+                // Click again resets back to Fit view
                 resetZoom();
             }
         };
 
-        // Mouse Wheel dynamic zoom
+        // Scroll: Change images (horizontal or vertical wheel / trackpad scroll)
+        let wheelAccumulator = 0;
+        let lastWheelTime = 0;
+        let wheelResetTimer = null;
+
         viewport.onwheel = (e) => {
             e.preventDefault();
-            const factor = e.deltaY < 0 ? 1.25 : 0.8;
-            const newScale = Math.min(8.0, Math.max(0.5, scale * factor));
-            zoomInAt(newScale, e.clientX, e.clientY);
+            e.stopPropagation();
+
+            // Support trackpad horizontal scroll, tilt wheel, Shift+wheel (deltaX),
+            // as well as standard mouse wheel (deltaY).
+            const absX = Math.abs(e.deltaX);
+            const absY = Math.abs(e.deltaY);
+            const delta = absX > absY ? e.deltaX : e.deltaY;
+
+            if (Math.abs(delta) < 2) return;
+
+            wheelAccumulator += delta;
+
+            clearTimeout(wheelResetTimer);
+            wheelResetTimer = setTimeout(() => {
+                wheelAccumulator = 0;
+            }, 180);
+
+            const now = Date.now();
+            const threshold = 30;
+            const cooldown = 220; // 220ms cooldown between image changes
+
+            if (Math.abs(wheelAccumulator) >= threshold && (now - lastWheelTime > cooldown)) {
+                if (wheelAccumulator > 0) {
+                    // Scroll right / down -> Next image
+                    if (currentIndex < this.items.length - 1) {
+                        navigateTo(currentIndex + 1);
+                    }
+                } else {
+                    // Scroll left / up -> Previous image
+                    if (currentIndex > 0) {
+                        navigateTo(currentIndex - 1);
+                    }
+                }
+                wheelAccumulator = 0;
+                lastWheelTime = now;
+            }
         };
 
         // Toolbar Zoom buttons
@@ -883,6 +1087,7 @@ class ZombiehausImageTray {
             window.removeEventListener("mousemove", onMouseMove);
             window.removeEventListener("mouseup", onMouseUp);
             window.removeEventListener("keydown", onKeyDown);
+            clearTimeout(wheelResetTimer);
             overlay.remove();
         };
         overlay.querySelector("#zit-lb-close").onclick = close;
@@ -904,7 +1109,7 @@ class ZombiehausImageTray {
 
         // Initialize navigation states and fetch metadata for the initial image
         updateNavState();
-        loadMetadata(item.filename);
+        loadMetadata(item, url);
     }
 
     // ── Load Workflow from Image File ─────────────────────────────────────────

@@ -6043,6 +6043,7 @@ app.registerExtension({
 
                 this._updateProportions = () => updateTextEditorProportions(this);
                 updateTextEditorProportions(this);
+                refreshPrompts(this);
                 setTimeout(() => {
                     reportCanvasNode(this, false);
                 }, 500);
@@ -6089,13 +6090,20 @@ app.registerExtension({
             };
 
             // ── Helper: set widget value AND update the visible textarea ──────────
-            function setTextValue(widget, value) {
+            function setTextValue(widget, value, node = null) {
                 if (!widget) return;
                 widget.value = value;
-                const el = resolveWidgetInputEl(widget, node) || widget.inputEl;
+                const targetNode = node || widget.node || app.graph?._nodes?.find(n => n?.widgets?.includes(widget));
+                const el = resolveWidgetInputEl(widget, targetNode) || widget.inputEl || widget.element;
                 if (el) {
-                    el.value = value;
+                    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+                        el.value = value;
+                    } else {
+                        const innerTa = el.querySelector?.("textarea, input");
+                        if (innerTa) innerTa.value = value;
+                    }
                     el.dispatchEvent(new Event("input", { bubbles: true }));
+                    el.dispatchEvent(new Event("change", { bubbles: true }));
                 }
                 widget._updateSyntaxHighlight?.();
             }
@@ -6496,6 +6504,7 @@ app.registerExtension({
 
             // ── Load a JSON prompt file into the text boxes ───────────────────────
             function loadPrompt(node, filename) {
+                if (!node || !filename) return;
                 fetch("/zombiehaus/load_prompt", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -6503,21 +6512,36 @@ app.registerExtension({
                 })
                 .then(r => r.json())
                 .then(data => {
-                    if (data.success) {
-                        setTextValue(node.widgets?.find(w => w.name === "positive"),        data.data.positive || "");
-                        setTextValue(node.widgets?.find(w => w.name === "negative"),         data.data.negative || "");
-                        setTextValue(node.widgets?.find(w => w.name === "prompt_category"),  data.data.category || "");
+                    if (data.success && data.data) {
+                        const pw = node.widgets?.find(w => w.name === "positive");
+                        const nw = node.widgets?.find(w => w.name === "negative");
+                        const pcw = node.widgets?.find(w => w.name === "prompt_category");
+                        const dw = node.widgets?.find(w => w.name === "saved_prompt");
+
+                        if (dw && dw.value !== filename) {
+                            dw.value = filename;
+                        }
+
+                        setTextValue(pw, data.data.positive || "", node);
+                        setTextValue(nw, data.data.negative || "", node);
+                        setTextValue(pcw, data.data.category || "", node);
+
                         if (node._popoutCategoryInput) {
                             node._popoutCategoryInput.value = data.data.category || "";
                         }
                         pushPromptHistory(node, "Loaded: " + filename);
                         node._popoutSyncFromNode?.();
-                        app.graph.setDirtyCanvas(true, true);
+                        app.graph?.setDirtyCanvas(true, true);
+                        showStudioToast(`Loaded prompt: ${filename}`);
                     } else {
-                        console.error("[Zombiehaus] Load error:", data.message);
+                        console.error("[Zombiehaus] Load error:", data?.message);
+                        showStudioToast("Load error: " + (data?.message || "Failed to load prompt"), "error");
                     }
                 })
-                .catch(err => console.error("[Zombiehaus] Load error:", err.message));
+                .catch(err => {
+                    console.error("[Zombiehaus] Load error:", err);
+                    showStudioToast("Load error: " + err.message, "error");
+                });
             }
 
             // ── Filter saved_prompt dropdown by type AND category ─────────────────
@@ -7342,8 +7366,8 @@ app.registerExtension({
 
                 pushPromptHistory(node, "Pre-Swap Prompts");
                 const temp = pw.value || "";
-                setTextValue(pw, nw.value || "");
-                setTextValue(nw, temp);
+                setTextValue(pw, nw.value || "", node);
+                setTextValue(nw, temp, node);
                 pushPromptHistory(node, "Swapped Positive & Negative");
                 app.graph?.setDirtyCanvas(true, true);
             }

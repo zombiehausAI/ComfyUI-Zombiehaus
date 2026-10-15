@@ -513,16 +513,134 @@ class ZombiehausImageTray {
         this.updateBottomOffset();
     }
 
-    // ── Lightbox & Metadata Inspector with Click-to-Zoom & Pan ──────────────
+    // ── Lightbox & Metadata Inspector with Top Filmstrip & Focal Zoom ───────
     async openLightbox(item, url) {
         const existing = document.querySelector(".zit-lightbox-overlay");
         if (existing) existing.remove();
+
+        if (!document.getElementById("zit-lb-styles")) {
+            const style = document.createElement("style");
+            style.id = "zit-lb-styles";
+            style.textContent = `
+                .zit-lightbox-modal {
+                    display: flex;
+                    flex-direction: row;
+                }
+                .zit-lightbox-main {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    position: relative;
+                    overflow: hidden;
+                    background: #090a10;
+                }
+                .zit-lb-strip-wrap {
+                    width: 100%;
+                    height: 76px;
+                    min-height: 76px;
+                    flex-shrink: 0;
+                    background: rgba(10, 12, 20, 0.95);
+                    backdrop-filter: blur(16px);
+                    -webkit-backdrop-filter: blur(16px);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                    display: flex;
+                    align-items: center;
+                    position: relative;
+                    z-index: 20;
+                    box-sizing: border-box;
+                }
+                .zit-lb-strip {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    overflow-x: auto;
+                    overflow-y: hidden;
+                    width: 100%;
+                    height: 100%;
+                    padding: 8px 68px 8px 16px;
+                    box-sizing: border-box;
+                    scroll-behavior: smooth;
+                    user-select: none;
+                }
+                .zit-lb-strip::-webkit-scrollbar {
+                    height: 5px;
+                }
+                .zit-lb-strip::-webkit-scrollbar-track {
+                    background: rgba(0, 0, 0, 0.25);
+                }
+                .zit-lb-strip::-webkit-scrollbar-thumb {
+                    background: rgba(255, 255, 255, 0.22);
+                    border-radius: 4px;
+                }
+                .zit-lb-strip::-webkit-scrollbar-thumb:hover {
+                    background: #a855f7;
+                }
+                .zit-lb-thumb {
+                    height: 56px;
+                    width: 64px;
+                    min-width: 64px;
+                    max-width: 84px;
+                    border-radius: 6px;
+                    overflow: hidden;
+                    cursor: pointer;
+                    border: 2px solid rgba(255, 255, 255, 0.12);
+                    opacity: 0.55;
+                    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+                    flex-shrink: 0;
+                    background: #090a10;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    box-sizing: border-box;
+                    position: relative;
+                }
+                .zit-lb-thumb:hover {
+                    opacity: 0.95;
+                    border-color: rgba(255, 255, 255, 0.5);
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+                }
+                .zit-lb-thumb.zit-lb-thumb-active {
+                    opacity: 1;
+                    border-color: #a855f7;
+                    box-shadow: 0 0 14px rgba(168, 85, 247, 0.75), 0 2px 8px rgba(0, 0, 0, 0.6);
+                    transform: scale(1.06);
+                    z-index: 2;
+                }
+                .zit-lb-thumb img {
+                    width: 100%;
+                    height: 100%;
+                    object-fit: cover;
+                    pointer-events: none;
+                    display: block;
+                }
+                .zit-lightbox-close {
+                    z-index: 30 !important;
+                    top: 18px !important;
+                    right: 18px !important;
+                }
+                .zit-lightbox-viewport {
+                    flex: 1;
+                    width: 100%;
+                    height: calc(100% - 76px);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    overflow: hidden;
+                    position: relative;
+                }
+            `;
+            document.head.appendChild(style);
+        }
 
         const overlay = document.createElement("div");
         overlay.className = "zit-lightbox-overlay";
         overlay.innerHTML = `
             <div class="zit-lightbox-modal">
                 <div class="zit-lightbox-main">
+                    <div class="zit-lb-strip-wrap" id="zit-lb-strip-wrap">
+                        <div class="zit-lb-strip" id="zit-lb-strip"></div>
+                    </div>
                     <button type="button" class="zit-lightbox-close" id="zit-lb-close" title="Close Lightbox (Esc)">✕</button>
                     <button type="button" class="zit-lightbox-nav zit-lightbox-prev" id="zit-lb-prev" title="Previous Image (Left Arrow)">
                         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events: none; margin-right: 2px;">
@@ -534,7 +652,7 @@ class ZombiehausImageTray {
                             <polyline points="9 18 15 12 9 6"></polyline>
                         </svg>
                     </button>
-                    <div class="zit-lightbox-viewport" id="zit-lb-viewport" title="Click to Zoom In · Drag to Pan · Scroll to Change Images">
+                    <div class="zit-lightbox-viewport" id="zit-lb-viewport" title="Click to Zoom · Scroll to Zoom at Cursor · Drag to Pan">
                         <img src="${url}" class="zit-lightbox-image" id="zit-lb-img" alt="${item.filename}" draggable="false" />
                     </div>
                     <div class="zit-zoom-toolbar">
@@ -580,6 +698,7 @@ class ZombiehausImageTray {
 
         document.body.appendChild(overlay);
 
+        const stripEl = overlay.querySelector("#zit-lb-strip");
         const viewport = overlay.querySelector("#zit-lb-viewport");
         const img = overlay.querySelector("#zit-lb-img");
         const zoomBadge = overlay.querySelector("#zit-zoom-badge");
@@ -591,10 +710,10 @@ class ZombiehausImageTray {
         const tabLink = overlay.querySelector("#zit-lb-tab");
         const metaEl = overlay.querySelector("#zit-lb-meta");
 
-        // Style the navigation buttons
+        // Style the navigation buttons centered over the viewport
         const navBtnBaseStyle = `
             position: absolute;
-            top: 50%;
+            top: calc(50% + 38px);
             transform: translateY(-50%);
             width: 48px;
             height: 48px;
@@ -623,6 +742,48 @@ class ZombiehausImageTray {
         let currentIndex = this.items.findIndex((i) => i.filename === item.filename);
         if (currentIndex < 0) {
             currentIndex = 0;
+        }
+
+        // Populate top horizontally scrollable image strip
+        const populateStrip = () => {
+            if (!stripEl) return;
+            stripEl.innerHTML = "";
+            this.items.forEach((it, idx) => {
+                const thumb = document.createElement("div");
+                thumb.className = `zit-lb-thumb ${idx === currentIndex ? "zit-lb-thumb-active" : ""}`;
+                thumb.dataset.index = idx;
+                thumb.title = it.filename || `Image ${idx + 1}`;
+
+                const thumbImg = document.createElement("img");
+                const thumbUrl = it.url || `/view?filename=${encodeURIComponent(it.filename)}&subfolder=${encodeURIComponent(it.subfolder || "")}&type=${encodeURIComponent(it.type || "output")}`;
+                thumbImg.src = thumbUrl;
+                thumbImg.alt = it.filename || "";
+                thumbImg.loading = "lazy";
+                thumbImg.draggable = false;
+
+                thumb.appendChild(thumbImg);
+                thumb.onclick = (e) => {
+                    e.stopPropagation();
+                    const targetIdx = parseInt(thumb.dataset.index, 10);
+                    if (!isNaN(targetIdx) && targetIdx !== currentIndex) {
+                        navigateTo(targetIdx);
+                    }
+                };
+                stripEl.appendChild(thumb);
+            });
+        };
+        populateStrip();
+
+        if (stripEl) {
+            stripEl.addEventListener("wheel", (e) => {
+                let delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+                if (delta === 0) return;
+                if (e.deltaMode === 1) delta *= 28;
+                else if (e.deltaMode === 2) delta *= 100;
+                e.preventDefault();
+                e.stopPropagation();
+                stripEl.scrollBy({ left: delta, behavior: "auto" });
+            }, { passive: false });
         }
 
         const setupNavBtnHover = (btn, isNext) => {
@@ -660,21 +821,33 @@ class ZombiehausImageTray {
                 prevBtn.style.display = "none";
                 nextBtn.style.display = "none";
                 if (countEl) countEl.textContent = "";
-                return;
+            } else {
+                prevBtn.style.display = "flex";
+                nextBtn.style.display = "flex";
+                if (countEl) countEl.textContent = `${currentIndex + 1} / ${this.items.length}`;
+
+                const isFirst = currentIndex <= 0;
+                const isLast = currentIndex >= this.items.length - 1;
+
+                prevBtn.style.opacity = isFirst ? "0.2" : "1";
+                prevBtn.style.cursor = isFirst ? "not-allowed" : "pointer";
+
+                nextBtn.style.opacity = isLast ? "0.2" : "1";
+                nextBtn.style.cursor = isLast ? "not-allowed" : "pointer";
             }
 
-            prevBtn.style.display = "flex";
-            nextBtn.style.display = "flex";
-            if (countEl) countEl.textContent = `${currentIndex + 1} / ${this.items.length}`;
-
-            const isFirst = currentIndex <= 0;
-            const isLast = currentIndex >= this.items.length - 1;
-
-            prevBtn.style.opacity = isFirst ? "0.2" : "1";
-            prevBtn.style.cursor = isFirst ? "not-allowed" : "pointer";
-
-            nextBtn.style.opacity = isLast ? "0.2" : "1";
-            nextBtn.style.cursor = isLast ? "not-allowed" : "pointer";
+            // Sync active thumbnail in top strip and scroll into view
+            if (stripEl) {
+                const thumbs = stripEl.querySelectorAll(".zit-lb-thumb");
+                thumbs.forEach((th, i) => {
+                    if (i === currentIndex) {
+                        th.classList.add("zit-lb-thumb-active");
+                        th.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+                    } else {
+                        th.classList.remove("zit-lb-thumb-active");
+                    }
+                });
+            }
         };
 
         const parsePngMetadata = async (imageUrl) => {
@@ -863,7 +1036,7 @@ class ZombiehausImageTray {
             if (index < 0 || index >= this.items.length) return;
             currentIndex = index;
             const curItem = this.items[currentIndex];
-            const curUrl = `/view?filename=${encodeURIComponent(curItem.filename)}&subfolder=${encodeURIComponent(curItem.subfolder || "")}&type=${encodeURIComponent(curItem.type || "output")}`;
+            const curUrl = curItem.url || `/view?filename=${encodeURIComponent(curItem.filename)}&subfolder=${encodeURIComponent(curItem.subfolder || "")}&type=${encodeURIComponent(curItem.type || "output")}`;
 
             activeItem = curItem;
             activeUrl = curUrl;
@@ -907,7 +1080,7 @@ class ZombiehausImageTray {
             }
         };
 
-        // ── Zoom, Pan & Scroll Navigation Interactive State ──
+        // ── Zoom, Pan & Cursor-Focal Scroll Interactive State ────────────────
         let scale = 1.0;
         let panX = 0;
         let panY = 0;
@@ -925,26 +1098,34 @@ class ZombiehausImageTray {
             zoomBadge.textContent = scale <= 1.05 ? "Fit" : `${Math.round(scale * 100)}%`;
             viewport.classList.toggle("zit-is-zoomed", scale > 1.05);
             viewport.title = scale > 1.05
-                ? "Click to Zoom Out · Drag to Pan · Scroll to Change Images"
-                : "Click to Zoom In · Drag to Pan · Scroll to Change Images";
+                ? "Click to Zoom Out · Drag to Pan · Scroll to Zoom"
+                : "Click to Zoom In · Drag to Pan · Scroll to Zoom";
         };
 
-        const zoomInAt = (targetScale, clientX, clientY) => {
-            const rect = viewport.getBoundingClientRect();
-            const cx = clientX - (rect.left + rect.width / 2);
-            const cy = clientY - (rect.top + rect.height / 2);
+        // Precise focal zoom maintaining the spot under (clientX, clientY)
+        const zoomAt = (targetScale, clientX, clientY, withTransition = true) => {
+            const vRect = viewport.getBoundingClientRect();
+            const centerX = vRect.left + vRect.width / 2;
+            const centerY = vRect.top + vRect.height / 2;
+            const mouseX = clientX - centerX;
+            const mouseY = clientY - centerY;
 
-            scale = Math.min(8.0, Math.max(0.5, targetScale));
-            isZoomed = scale > 1.05;
+            let newScale = Math.min(12.0, Math.max(1.0, targetScale));
 
-            if (isZoomed) {
-                panX = -cx * (scale - 1) * 0.45;
-                panY = -cy * (scale - 1) * 0.45;
-            } else {
+            if (newScale <= 1.02) {
+                scale = 1.0;
                 panX = 0;
                 panY = 0;
+                isZoomed = false;
+            } else {
+                const ratio = newScale / scale;
+                panX = mouseX - (mouseX - panX) * ratio;
+                panY = mouseY - (mouseY - panY) * ratio;
+                scale = newScale;
+                isZoomed = true;
             }
-            updateTransform(true);
+
+            updateTransform(withTransition);
         };
 
         const resetZoom = () => {
@@ -958,7 +1139,7 @@ class ZombiehausImageTray {
         // Mouse Down for dragging / pan
         viewport.onmousedown = (e) => {
             if (e.button !== 0) return;
-            if (e.target.closest(".zit-zoom-toolbar") || e.target.closest("#zit-lb-close") || e.target.closest("#zit-lb-prev") || e.target.closest("#zit-lb-next")) return;
+            if (e.target.closest(".zit-zoom-toolbar") || e.target.closest("#zit-lb-close") || e.target.closest("#zit-lb-prev") || e.target.closest("#zit-lb-next") || e.target.closest("#zit-lb-strip-wrap")) return;
             isDragging = true;
             hasMoved = false;
             downX = e.clientX;
@@ -993,75 +1174,44 @@ class ZombiehausImageTray {
 
         // Click on image: if user didn't drag, zoom in / out
         viewport.onclick = (e) => {
-            if (e.target.closest(".zit-zoom-toolbar") || e.target.closest("#zit-lb-close") || e.target.closest("#zit-lb-prev") || e.target.closest("#zit-lb-next")) return;
+            if (e.target.closest(".zit-zoom-toolbar") || e.target.closest("#zit-lb-close") || e.target.closest("#zit-lb-prev") || e.target.closest("#zit-lb-next") || e.target.closest("#zit-lb-strip-wrap")) return;
             if (hasMoved) return; // User dragged to pan, don't trigger zoom click
 
             if (!isZoomed) {
                 // Click zooms in to 2.5x centered on click location
-                zoomInAt(2.5, e.clientX, e.clientY);
+                zoomAt(2.5, e.clientX, e.clientY, true);
             } else {
                 // Click again resets back to Fit view
                 resetZoom();
             }
         };
 
-        // Scroll: Change images (horizontal or vertical wheel / trackpad scroll)
-        let wheelAccumulator = 0;
-        let lastWheelTime = 0;
-        let wheelResetTimer = null;
-
+        // Scroll wheel on image: zoom focused on the area the cursor is pointing to
         viewport.onwheel = (e) => {
             e.preventDefault();
             e.stopPropagation();
 
-            // Support trackpad horizontal scroll, tilt wheel, Shift+wheel (deltaX),
-            // as well as standard mouse wheel (deltaY).
-            const absX = Math.abs(e.deltaX);
-            const absY = Math.abs(e.deltaY);
-            const delta = absX > absY ? e.deltaX : e.deltaY;
+            const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+            const targetScale = scale * zoomFactor;
 
-            if (Math.abs(delta) < 2) return;
-
-            wheelAccumulator += delta;
-
-            clearTimeout(wheelResetTimer);
-            wheelResetTimer = setTimeout(() => {
-                wheelAccumulator = 0;
-            }, 180);
-
-            const now = Date.now();
-            const threshold = 30;
-            const cooldown = 220; // 220ms cooldown between image changes
-
-            if (Math.abs(wheelAccumulator) >= threshold && (now - lastWheelTime > cooldown)) {
-                if (wheelAccumulator > 0) {
-                    // Scroll right / down -> Next image
-                    if (currentIndex < this.items.length - 1) {
-                        navigateTo(currentIndex + 1);
-                    }
-                } else {
-                    // Scroll left / up -> Previous image
-                    if (currentIndex > 0) {
-                        navigateTo(currentIndex - 1);
-                    }
-                }
-                wheelAccumulator = 0;
-                lastWheelTime = now;
-            }
+            zoomAt(targetScale, e.clientX, e.clientY, false);
         };
 
         // Toolbar Zoom buttons
         overlay.querySelector("#zit-zoom-in").onclick = (e) => {
             e.stopPropagation();
-            zoomInAt(scale * 1.3, window.innerWidth / 2, window.innerHeight / 2);
+            const vRect = viewport.getBoundingClientRect();
+            zoomAt(scale * 1.25, vRect.left + vRect.width / 2, vRect.top + vRect.height / 2, true);
         };
         overlay.querySelector("#zit-zoom-out").onclick = (e) => {
             e.stopPropagation();
-            zoomInAt(scale * 0.75, window.innerWidth / 2, window.innerHeight / 2);
+            const vRect = viewport.getBoundingClientRect();
+            zoomAt(scale * 0.8, vRect.left + vRect.width / 2, vRect.top + vRect.height / 2, true);
         };
         overlay.querySelector("#zit-zoom-100").onclick = (e) => {
             e.stopPropagation();
-            zoomInAt(1.0, window.innerWidth / 2, window.innerHeight / 2);
+            const vRect = viewport.getBoundingClientRect();
+            zoomAt(1.0, vRect.left + vRect.width / 2, vRect.top + vRect.height / 2, true);
         };
         overlay.querySelector("#zit-zoom-fit").onclick = (e) => {
             e.stopPropagation();
@@ -1087,7 +1237,6 @@ class ZombiehausImageTray {
             window.removeEventListener("mousemove", onMouseMove);
             window.removeEventListener("mouseup", onMouseUp);
             window.removeEventListener("keydown", onKeyDown);
-            clearTimeout(wheelResetTimer);
             overlay.remove();
         };
         overlay.querySelector("#zit-lb-close").onclick = close;

@@ -9,6 +9,7 @@ import { api } from "../../scripts/api.js";
 
 class ZombiehausImageTray {
     constructor() {
+        this._initTime = Date.now();
         this.items = []; // Array of { filename, subfolder, type, url, timestamp }
         this.isCollapsed = false;
         this.isHidden = false;
@@ -16,6 +17,8 @@ class ZombiehausImageTray {
         this.maxItems = 100;
         this.pushedElements = new Set();
         this.isUpdatingBottom = false;
+        this._lastAppliedHeight = null;
+        this._lastAppliedDisplay = null;
 
         let savedEnabled = true;
         try {
@@ -33,21 +36,61 @@ class ZombiehausImageTray {
         if (this.isEnabled) {
             this.fetchRecentOutputs();
         } else {
-            this.trayEl.style.display = "none";
+            if (this.trayEl) {
+                this.trayEl.style.display = "none";
+                this.trayEl.classList.add("zit-disabled");
+            }
+            this.syncSettingsState(false);
+            setTimeout(() => this.syncSettingsState(false), 250);
+            setTimeout(() => this.syncSettingsState(false), 1200);
         }
     }
 
     // ── Enable / Disable State Control ────────────────────────────────────────
-    setEnabled(enabled) {
-        this.isEnabled = !!enabled;
+    setEnabled(enabled, fromUser = false) {
+        const targetState = !!enabled;
+
+        // Startup protection: If settings system attempts to re-enable on page load
+        // because of default setting values, but the user explicitly disabled the tray,
+        // ignore automated startup calls and preserve the disabled state.
+        if (targetState && !fromUser) {
+            const isStartup = (Date.now() - (this._initTime || 0)) < 4000;
+            let storedDisabled = false;
+            try {
+                if (typeof localStorage !== "undefined") {
+                    storedDisabled = localStorage.getItem("zombiehaus_image_tray_enabled") === "false";
+                }
+            } catch (_) {}
+
+            if (isStartup && storedDisabled) {
+                console.log("[Zombiehaus Image Tray] Startup override prevented: tray remains disabled per user preference.");
+                this.isEnabled = false;
+                if (this.trayEl) {
+                    this.trayEl.style.display = "none";
+                    this.trayEl.classList.add("zit-disabled");
+                }
+                this.syncSettingsState(false);
+                this.updateBottomOffset();
+                return;
+            }
+        }
+
+        this.isEnabled = targetState;
+
         try {
             if (typeof localStorage !== "undefined") {
                 localStorage.setItem("zombiehaus_image_tray_enabled", this.isEnabled ? "true" : "false");
             }
         } catch (_) {}
 
+        this.syncSettingsState(this.isEnabled);
+
         if (this.trayEl) {
             this.trayEl.style.display = this.isEnabled ? "flex" : "none";
+            this.trayEl.classList.toggle("zit-disabled", !this.isEnabled);
+            if (!this.isEnabled) {
+                this.restorePushedElements();
+            }
         }
 
         const toggleBtn = document.getElementById("zombiehaus-image-tray-toggle-btn");
@@ -61,6 +104,15 @@ class ZombiehausImageTray {
         if (this.isEnabled && this.items.length === 0) {
             this.fetchRecentOutputs();
         }
+    }
+
+    syncSettingsState(enabled) {
+        try {
+            const sm = window.app?.ui?.settings || window.app?.settings || window.app?.extensionManager?.setting;
+            if (sm && typeof sm.setSettingValue === "function") {
+                sm.setSettingValue("Zombiehaus.EnableImageTray", !!enabled);
+            }
+        } catch (_) {}
     }
 
     // ── Inject Stylesheet & Base DOM ──────────────────────────────────────────
@@ -77,6 +129,19 @@ class ZombiehausImageTray {
             const style = document.createElement("style");
             style.id = "zit-grid-integration";
             style.textContent = `
+                #zombiehaus-image-tray.zit-disabled,
+                .comfyui-body-bottom #zombiehaus-image-tray.zit-disabled {
+                    display: none !important;
+                    height: 0 !important;
+                    max-height: 0 !important;
+                    min-height: 0 !important;
+                    overflow: hidden !important;
+                    visibility: hidden !important;
+                    pointer-events: none !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    border: none !important;
+                }
                 .comfyui-body-bottom #zombiehaus-image-tray {
                     position: relative !important;
                     bottom: auto !important;
@@ -149,6 +214,10 @@ class ZombiehausImageTray {
             document.body.appendChild(tray);
         }
         this.trayEl = tray;
+        if (!this.isEnabled) {
+            this.trayEl.style.display = "none";
+            this.trayEl.classList.add("zit-disabled");
+        }
         this.filmstripEl = tray.querySelector("#zit-filmstrip-container");
         this.countBadge = tray.querySelector("#zit-count-badge");
         this.sizeLabel = tray.querySelector("#zit-size-label");
@@ -158,6 +227,21 @@ class ZombiehausImageTray {
     // ── Dynamic ComfyUI Docking (Native Body-Bottom Grid Integration / rgthree pattern) ──
     updateBottomOffset() {
         if (!this.trayEl) return;
+
+        if (!this.isEnabled) {
+            this.trayEl.style.display = "none";
+            this.trayEl.classList.add("zit-disabled");
+            if (this.trayEl.parentElement && this.trayEl.parentElement.classList?.contains("comfyui-body-bottom")) {
+                this.trayEl.style.setProperty("--zit-height", "0px");
+                this.trayEl.style.height = "0px";
+            }
+            this._lastAppliedHeight = 0;
+            this._lastAppliedDisplay = "none";
+            this.restorePushedElements();
+            return;
+        }
+
+        this.trayEl.classList.remove("zit-disabled");
 
         // If Deck Studio full-screen overlay is active, dock at bottom 0 and left 0 with elevated z-index
         const isDeckActive = document.body.classList.contains("zombiehaus-deck-active") ||
@@ -189,13 +273,17 @@ class ZombiehausImageTray {
                 ? 0
                 : (this.isCollapsed ? 36 : (this.size === "small" ? 148 : (this.size === "large" ? 228 : 184)));
 
-            this.trayEl.style.setProperty("--zit-height", `${currentHeight}px`);
-            this.trayEl.style.height = `${currentHeight}px`;
+            const displayVal = (!this.isEnabled || this.isHidden) ? "none" : "flex";
 
-            if (!this.isEnabled || this.isHidden) {
-                this.trayEl.style.display = "none";
-            } else {
-                this.trayEl.style.display = "flex";
+            if (this._lastAppliedHeight !== currentHeight) {
+                this.trayEl.style.setProperty("--zit-height", `${currentHeight}px`);
+                this.trayEl.style.height = `${currentHeight}px`;
+                this._lastAppliedHeight = currentHeight;
+            }
+
+            if (this._lastAppliedDisplay !== displayVal) {
+                this.trayEl.style.display = displayVal;
+                this._lastAppliedDisplay = displayVal;
             }
 
             // Restore any previously pushed elements so ComfyUI's native grid manages canvas and floating menus cleanly
@@ -294,12 +382,14 @@ class ZombiehausImageTray {
             disableBtn.onclick = (e) => {
                 e.stopPropagation();
                 if (confirm("Disable the Image Tray? You can re-enable it anytime in ComfyUI Settings or by pressing Alt+T.")) {
-                    this.setEnabled(false);
+                    this.setEnabled(false, true);
                 }
             };
         }
-        // Horizontal mouse-wheel scroll on the filmstrip (converts vertical wheel up/down to horizontal scroll)
+        // Horizontal mouse-wheel scroll on the filmstrip (instant 1:1 scroll without animation queue lag)
         if (this.filmstripEl) {
+            this.filmstripEl.style.scrollBehavior = "auto";
+
             this.filmstripEl.addEventListener("wheel", (e) => {
                 let delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
                 if (delta === 0) return;
@@ -307,10 +397,10 @@ class ZombiehausImageTray {
                 else if (e.deltaMode === 2) delta *= 100;
                 e.preventDefault();
                 e.stopPropagation();
-                this.filmstripEl.scrollBy({ left: delta, behavior: "auto" });
+                this.filmstripEl.scrollLeft += delta;
             }, { passive: false });
 
-            // Click-and-drag mouse panning on the filmstrip
+            // Click-and-drag mouse panning on the filmstrip (instant 1:1 cursor tracking)
             let isDown = false;
             let startX = 0;
             let scrollStart = 0;
@@ -371,7 +461,7 @@ class ZombiehausImageTray {
             if ((e.altKey && e.code === "KeyT") || e.code === "F10") {
                 e.preventDefault();
                 if (!this.isEnabled) {
-                    this.setEnabled(true);
+                    this.setEnabled(true, true);
                 } else {
                     this.toggleCollapse();
                 }
@@ -388,8 +478,9 @@ class ZombiehausImageTray {
 
     // ── Fetch Recent Output Images from Server ────────────────────────────────
     async fetchRecentOutputs() {
+        if (!this.isEnabled) return;
         try {
-            const res = await fetch("/zombiehaus/gallery/list?sort=date");
+            const res = await fetch("/zombiehaus/gallery/list?sort=date&limit=40");
             const data = await res.json();
             if (data?.success && data.data?.images) {
                 const images = data.data.images;
@@ -416,9 +507,65 @@ class ZombiehausImageTray {
         }
     }
 
+    // ── Create Single Card DOM Element ─────────────────────────────────────────
+    createCardElement(item, isNew = false) {
+        const card = document.createElement("div");
+        card.className = "zit-card";
+        card.dataset.filename = item.filename;
+        card.dataset.subfolder = item.subfolder || "";
+        if (isNew) {
+            card.classList.add("zit-card-new");
+        }
+
+        const url = `/view?filename=${encodeURIComponent(item.filename)}&subfolder=${encodeURIComponent(item.subfolder || "")}&type=${encodeURIComponent(item.type || "output")}`;
+
+        card.innerHTML = `
+            <img src="${url}" class="zit-card-img" loading="lazy" decoding="async" alt="${item.filename}" />
+            <div class="zit-card-actions">
+                <div class="zit-card-top-bar">
+                    <span class="zit-dim-badge">OUTPUT</span>
+                </div>
+                <div class="zit-card-bot-bar">
+                    <button type="button" class="zit-quick-btn zit-btn-view" title="Inspect & View Lightbox">🔍</button>
+                    <button type="button" class="zit-quick-btn zit-btn-workflow" title="Load Embedded Workflow">📥</button>
+                    <button type="button" class="zit-quick-btn zit-btn-send" title="Send to LoadImage Node">➡️</button>
+                    <button type="button" class="zit-quick-btn zit-btn-copy" title="Copy to Clipboard">📋</button>
+                </div>
+            </div>
+        `;
+
+        // Card Click -> Open Lightbox
+        card.onclick = () => this.openLightbox(item, url);
+
+        // Button actions
+        card.querySelector(".zit-btn-view").onclick = (e) => {
+            e.stopPropagation();
+            this.openLightbox(item, url);
+        };
+
+        card.querySelector(".zit-btn-workflow").onclick = (e) => {
+            e.stopPropagation();
+            this.loadWorkflowFromImage(url);
+        };
+
+        card.querySelector(".zit-btn-send").onclick = (e) => {
+            e.stopPropagation();
+            this.sendToLoadImage(item.filename);
+        };
+
+        card.querySelector(".zit-btn-copy").onclick = async (e) => {
+            e.stopPropagation();
+            await this.copyImageToClipboard(url);
+        };
+
+        return card;
+    }
+
     // ── Add Single Image to Tray ──────────────────────────────────────────────
     addImage(imgObj, isNew = false) {
-        // Prevent duplicates
+        if (!this.isEnabled) return;
+
+        // Prevent duplicates in state
         this.items = this.items.filter((item) => !(item.filename === imgObj.filename && item.subfolder === imgObj.subfolder));
         this.items.unshift(imgObj);
 
@@ -426,10 +573,33 @@ class ZombiehausImageTray {
             this.items.pop();
         }
 
-        this.renderFilmstrip(isNew ? imgObj.filename : null);
+        this.countBadge.textContent = this.items.length;
+
+        // Fast O(1) DOM prepend instead of wiping and rebuilding all cards
+        if (this.filmstripEl) {
+            const emptyMsg = this.filmstripEl.querySelector(".zit-empty-msg");
+            if (emptyMsg) {
+                emptyMsg.remove();
+            }
+
+            // Remove existing DOM card for this item if present
+            const escapedName = (window.CSS && CSS.escape ? CSS.escape(imgObj.filename) : imgObj.filename.replace(/"/g, '\\"'));
+            const existingCard = this.filmstripEl.querySelector(`.zit-card[data-filename="${escapedName}"]`);
+            if (existingCard) {
+                existingCard.remove();
+            }
+
+            const newCard = this.createCardElement(imgObj, isNew);
+            this.filmstripEl.prepend(newCard);
+
+            // Trim trailing cards from DOM if exceeding maxItems
+            while (this.filmstripEl.children.length > this.maxItems) {
+                this.filmstripEl.lastElementChild?.remove();
+            }
+        }
 
         // Auto-expand tray if collapsed and new image arrives
-        if (isNew && this.isCollapsed) {
+        if (isNew && this.isCollapsed && this.isEnabled) {
             this.isCollapsed = false;
             this.trayEl.classList.remove("zit-collapsed");
         }
@@ -437,6 +607,7 @@ class ZombiehausImageTray {
 
     // ── Render Filmstrip ──────────────────────────────────────────────────────
     renderFilmstrip(newFilename = null) {
+        if (!this.isEnabled) return;
         this.countBadge.textContent = this.items.length;
 
         if (this.items.length === 0) {
@@ -446,68 +617,30 @@ class ZombiehausImageTray {
             return;
         }
 
-        this.filmstripEl.innerHTML = "";
-
+        // Batch DOM update with DocumentFragment to prevent repeated layout reflows
+        const fragment = document.createDocumentFragment();
         for (const item of this.items) {
-            const card = document.createElement("div");
-            card.className = "zit-card";
-            if (newFilename && item.filename === newFilename) {
-                card.classList.add("zit-card-new");
-            }
-
-            const url = `/view?filename=${encodeURIComponent(item.filename)}&subfolder=${encodeURIComponent(item.subfolder || "")}&type=${encodeURIComponent(item.type || "output")}`;
-
-            card.innerHTML = `
-                <img src="${url}" class="zit-card-img" loading="lazy" alt="${item.filename}" />
-                <div class="zit-card-actions">
-                    <div class="zit-card-top-bar">
-                        <span class="zit-dim-badge">OUTPUT</span>
-                    </div>
-                    <div class="zit-card-bot-bar">
-                        <button type="button" class="zit-quick-btn zit-btn-view" title="Inspect & View Lightbox">🔍</button>
-                        <button type="button" class="zit-quick-btn zit-btn-workflow" title="Load Embedded Workflow">📥</button>
-                        <button type="button" class="zit-quick-btn zit-btn-send" title="Send to LoadImage Node">➡️</button>
-                        <button type="button" class="zit-quick-btn zit-btn-copy" title="Copy to Clipboard">📋</button>
-                    </div>
-                </div>
-            `;
-
-            // Card Click -> Open Lightbox
-            card.onclick = () => this.openLightbox(item, url);
-
-            // Button actions
-            card.querySelector(".zit-btn-view").onclick = (e) => {
-                e.stopPropagation();
-                this.openLightbox(item, url);
-            };
-
-            card.querySelector(".zit-btn-workflow").onclick = (e) => {
-                e.stopPropagation();
-                this.loadWorkflowFromImage(url);
-            };
-
-            card.querySelector(".zit-btn-send").onclick = (e) => {
-                e.stopPropagation();
-                this.sendToLoadImage(item.filename);
-            };
-
-            card.querySelector(".zit-btn-copy").onclick = async (e) => {
-                e.stopPropagation();
-                await this.copyImageToClipboard(url);
-            };
-
-            this.filmstripEl.appendChild(card);
+            const isNew = newFilename && item.filename === newFilename;
+            fragment.appendChild(this.createCardElement(item, isNew));
         }
+
+        this.filmstripEl.innerHTML = "";
+        this.filmstripEl.appendChild(fragment);
     }
 
     // ── Toggle Collapse / Hide ────────────────────────────────────────────────
     toggleCollapse() {
+        if (!this.isEnabled) {
+            this.setEnabled(true, true);
+            return;
+        }
         this.isCollapsed = !this.isCollapsed;
         this.trayEl.classList.toggle("zit-collapsed", this.isCollapsed);
         this.updateBottomOffset();
     }
 
     toggleHidden() {
+        if (!this.isEnabled) return;
         this.isHidden = !this.isHidden;
         this.trayEl.classList.toggle("zit-hidden", this.isHidden);
         this.updateBottomOffset();
@@ -759,6 +892,7 @@ class ZombiehausImageTray {
                 thumbImg.src = thumbUrl;
                 thumbImg.alt = it.filename || "";
                 thumbImg.loading = "lazy";
+                thumbImg.decoding = "async";
                 thumbImg.draggable = false;
 
                 thumb.appendChild(thumbImg);
@@ -1345,7 +1479,7 @@ app.registerExtension({
                 btn.onclick = (e) => {
                     e.preventDefault();
                     if (!tray.isEnabled) {
-                        tray.setEnabled(true);
+                        tray.setEnabled(true, true);
                     } else {
                         tray.toggleCollapse();
                     }

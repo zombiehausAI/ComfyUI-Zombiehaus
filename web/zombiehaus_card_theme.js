@@ -436,6 +436,17 @@ function setupClassicCanvasDecorator() {
                 }
             }
 
+            // 3. Locked Node Visual Badge
+            if (node.flags?.pinned || node.locked) {
+                ctx.save();
+                ctx.font = "bold 11px sans-serif";
+                ctx.fillStyle = "#f9e2af";
+                ctx.shadowColor = "rgba(249, 226, 175, 0.7)";
+                ctx.shadowBlur = 6;
+                ctx.fillText("🔒", w - 24, 22);
+                ctx.restore();
+            }
+
             // Note: Role subtitles are intentionally omitted from canvas to keep
             // input/output slot labels 100% clean with zero text overlap.
 
@@ -521,6 +532,50 @@ function setupClassicCanvasDecorator() {
 
         return options;
     };
+
+    const origGetNodeMenuOptions = LGraphCanvas.prototype.getNodeMenuOptions;
+    LGraphCanvas.prototype.getNodeMenuOptions = function (node) {
+        const options = origGetNodeMenuOptions ? origGetNodeMenuOptions.apply(this, arguments) : [];
+        if (!node) return options;
+
+        const cluster = findDockedCluster([node], this.graph?._nodes || [], _dockingGap);
+        const isCluster = cluster.size > 1;
+        const isLocked = !!(node.flags?.pinned || node.locked);
+        const isClusterLocked = isCluster && Array.from(cluster).some((n) => n.flags?.pinned || n.locked);
+
+        options.push(null); // Separator
+
+        if (isCluster) {
+            options.push({
+                content: isClusterLocked ? "🔓 Unlock Sticky Rack in Place" : "🔒 Lock Sticky Rack in Place",
+                callback: () => {
+                    toggleSelectedClusterLock(node);
+                }
+            });
+            options.push({
+                content: "🧲 Select Entire Sticky Rack",
+                callback: () => {
+                    for (const n of cluster) {
+                        this.selectNode(n, true);
+                    }
+                    this.setDirty(true, true);
+                }
+            });
+        }
+
+        options.push({
+            content: isLocked ? "🔓 Unlock This Node" : "🔒 Lock This Node in Place",
+            callback: () => {
+                node.flags = node.flags || {};
+                node.flags.pinned = !isLocked;
+                node.locked = !isLocked;
+                this.setDirty(true, true);
+                showDockingToast(node.locked ? `🔒 Locked "${node.title || node.type}" in place` : `🔓 Unlocked "${node.title || node.type}"`);
+            }
+        });
+
+        return options;
+    };
 }
 
 // ── Node-to-Node Magnetic Docking & Sticky Movement Logic ─────────────────────
@@ -530,22 +585,17 @@ function getNodeVisualBounds(node) {
     let titleH = 0;
     if (node.flags?.collapsed) {
         titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
-    } else if (node.title_mode === 1 || node.title_mode === 2) {
-        // LiteGraph.TRANSPARENT_TITLE = 1, LiteGraph.NO_TITLE = 2
-        titleH = 0;
     } else {
-        // In ComfyUI modern canvas, nodes feature a 40-42px header bar that accommodates
-        // title typography, status badge, title buttons [⬆][☲][🔖], and header divider.
         const baseH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
-        titleH = Math.max(42, baseH + 12);
+        titleH = Math.max(30, baseH);
     }
 
     const x = node.pos[0];
-    const y = node.pos[1] - titleH;
+    const y = node.pos[1];
     const w = node.flags?.collapsed
         ? (node._collapsed_width || (typeof LiteGraph !== "undefined" && LiteGraph.NODE_COLLAPSED_WIDTH) || 80)
         : node.size[0];
-    const h = node.flags?.collapsed ? titleH : (node.size[1] + titleH);
+    const h = node.flags?.collapsed ? titleH : node.size[1];
 
     return {
         x,
@@ -554,13 +604,13 @@ function getNodeVisualBounds(node) {
         h,
         right: x + w,
         bottom: y + h,
-        titleOffset: titleH
+        titleOffset: 0
     };
 }
 
 function areNodesDocked(nodeA, nodeB, gap) {
     if (!nodeA || !nodeB || !nodeA.pos || !nodeB.pos || !nodeA.size || !nodeB.size) return false;
-    const tol = 16;
+    const tol = 18;
     const g = gap || 0;
 
     const bA = getNodeVisualBounds(nodeA);
@@ -578,6 +628,41 @@ function areNodesDocked(nodeA, nodeB, gap) {
     if (vAdjacency && hOverlapAmount >= -tol) return true;
 
     return false;
+}
+
+function toggleSelectedClusterLock(targetNode) {
+    if (!app.graph?._nodes) return;
+    const canvas = app.canvas;
+    const selected = Object.values(canvas?.selected_nodes || {});
+    const node = targetNode || selected[0] || canvas?.current_node || canvas?.node_over;
+
+    if (!node) {
+        showDockingToast("Select a node or sticky rack to lock/unlock");
+        return;
+    }
+
+    const cluster = findDockedCluster([node], app.graph._nodes, _dockingGap);
+    const nodesToToggle = cluster.size > 0 ? Array.from(cluster) : [node];
+
+    const anyLocked = nodesToToggle.some((n) => n.flags?.pinned || n.locked);
+    const newLockState = !anyLocked;
+
+    for (const n of nodesToToggle) {
+        n.flags = n.flags || {};
+        n.flags.pinned = newLockState;
+        n.locked = newLockState;
+        n.setDirtyCanvas?.(true, true);
+    }
+
+    if (canvas) canvas.setDirty(true, true);
+
+    const count = nodesToToggle.length;
+    const label = count > 1 ? `Sticky Rack (${count} nodes)` : `Node "${node.title || node.type}"`;
+    if (newLockState) {
+        showDockingToast(`🔒 Locked ${label} in place (Shift+L to unlock)`);
+    } else {
+        showDockingToast(`🔓 Unlocked ${label}`);
+    }
 }
 
 function findDockedCluster(seedNodes, allNodes, gap) {
@@ -704,6 +789,22 @@ function attachTopBarControls() {
             setDockingMode(nextMode);
         };
         container.appendChild(dockBtn);
+
+        // 3. Lock Rack in Place Button
+        let lockBtn = document.getElementById("zombiehaus-lock-cluster-btn");
+        if (!lockBtn) {
+            lockBtn = document.createElement("button");
+            lockBtn.id = "zombiehaus-lock-cluster-btn";
+            lockBtn.type = "button";
+            lockBtn.style.cssText = "display: inline-flex; align-items: center; gap: 5px; background: rgba(22, 22, 34, 0.9); border: 1px solid rgba(137, 180, 250, 0.45); border-radius: 6px; padding: 4px 10px; color: #cdd6f4; font-size: 11px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);";
+            lockBtn.title = "Lock / Unlock Selected Node Rack in Place (Shift+L). Pinned nodes cannot be moved.";
+            lockBtn.innerHTML = "<span>🔒</span> Lock Rack";
+            lockBtn.onclick = (e) => {
+                e.preventDefault();
+                toggleSelectedClusterLock();
+            };
+            container.appendChild(lockBtn);
+        }
     }
 
     updateDockingBtnUI();
@@ -770,15 +871,25 @@ function setupNodeEdgeDocking() {
 
         if (_dockingMode === "sticky" && !e.altKey && this.graph?._nodes) {
             const draggedNodes = Object.values(this.selected_nodes || {});
-            const primary = draggedNodes[0] || this.node_dragged;
+            const primary = draggedNodes[0] || this.current_node || this.node_over;
             if (primary && primary.pos && primary.size) {
-                _lastDragPrimary = primary;
-                _lastPrimaryPos = [primary.pos[0], primary.pos[1]];
                 const cluster = findDockedCluster([primary], this.graph._nodes, _dockingGap);
                 if (cluster.size > 1) {
-                    for (const item of cluster) {
-                        _dragCluster.add(item);
-                        _clusterOffsets.set(item, [item.pos[0] - primary.pos[0], item.pos[1] - primary.pos[1]]);
+                    const isLocked = Array.from(cluster).some((n) => n.flags?.pinned || n.locked);
+                    if (isLocked) {
+                        showDockingToast("🔒 Sticky rack is locked in place (Shift+L to unlock)");
+                    } else {
+                        _lastDragPrimary = primary;
+                        _lastPrimaryPos = [primary.pos[0], primary.pos[1]];
+                        for (const item of cluster) {
+                            _dragCluster.add(item);
+                            _clusterOffsets.set(item, [item.pos[0] - primary.pos[0], item.pos[1] - primary.pos[1]]);
+                            // Select all cluster companions so LiteGraph's engine moves them together
+                            if (this.selected_nodes) {
+                                this.selected_nodes[item.id] = item;
+                            }
+                        }
+                        this.setDirty(true, true);
                     }
                 }
             }
@@ -797,7 +908,8 @@ function setupNodeEdgeDocking() {
 
         if (!this.graph || !this.graph._nodes) return res;
 
-        const isDragging = (this.isDragging || (this.pointer?.isDown && this.selected_nodes && Object.keys(this.selected_nodes).length > 0) || this.node_dragged);
+        const hasSelected = this.selected_nodes && Object.keys(this.selected_nodes).length > 0;
+        const isDragging = (e.buttons & 1) === 1 && !this.dragging_canvas && (hasSelected || this.current_node || this.node_over);
         if (!isDragging) {
             if (_activeSnapGuides.length > 0) {
                 _activeSnapGuides = [];
@@ -811,10 +923,13 @@ function setupNodeEdgeDocking() {
         }
 
         const draggedNodes = Object.values(this.selected_nodes || {});
-        if (draggedNodes.length === 0 && !this.node_dragged) return res;
-
-        const primary = draggedNodes[0] || this.node_dragged;
+        const primary = draggedNodes[0] || this.current_node || this.node_over;
         if (!primary || !primary.pos || !primary.size) return res;
+
+        // Prevent dragging if primary or cluster is locked
+        if (primary.flags?.pinned || primary.locked) {
+            return res;
+        }
 
         // Initialize drag cluster on new drag if not already captured in processMouseDown
         if (_lastDragPrimary !== primary || _dragCluster.size === 0) {
@@ -830,6 +945,9 @@ function setupNodeEdgeDocking() {
                     for (const item of cluster) {
                         _dragCluster.add(item);
                         _clusterOffsets.set(item, [item.pos[0] - primary.pos[0], item.pos[1] - primary.pos[1]]);
+                        if (this.selected_nodes) {
+                            this.selected_nodes[item.id] = item;
+                        }
                     }
                 }
             }
@@ -838,7 +956,7 @@ function setupNodeEdgeDocking() {
         // Propagate sticky cluster movement rigidly to all companion nodes
         if (_dockingMode === "sticky" && !e.altKey && _dragCluster.size > 1 && _clusterOffsets) {
             for (const companion of _dragCluster) {
-                if (companion !== primary && (!this.selected_nodes || !this.selected_nodes[companion.id])) {
+                if (companion !== primary) {
                     const offset = _clusterOffsets.get(companion);
                     if (offset) {
                         companion.pos[0] = primary.pos[0] + offset[0];
@@ -883,13 +1001,10 @@ function setupNodeEdgeDocking() {
             const vDist = Math.max(0, Math.max(pBounds.y, oBounds.y) - Math.min(pBounds.bottom, oBounds.bottom));
 
             // ── 1. Vertical Snapping (Top & Bottom Docking + Y Alignments) ─────────
-            // Eligible if in horizontal proximity (overlapping or close to same column)
             if (hDist <= _snapThreshold * 2) {
                 // A. Dock Top: Primary Bottom flush to Other Top (- gap)
-                // Other Top is oBounds.y (the top of other's title bar, fully exposed)
-                const targetVisualBottom = oBounds.y - gap;
-                const targetPrimaryPos1_top = targetVisualBottom - primary.size[1];
-                const dY_top = targetPrimaryPos1_top - primary.pos[1];
+                const targetY_top = oBounds.y - primary.size[1] - gap;
+                const dY_top = targetY_top - primary.pos[1];
                 if (Math.abs(dY_top) < minDiffY) {
                     minDiffY = Math.abs(dY_top);
                     bestSnapY = dY_top;
@@ -902,10 +1017,8 @@ function setupNodeEdgeDocking() {
                 }
 
                 // B. Dock Bottom: Primary Top flush to Other Bottom (+ gap)
-                // Other Bottom is oBounds.bottom. Primary Top is pBounds.y (pos[1] - titleOffset)
-                const targetVisualTop = oBounds.bottom + gap;
-                const targetPrimaryPos1_bottom = targetVisualTop + pBounds.titleOffset;
-                const dY_bottom = targetPrimaryPos1_bottom - primary.pos[1];
+                const targetY_bottom = oBounds.bottom + gap;
+                const dY_bottom = targetY_bottom - primary.pos[1];
                 if (Math.abs(dY_bottom) < minDiffY) {
                     minDiffY = Math.abs(dY_bottom);
                     bestSnapY = dY_bottom;
@@ -918,8 +1031,8 @@ function setupNodeEdgeDocking() {
                 }
 
                 // C. Align Top: Primary Top to Other Top
-                const targetPrimaryPos1_alignTop = oBounds.y + pBounds.titleOffset;
-                const dY_alignTop = targetPrimaryPos1_alignTop - primary.pos[1];
+                const targetY_alignTop = oBounds.y;
+                const dY_alignTop = targetY_alignTop - primary.pos[1];
                 if (Math.abs(dY_alignTop) < minDiffY) {
                     minDiffY = Math.abs(dY_alignTop);
                     bestSnapY = dY_alignTop;
@@ -1052,7 +1165,7 @@ function setupNodeEdgeDocking() {
         // Synchronize cluster companions rigidly to snapped primary position
         if (_dockingMode === "sticky" && !e.altKey && _dragCluster.size > 1 && _clusterOffsets) {
             for (const companion of _dragCluster) {
-                if (companion !== primary && (!this.selected_nodes || !this.selected_nodes[companion.id])) {
+                if (companion !== primary) {
                     const offset = _clusterOffsets.get(companion);
                     if (offset) {
                         companion.pos[0] = primary.pos[0] + offset[0];
@@ -1129,6 +1242,19 @@ function setupNodeEdgeDocking() {
 
         return res;
     };
+
+    if (!window._zombiehausDockingKeydownBound) {
+        window._zombiehausDockingKeydownBound = true;
+        window.addEventListener("keydown", (e) => {
+            // Shift + L: Toggle Lock / Freeze for selected node or sticky rack
+            if (e.shiftKey && e.code === "KeyL" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                const activeTag = document.activeElement?.tagName;
+                if (activeTag === "INPUT" || activeTag === "TEXTAREA" || document.activeElement?.isContentEditable) return;
+                e.preventDefault();
+                toggleSelectedClusterLock();
+            }
+        });
+    }
 }
 
 // ── In-App Zombiehaus Theme Studio Modal ───────────────────────────────────────

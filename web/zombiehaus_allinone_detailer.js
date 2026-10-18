@@ -188,15 +188,13 @@ app.registerExtension({
             node.properties = node.properties || {};
             node.properties.slot_custom_labels = node.properties.slot_custom_labels || {};
 
+            let maxLabelLen = 0;
             slotInputs.forEach((inp, i) => {
                 const slotNum = i + 1;
                 const customName = node.properties.slot_custom_labels[inp.name];
                 if (customName && customName.trim()) {
                     inp.label = `${slotNum}: ${customName.trim()}`;
-                    return;
-                }
-
-                if (inp.link != null) {
+                } else if (inp.link != null) {
                     const link = app.graph?.links?.[inp.link];
                     const originNode = link ? app.graph?.getNodeById?.(link.origin_id) : null;
                     if (originNode) {
@@ -222,12 +220,37 @@ app.registerExtension({
                         }
 
                         inp.label = `${slotNum}: ${recognized}`;
-                        return;
+                    } else {
+                        inp.label = `slot_${slotNum}`;
                     }
+                } else {
+                    inp.label = `slot_${slotNum}`;
                 }
 
-                inp.label = `slot_${slotNum}`;
+                if (inp.label && inp.label.length > maxLabelLen) {
+                    maxLabelLen = inp.label.length;
+                }
             });
+
+            // Ensure comfortable node width for text + move buttons
+            const minReqWidth = Math.max(260, maxLabelLen * 7.5 + 75);
+            if (node.size && node.size[0] < minReqWidth) {
+                node.size[0] = Math.ceil(minReqWidth);
+            }
+        }
+
+        function getSlotLocalY(node, actualIdx) {
+            if (!node || actualIdx == null || actualIdx < 0) {
+                return 0;
+            }
+            if (typeof node.getConnectionPos === "function") {
+                const pos = node.getConnectionPos(true, actualIdx);
+                if (pos) {
+                    return pos[1] - (node.pos?.[1] || 0);
+                }
+            }
+            const slotH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_SLOT_HEIGHT) || 20;
+            return (actualIdx + 0.5) * slotH;
         }
 
         /**
@@ -663,8 +686,7 @@ app.registerExtension({
                     const inp = slotInputs[i];
                     const slotNum = i + 1;
                     const actualIdx = this.inputs.indexOf(inp);
-                    const pos = this.getConnectionPos(true, actualIdx);
-                    const slotY = pos[1];
+                    const slotY = getSlotLocalY(this, actualIdx);
 
                     // 1. Check direct click on ▲ or ▼ button
                     if (Math.abs(localPos[1] - slotY) <= 8) {
@@ -710,8 +732,8 @@ app.registerExtension({
                 for (let i = 0; i < slotInputs.length; i++) {
                     const inp = slotInputs[i];
                     const actualIdx = this.inputs.indexOf(inp);
-                    const pos = this.getConnectionPos(true, actualIdx);
-                    const dist = Math.abs(localPos[1] - pos[1]);
+                    const slotY = getSlotLocalY(this, actualIdx);
+                    const dist = Math.abs(localPos[1] - slotY);
                     if (dist < minDist) {
                         minDist = dist;
                         closestIdx = i;
@@ -730,8 +752,7 @@ app.registerExtension({
             for (let i = 0; i < slotInputs.length; i++) {
                 const inp = slotInputs[i];
                 const actualIdx = this.inputs.indexOf(inp);
-                const pos = this.getConnectionPos(true, actualIdx);
-                const slotY = pos[1];
+                const slotY = getSlotLocalY(this, actualIdx);
                 const btnW = 16;
                 const btnH = 14;
                 const btnDownX = this.size[0] - 22;
@@ -812,8 +833,7 @@ app.registerExtension({
                 const inp = slotInputs[i];
                 const slotNum = i + 1;
                 const actualIdx = this.inputs.indexOf(inp);
-                const pos = this.getConnectionPos(true, actualIdx);
-                const slotY = pos[1];
+                const slotY = getSlotLocalY(this, actualIdx);
 
                 const isConnected = inp.link != null;
                 const canMoveUp = i > 0;
@@ -867,8 +887,7 @@ app.registerExtension({
                 const targetSlot = slotInputs[this._dragSlot.hoverTargetIdx];
                 if (targetSlot) {
                     const targetActualIdx = this.inputs.indexOf(targetSlot);
-                    const targetPos = this.getConnectionPos(true, targetActualIdx);
-                    const targetY = targetPos[1];
+                    const targetY = getSlotLocalY(this, targetActualIdx);
 
                     ctx.strokeStyle = "#22c55e";
                     ctx.lineWidth = 2;
@@ -916,8 +935,7 @@ app.registerExtension({
 
                 if (activeInp) {
                     const actualIdx = this.inputs.indexOf(activeInp);
-                    const pos = this.getConnectionPos(true, actualIdx);
-                    const y = pos[1];
+                    const y = getSlotLocalY(this, actualIdx);
 
                     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
 

@@ -41,8 +41,7 @@ ComfyUI-Zombiehaus by zombiehaus provides custom nodes organized into six catego
 
 **🖼️ Image Enhancement & Post-Processing**
 - Wardrobe Inpaint - Semantic clothing segmentation (SegFormer ATR) and clean latent inpainting for virtual try-on and outfit replacement
-- Detailer Slot - Config bundle for one YOLO detection + inpaint pass
-- All-in-One Detailer - Runs any number of Detailer Slots sequentially with pipe support
+- [Detailer Slot & All-in-One Detailer](docs/allinone-detailer.md) - Modular YOLO detection + inpaint passes with dynamic drag-and-drop slot reordering, auto-naming, and pipe support
 - Model Upscale - All-in-one neural upscaler (e.g. 4x-UltraSharp) with optional downscale and pre-downscale upscale saving
 - Upscaler - Tiled upscaling with seam fixing and post-processing
 - Restormer - Deep learning image restoration (motion deblur, defocus, denoising)

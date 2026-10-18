@@ -961,62 +961,7 @@ app.registerExtension({
                     ctx.beginPath();
                     ctx.arc(0, y, 5, 0, Math.PI * 2);
                     ctx.fill();
-
-                    // THE GLOWING SLOT NAME
-                    const labelText = activeInp.label || activeInp.name;
-                    ctx.font = "bold 12px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-                    ctx.textAlign = "left";
-                    ctx.textBaseline = "middle";
-
-                    // Layer 1: Vibrant green neon aura
-                    ctx.shadowColor = "#22c55e";
-                    ctx.shadowBlur = 12 + 8 * pulse;
-                    ctx.fillStyle = "#4ade80";
-                    ctx.fillText(labelText, 22, y);
-                    ctx.fillText(labelText, 22, y);
-
-                    // Layer 2: High-luminance crisp white core
-                    ctx.shadowColor = "#ffffff";
-                    ctx.shadowBlur = 2;
-                    ctx.fillStyle = "#ffffff";
-                    ctx.fillText(labelText, 22, y);
                     ctx.shadowBlur = 0;
-
-                    // Status badge text on the right (before the ▲/▼ buttons)
-                    let statusText = "▶ RUNNING";
-                    if (currentDetailerProgress.status === "detecting") {
-                        statusText = "🔍 DETECTING";
-                    } else if (currentDetailerProgress.status === "inpainting") {
-                        const mCur = currentDetailerProgress.current_mask || 1;
-                        const mTot = currentDetailerProgress.total_masks || 1;
-                        statusText = mTot > 1 ? `⚡ INPAINT ${mCur}/${mTot}` : "⚡ INPAINTING";
-                    } else if (currentDetailerProgress.status === "no_detections") {
-                        statusText = "⚠️ 0 DETECTS";
-                    } else if (currentDetailerProgress.status === "slot_done") {
-                        statusText = "✓ DONE";
-                    }
-
-                    const bTot = currentDetailerProgress.total_batches || 1;
-                    if (bTot > 1) {
-                        const bCur = (currentDetailerProgress.batch_idx || 0) + 1;
-                        statusText = `[${bCur}/${bTot}] ${statusText}`;
-                    }
-
-                    ctx.font = "bold 9px sans-serif";
-                    const badgeW = ctx.measureText(statusText).width + 8;
-                    const badgeX = btnUpX - badgeW - 6;
-
-                    ctx.fillStyle = "rgba(10, 16, 12, 0.94)";
-                    drawRoundedRect(ctx, badgeX, y - 8, badgeW, 16, 3);
-                    ctx.fill();
-
-                    ctx.strokeStyle = `rgba(34, 197, 94, ${0.7 + 0.3 * pulse})`;
-                    ctx.lineWidth = 1;
-                    drawRoundedRect(ctx, badgeX, y - 8, badgeW, 16, 3);
-                    ctx.stroke();
-
-                    ctx.fillStyle = "#22c55e";
-                    ctx.fillText(statusText, badgeX + 4, y);
 
                     // Continuous animation request while running
                     this.setDirtyCanvas(true, true);

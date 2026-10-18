@@ -5,6 +5,7 @@ import { api } from "../../scripts/api.js";
 
 let currentDetailerProgress = null;
 let listenersRegistered = false;
+let isReorderingSlots = false;
 
 function setupProgressListeners() {
     if (listenersRegistered) {
@@ -61,7 +62,7 @@ function drawRoundedRect(ctx, x, y, width, height, radius) {
         ctx.lineTo(x + radius, y + height);
         ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
         ctx.lineTo(x, y + radius);
-        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.quadraticCurveTo(x, y + x + radius, y);
         ctx.closePath();
     }
 }
@@ -231,10 +232,11 @@ app.registerExtension({
 
         /**
          * Ensure there is always exactly one unconnected slot at the end.
-         * - If every slot is connected → append slot_(N+1)
-         * - If 2+ trailing slots are unconnected → remove the last one (keep ≥ 1)
          */
         function syncSlots(node) {
+            if (isReorderingSlots) {
+                return;
+            }
             const slotInputs = getSlotInputs(node);
             if (slotInputs.length === 0) {
                 node.addInput("slot_1", "DETAILER_SLOT");
@@ -263,7 +265,6 @@ app.registerExtension({
                 node.removeInput(idx);
                 updateSlotLabels(node);
                 node.setDirtyCanvas(true, true);
-                // Recurse in case there are more to trim
                 syncSlots(node);
             } else {
                 updateSlotLabels(node);
@@ -271,197 +272,150 @@ app.registerExtension({
         }
 
         /**
-         * Insert an empty slot at targetInputIdx, shifting all subsequent
-         * connections and custom labels down by one slot.
+         * Snapshot current slot origins and custom labels.
          */
-        function insertEmptySlotAt(node, targetInputIdx) {
+        function getSlotOrigins(node) {
             const slotInputs = getSlotInputs(node);
-            const targetInput = node.inputs[targetInputIdx];
-            const fromIndex = slotInputs.indexOf(targetInput);
-            if (fromIndex === -1) {
-                return;
-            }
-
-            // Ensure we have a trailing empty slot
-            const lastSlot = slotInputs[slotInputs.length - 1];
-            if (lastSlot.link != null) {
-                const nextNum = slotInputs.length + 1;
-                node.addInput(`slot_${nextNum}`, "DETAILER_SLOT");
-            }
-
-            const updatedSlotInputs = getSlotInputs(node);
             node.properties = node.properties || {};
             node.properties.slot_custom_labels = node.properties.slot_custom_labels || {};
 
-            const currentSlotItems = updatedSlotInputs.map(inp => ({
-                link: inp.link,
-                label: inp.label,
-                custom: node.properties.slot_custom_labels[inp.name]
-            }));
-
-            // Insert empty slot at fromIndex
-            currentSlotItems.splice(fromIndex, 0, { link: null, label: undefined, custom: undefined });
-
-            // Assign connections and labels back to slot positions
-            updatedSlotInputs.forEach((inp, i) => {
-                const item = currentSlotItems[i] || { link: null, label: undefined, custom: undefined };
-                const actualIdx = node.inputs.indexOf(inp);
-                inp.link = item.link;
-                inp.label = item.label;
-                if (item.link != null && app.graph?.links?.[item.link]) {
-                    app.graph.links[item.link].target_slot = actualIdx;
+            return slotInputs.map(inp => {
+                if (inp.link == null) {
+                    return null;
                 }
-                if (item.custom) {
-                    node.properties.slot_custom_labels[inp.name] = item.custom;
-                } else {
-                    delete node.properties.slot_custom_labels[inp.name];
+                const link = app.graph?.links?.[inp.link];
+                if (!link) {
+                    return null;
                 }
+                const originNode = app.graph?.getNodeById?.(link.origin_id);
+                if (!originNode) {
+                    return null;
+                }
+                return {
+                    node: originNode,
+                    slot: link.origin_slot,
+                    custom: node.properties.slot_custom_labels[inp.name] || null
+                };
             });
-
-            syncSlots(node);
-            updateSlotLabels(node);
-            node.setDirtyCanvas(true, true);
-            app.graph?.setDirtyCanvas?.(true, true);
         }
 
         /**
-         * Remove slot at targetInputIdx, shifting all subsequent connections up by one.
+         * Reconnect slots cleanly using LiteGraph's native disconnectInput and connect APIs.
+         * Protected by isReorderingSlots flag to avoid premature slot trimming.
          */
-        function removeSlotAndShiftUp(node, targetInputIdx) {
-            const slotInputs = getSlotInputs(node);
-            const targetInput = node.inputs[targetInputIdx];
-            const fromIndex = slotInputs.indexOf(targetInput);
-            if (fromIndex === -1) {
+        function applySlotOrigins(node, newSlotOrigins) {
+            if (isReorderingSlots) {
                 return;
             }
+            isReorderingSlots = true;
 
-            if (targetInput.link != null) {
-                node.disconnectInput(targetInputIdx);
+            try {
+                const slotInputs = getSlotInputs(node);
+
+                // 1. Disconnect all slot inputs cleanly
+                slotInputs.forEach(inp => {
+                    const idx = node.inputs.indexOf(inp);
+                    if (inp.link != null) {
+                        node.disconnectInput(idx);
+                    }
+                });
+
+                // 2. Ensure enough slot inputs exist to hold all origins (plus trailing empty)
+                const nonNullCount = newSlotOrigins.filter(Boolean).length;
+                const requiredSlots = Math.max(newSlotOrigins.length, nonNullCount + 1, 1);
+
+                while (getSlotInputs(node).length < requiredSlots) {
+                    const nextNum = getSlotInputs(node).length + 1;
+                    node.addInput(`slot_${nextNum}`, "DETAILER_SLOT");
+                }
+
+                const currentSlotInputs = getSlotInputs(node);
+                node.properties = node.properties || {};
+                node.properties.slot_custom_labels = node.properties.slot_custom_labels || {};
+
+                // 3. Connect each origin to its new target slot using native connect()
+                newSlotOrigins.forEach((orig, i) => {
+                    const inp = currentSlotInputs[i];
+                    if (!inp) {
+                        return;
+                    }
+                    const actualIdx = node.inputs.indexOf(inp);
+                    const targetSlotIdx = node.findInputSlot ? node.findInputSlot(inp.name) : actualIdx;
+
+                    if (orig && orig.node) {
+                        orig.node.connect(orig.slot, node, targetSlotIdx >= 0 ? targetSlotIdx : actualIdx);
+                        if (orig.custom) {
+                            node.properties.slot_custom_labels[inp.name] = orig.custom;
+                        } else {
+                            delete node.properties.slot_custom_labels[inp.name];
+                        }
+                    } else {
+                        delete node.properties.slot_custom_labels[inp.name];
+                    }
+                });
+            } finally {
+                isReorderingSlots = false;
             }
-
-            node.properties = node.properties || {};
-            node.properties.slot_custom_labels = node.properties.slot_custom_labels || {};
-
-            const currentSlotItems = slotInputs.map(inp => ({
-                link: inp.link,
-                label: inp.label,
-                custom: node.properties.slot_custom_labels[inp.name]
-            }));
-
-            currentSlotItems.splice(fromIndex, 1);
-            currentSlotItems.push({ link: null, label: undefined, custom: undefined });
-
-            slotInputs.forEach((inp, i) => {
-                const item = currentSlotItems[i] || { link: null, label: undefined, custom: undefined };
-                const actualIdx = node.inputs.indexOf(inp);
-                inp.link = item.link;
-                inp.label = item.label;
-                if (item.link != null && app.graph?.links?.[item.link]) {
-                    app.graph.links[item.link].target_slot = actualIdx;
-                }
-                if (item.custom) {
-                    node.properties.slot_custom_labels[inp.name] = item.custom;
-                } else {
-                    delete node.properties.slot_custom_labels[inp.name];
-                }
-            });
 
             syncSlots(node);
             updateSlotLabels(node);
+            if (node.computeSize) {
+                const minSize = node.computeSize();
+                node.size[0] = Math.max(node.size[0], minSize[0]);
+                node.size[1] = Math.max(node.size[1], minSize[1]);
+            }
             node.setDirtyCanvas(true, true);
             app.graph?.setDirtyCanvas?.(true, true);
+            app.graph?.afterChange?.();
         }
 
-        /**
-         * Swap connections, labels, and settings between two slots.
-         */
-        function swapSlots(node, idxA, idxB) {
-            const inputA = node.inputs[idxA];
-            const inputB = node.inputs[idxB];
-            if (!inputA || !inputB) {
+        function insertEmptySlotAt(node, slotNum) {
+            const origins = getSlotOrigins(node);
+            const targetIdx = slotNum - 1;
+            if (targetIdx < 0) {
                 return;
             }
-
-            const linkA = inputA.link;
-            const linkB = inputB.link;
-
-            inputA.link = linkB;
-            inputB.link = linkA;
-
-            if (linkA != null && app.graph?.links?.[linkA]) {
-                app.graph.links[linkA].target_slot = idxB;
-            }
-            if (linkB != null && app.graph?.links?.[linkB]) {
-                app.graph.links[linkB].target_slot = idxA;
-            }
-
-            node.properties = node.properties || {};
-            node.properties.slot_custom_labels = node.properties.slot_custom_labels || {};
-            const customA = node.properties.slot_custom_labels[inputA.name];
-            const customB = node.properties.slot_custom_labels[inputB.name];
-
-            if (customB) {
-                node.properties.slot_custom_labels[inputA.name] = customB;
-            } else {
-                delete node.properties.slot_custom_labels[inputA.name];
-            }
-
-            if (customA) {
-                node.properties.slot_custom_labels[inputB.name] = customA;
-            } else {
-                delete node.properties.slot_custom_labels[inputB.name];
-            }
-
-            syncSlots(node);
-            updateSlotLabels(node);
-            node.setDirtyCanvas(true, true);
-            app.graph?.setDirtyCanvas?.(true, true);
+            origins.splice(targetIdx, 0, null);
+            applySlotOrigins(node, origins);
         }
 
-        /**
-         * Reorder a slot by moving from fromSlotIdx to toSlotIdx in the sequence of slots.
-         */
-        function reorderSlotTo(node, fromActualIdx, toActualIdx) {
-            const slotInputs = getSlotInputs(node);
-            const fromInput = node.inputs[fromActualIdx];
-            const toInput = node.inputs[toActualIdx];
-            const fromIndex = slotInputs.indexOf(fromInput);
-            const toIndex = slotInputs.indexOf(toInput);
-            if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) {
+        function removeSlotAndShiftUp(node, slotNum) {
+            const origins = getSlotOrigins(node);
+            const idx = slotNum - 1;
+            if (idx < 0 || idx >= origins.length) {
+                return;
+            }
+            origins.splice(idx, 1);
+            applySlotOrigins(node, origins);
+        }
+
+        function swapSlots(node, slotNumA, slotNumB) {
+            const origins = getSlotOrigins(node);
+            const idxA = slotNumA - 1;
+            const idxB = slotNumB - 1;
+            if (idxA < 0 || idxA >= origins.length || idxB < 0 || idxB >= origins.length || idxA === idxB) {
                 return;
             }
 
-            node.properties = node.properties || {};
-            node.properties.slot_custom_labels = node.properties.slot_custom_labels || {};
+            const temp = origins[idxA];
+            origins[idxA] = origins[idxB];
+            origins[idxB] = temp;
 
-            const currentSlotItems = slotInputs.map(inp => ({
-                link: inp.link,
-                label: inp.label,
-                custom: node.properties.slot_custom_labels[inp.name]
-            }));
+            applySlotOrigins(node, origins);
+        }
 
-            const [moved] = currentSlotItems.splice(fromIndex, 1);
-            currentSlotItems.splice(toIndex, 0, moved);
+        function reorderSlotTo(node, fromSlotNum, toSlotNum) {
+            const origins = getSlotOrigins(node);
+            const fromIdx = fromSlotNum - 1;
+            const toIdx = toSlotNum - 1;
+            if (fromIdx < 0 || fromIdx >= origins.length || toIdx < 0 || toIdx >= origins.length || fromIdx === toIdx) {
+                return;
+            }
 
-            slotInputs.forEach((inp, i) => {
-                const item = currentSlotItems[i] || { link: null, label: undefined, custom: undefined };
-                const actualIdx = node.inputs.indexOf(inp);
-                inp.link = item.link;
-                inp.label = item.label;
-                if (item.link != null && app.graph?.links?.[item.link]) {
-                    app.graph.links[item.link].target_slot = actualIdx;
-                }
-                if (item.custom) {
-                    node.properties.slot_custom_labels[inp.name] = item.custom;
-                } else {
-                    delete node.properties.slot_custom_labels[inp.name];
-                }
-            });
+            const [moved] = origins.splice(fromIdx, 1);
+            origins.splice(toIdx, 0, moved);
 
-            syncSlots(node);
-            updateSlotLabels(node);
-            node.setDirtyCanvas(true, true);
-            app.graph?.setDirtyCanvas?.(true, true);
+            applySlotOrigins(node, origins);
         }
 
         /**
@@ -485,6 +439,28 @@ app.registerExtension({
             node.setDirtyCanvas(true, true);
         }
 
+        function resolveSlotInput(node, slot) {
+            if (!node || slot == null) {
+                return null;
+            }
+            if (typeof slot === "number") {
+                return node.inputs?.[slot] || null;
+            }
+            if (typeof slot === "string") {
+                return node.inputs?.find(i => i.name === slot) || null;
+            }
+            if (slot.name) {
+                return slot;
+            }
+            if (slot.input) {
+                return slot.input;
+            }
+            if (slot.slot != null && typeof slot.slot === "number") {
+                return node.inputs?.[slot.slot] || null;
+            }
+            return null;
+        }
+
         // --- lifecycle hooks ---
 
         const onNodeCreated = nodeType.prototype.onNodeCreated;
@@ -506,7 +482,9 @@ app.registerExtension({
         const onConnectionsChange = nodeType.prototype.onConnectionsChange;
         nodeType.prototype.onConnectionsChange = function (type, index, connected, link_info) {
             onConnectionsChange?.apply(this, arguments);
-            // LiteGraph.INPUT === 1
+            if (isReorderingSlots) {
+                return;
+            }
             if (type !== 1) {
                 return;
             }
@@ -522,61 +500,62 @@ app.registerExtension({
         const origGetSlotMenuOptions = nodeType.prototype.getSlotMenuOptions;
         nodeType.prototype.getSlotMenuOptions = function (slot) {
             const options = origGetSlotMenuOptions ? origGetSlotMenuOptions.apply(this, arguments) : [];
-            if (!slot || !/^slot_\d+$/.test(slot.name)) {
+            const resolvedInp = resolveSlotInput(this, slot);
+            if (!resolvedInp || !/^slot_\d+$/.test(resolvedInp.name)) {
                 return options;
             }
 
             const slotInputs = getSlotInputs(this);
-            const slotIndex = slotInputs.indexOf(slot);
-            const actualIndex = this.inputs.indexOf(slot);
+            const slotIndex = slotInputs.indexOf(resolvedInp);
+            const slotNum = slotIndex + 1;
+
+            const prevSlot = slotIndex > 0 ? slotInputs[slotIndex - 1] : null;
+            const nextSlot = slotIndex < slotInputs.length - 1 ? slotInputs[slotIndex + 1] : null;
+
+            const prevName = prevSlot ? (prevSlot.label || prevSlot.name).replace(/^\d+:\s*/, "") : "";
+            const nextName = nextSlot ? (nextSlot.label || nextSlot.name).replace(/^\d+:\s*/, "") : "";
 
             const customOptions = [
                 {
-                    content: `➕ Insert Empty Slot Here (Shift Down)`,
-                    callback: () => insertEmptySlotAt(this, actualIndex)
+                    content: `➕ Insert Empty Slot Above #${slotNum} (Shift Down)`,
+                    callback: () => insertEmptySlotAt(this, slotNum)
                 }
             ];
 
             if (slotIndex > 0) {
                 customOptions.push({
-                    content: `▲ Move Slot Up`,
-                    callback: () => {
-                        const prevIdx = this.inputs.indexOf(slotInputs[slotIndex - 1]);
-                        swapSlots(this, prevIdx, actualIndex);
-                    }
+                    content: `▲ Move Up to #${slotNum - 1}${prevName ? ` (Swap with ${prevName})` : ""}`,
+                    callback: () => swapSlots(this, slotNum, slotNum - 1)
                 });
             }
 
             if (slotIndex < slotInputs.length - 1) {
                 customOptions.push({
-                    content: `▼ Move Slot Down`,
-                    callback: () => {
-                        const nextIdx = this.inputs.indexOf(slotInputs[slotIndex + 1]);
-                        swapSlots(this, actualIndex, nextIdx);
-                    }
+                    content: `▼ Move Down to #${slotNum + 1}${nextName ? ` (Swap with ${nextName})` : ""}`,
+                    callback: () => swapSlots(this, slotNum, slotNum + 1)
                 });
             }
 
             customOptions.push({
                 content: `✏️ Rename Display Label...`,
-                callback: () => promptRenameSlot(this, slot)
+                callback: () => promptRenameSlot(this, resolvedInp)
             });
 
-            if (this.properties?.slot_custom_labels?.[slot.name]) {
+            if (this.properties?.slot_custom_labels?.[resolvedInp.name]) {
                 customOptions.push({
                     content: `Reset to Auto-Detected Name`,
                     callback: () => {
-                        delete this.properties.slot_custom_labels[slot.name];
+                        delete this.properties.slot_custom_labels[resolvedInp.name];
                         updateSlotLabels(this);
                         this.setDirtyCanvas(true, true);
                     }
                 });
             }
 
-            if (slot.link != null) {
+            if (resolvedInp.link != null) {
                 customOptions.push({
                     content: `❌ Remove & Shift Up`,
-                    callback: () => removeSlotAndShiftUp(this, actualIndex)
+                    callback: () => removeSlotAndShiftUp(this, slotNum)
                 });
             }
 
@@ -593,22 +572,18 @@ app.registerExtension({
             submenu.push({
                 content: "➕ Insert Slot at #1 (Shift Down)",
                 callback: () => {
-                    if (slotInputs.length > 0) {
-                        const idx = this.inputs.indexOf(slotInputs[0]);
-                        insertEmptySlotAt(this, idx);
-                    }
+                    insertEmptySlotAt(this, 1);
                 }
             });
 
             if (slotInputs.length > 1) {
                 const shiftSub = [];
                 slotInputs.forEach((inp, i) => {
-                    const label = inp.label || inp.name;
+                    const cleanName = (inp.label || inp.name).replace(/^\d+:\s*/, "");
                     shiftSub.push({
-                        content: `Insert above #${i + 1} (${label})`,
+                        content: `Insert above #${i + 1} (${cleanName})`,
                         callback: () => {
-                            const idx = this.inputs.indexOf(inp);
-                            insertEmptySlotAt(this, idx);
+                            insertEmptySlotAt(this, i + 1);
                         }
                     });
                 });
@@ -624,23 +599,22 @@ app.registerExtension({
                 const moveUpSub = [];
                 const moveDownSub = [];
                 slotInputs.forEach((inp, i) => {
+                    const cleanName = (inp.label || inp.name).replace(/^\d+:\s*/, "");
                     if (i > 0) {
+                        const targetCleanName = (slotInputs[i - 1].label || slotInputs[i - 1].name).replace(/^\d+:\s*/, "");
                         moveUpSub.push({
-                            content: `Move #${i + 1} (${inp.label || inp.name}) Up`,
+                            content: `▲ Move #${i + 1} (${cleanName}) Up to #${i} (Swap with ${targetCleanName})`,
                             callback: () => {
-                                const idxA = this.inputs.indexOf(slotInputs[i - 1]);
-                                const idxB = this.inputs.indexOf(inp);
-                                swapSlots(this, idxA, idxB);
+                                swapSlots(this, i + 1, i);
                             }
                         });
                     }
                     if (i < slotInputs.length - 1) {
+                        const targetCleanName = (slotInputs[i + 1].label || slotInputs[i + 1].name).replace(/^\d+:\s*/, "");
                         moveDownSub.push({
-                            content: `Move #${i + 1} (${inp.label || inp.name}) Down`,
+                            content: `▼ Move #${i + 1} (${cleanName}) Down to #${i + 2} (Swap with ${targetCleanName})`,
                             callback: () => {
-                                const idxA = this.inputs.indexOf(inp);
-                                const idxB = this.inputs.indexOf(slotInputs[i + 1]);
-                                swapSlots(this, idxA, idxB);
+                                swapSlots(this, i + 1, i + 2);
                             }
                         });
                     }
@@ -670,17 +644,46 @@ app.registerExtension({
             });
         };
 
-        // --- drag-and-drop slot reordering & visual indicators ---
+        // --- on-node interactive controls: buttons (▲/▼) and drag-and-drop (⠿) ---
 
         const origOnMouseDown = nodeType.prototype.onMouseDown;
         nodeType.prototype.onMouseDown = function (e, localPos, graphCanvas) {
+            if (e.button !== 0) {
+                return origOnMouseDown ? origOnMouseDown.apply(this, arguments) : false;
+            }
             const slotInputs = getSlotInputs(this);
-            if (slotInputs.length > 0 && localPos[0] >= 10 && localPos[0] <= 36) {
+
+            if (slotInputs.length > 0) {
+                const btnW = 16;
+                const btnH = 14;
+                const btnDownX = this.size[0] - 22;
+                const btnUpX = btnDownX - btnW - 3;
+
                 for (let i = 0; i < slotInputs.length; i++) {
                     const inp = slotInputs[i];
+                    const slotNum = i + 1;
                     const actualIdx = this.inputs.indexOf(inp);
                     const pos = this.getConnectionPos(true, actualIdx);
-                    if (Math.abs(localPos[1] - pos[1]) <= 10) {
+                    const slotY = pos[1];
+
+                    // 1. Check direct click on ▲ or ▼ button
+                    if (Math.abs(localPos[1] - slotY) <= 8) {
+                        if (localPos[0] >= btnUpX && localPos[0] <= btnUpX + btnW) {
+                            if (i > 0) {
+                                swapSlots(this, slotNum, slotNum - 1);
+                                return true;
+                            }
+                        }
+                        if (localPos[0] >= btnDownX && localPos[0] <= btnDownX + btnW) {
+                            if (i < slotInputs.length - 1) {
+                                swapSlots(this, slotNum, slotNum + 1);
+                                return true;
+                            }
+                        }
+                    }
+
+                    // 2. Check click on ⠿ drag handle (between socket circle and label)
+                    if (localPos[0] >= 6 && localPos[0] <= 24 && Math.abs(localPos[1] - slotY) <= 8) {
                         this._dragSlot = {
                             fromActualIdx: actualIdx,
                             fromSlotIdx: i,
@@ -693,6 +696,7 @@ app.registerExtension({
                     }
                 }
             }
+
             return origOnMouseDown ? origOnMouseDown.apply(this, arguments) : false;
         };
 
@@ -718,24 +722,42 @@ app.registerExtension({
                 return true;
             }
 
+            // Track hover on ▲ and ▼ buttons
             const slotInputs = getSlotInputs(this);
-            let isOverGrip = false;
-            if (slotInputs.length > 0 && localPos[0] >= 10 && localPos[0] <= 36) {
-                for (let i = 0; i < slotInputs.length; i++) {
-                    const inp = slotInputs[i];
-                    const actualIdx = this.inputs.indexOf(inp);
-                    const pos = this.getConnectionPos(true, actualIdx);
-                    if (Math.abs(localPos[1] - pos[1]) <= 10) {
-                        isOverGrip = true;
-                        this._hoveredSlotIdx = i;
+            let hoveredBtn = null;
+            let hoveredSlot = null;
+
+            for (let i = 0; i < slotInputs.length; i++) {
+                const inp = slotInputs[i];
+                const actualIdx = this.inputs.indexOf(inp);
+                const pos = this.getConnectionPos(true, actualIdx);
+                const slotY = pos[1];
+                const btnW = 16;
+                const btnH = 14;
+                const btnDownX = this.size[0] - 22;
+                const btnUpX = btnDownX - btnW - 3;
+
+                if (Math.abs(localPos[1] - slotY) <= 8) {
+                    if (localPos[0] >= btnUpX && localPos[0] <= btnUpX + btnW) {
+                        hoveredBtn = { slotNum: i + 1, dir: "up" };
+                        break;
+                    }
+                    if (localPos[0] >= btnDownX && localPos[0] <= btnDownX + btnW) {
+                        hoveredBtn = { slotNum: i + 1, dir: "down" };
+                        break;
+                    }
+                    if (localPos[0] >= 6 && localPos[0] <= 24) {
+                        hoveredSlot = i;
                         break;
                     }
                 }
             }
-            if (!isOverGrip && this._hoveredSlotIdx != null) {
-                this._hoveredSlotIdx = null;
-                this.setDirtyCanvas(true, true);
-            } else if (isOverGrip) {
+
+            const changed = (this._hoveredBtn?.slotNum !== hoveredBtn?.slotNum || this._hoveredBtn?.dir !== hoveredBtn?.dir) ||
+                            (this._hoveredSlotIdx !== hoveredSlot);
+            if (changed) {
+                this._hoveredBtn = hoveredBtn;
+                this._hoveredSlotIdx = hoveredSlot;
                 this.setDirtyCanvas(true, true);
             }
 
@@ -745,16 +767,14 @@ app.registerExtension({
         const origOnMouseUp = nodeType.prototype.onMouseUp;
         nodeType.prototype.onMouseUp = function (e, localPos, graphCanvas) {
             if (this._dragSlot) {
-                const slotInputs = getSlotInputs(this);
-                const fromActualIdx = this._dragSlot.fromActualIdx;
-                const targetSlot = slotInputs[this._dragSlot.hoverTargetIdx];
-                const targetActualIdx = targetSlot ? this.inputs.indexOf(targetSlot) : null;
+                const fromSlotNum = this._dragSlot.fromSlotIdx + 1;
+                const toSlotNum = this._dragSlot.hoverTargetIdx + 1;
 
                 this._dragSlot = null;
                 this.setDirtyCanvas(true, true);
 
-                if (targetActualIdx != null && fromActualIdx !== targetActualIdx) {
-                    reorderSlotTo(this, fromActualIdx, targetActualIdx);
+                if (fromSlotNum !== toSlotNum) {
+                    reorderSlotTo(this, fromSlotNum, toSlotNum);
                 }
                 return true;
             }
@@ -782,18 +802,64 @@ app.registerExtension({
 
             ctx.save();
 
-            // 1. Draw grip handles for each slot
+            const btnW = 16;
+            const btnH = 14;
+            const btnDownX = this.size[0] - 22;
+            const btnUpX = btnDownX - btnW - 3;
+
+            // 1. Draw on-node controls (⠿ drag handle and ▲/▼ buttons) for each slot
             for (let i = 0; i < slotInputs.length; i++) {
                 const inp = slotInputs[i];
+                const slotNum = i + 1;
                 const actualIdx = this.inputs.indexOf(inp);
                 const pos = this.getConnectionPos(true, actualIdx);
-                const y = pos[1];
-                const isHovered = (this._hoveredSlotIdx === i) || (this._dragSlot && this._dragSlot.fromSlotIdx === i);
+                const slotY = pos[1];
 
-                ctx.fillStyle = isHovered ? "#22c55e" : "rgba(255, 255, 255, 0.3)";
-                ctx.fillRect(16, y - 4, 8, 2);
-                ctx.fillRect(16, y - 1, 8, 2);
-                ctx.fillRect(16, y + 2, 8, 2);
+                const isConnected = inp.link != null;
+                const canMoveUp = i > 0;
+                const canMoveDown = i < slotInputs.length - 1;
+
+                // ⠿ Drag Handle icon (LoRA style)
+                const isGripHover = this._hoveredSlotIdx === i || (this._dragSlot && this._dragSlot.fromSlotIdx === i);
+                ctx.font = "bold 13px sans-serif";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillStyle = isGripHover ? "#22c55e" : "rgba(255, 255, 255, 0.28)";
+                ctx.fillText("⠿", 14, slotY);
+
+                // ▲ and ▼ Move buttons
+                if (isConnected || (i < slotInputs.length - 1 && slotInputs[i + 1].link != null)) {
+                    const btnY = slotY - btnH / 2;
+
+                    // ▲ UP button
+                    const isUpHover = this._hoveredBtn?.slotNum === slotNum && this._hoveredBtn?.dir === "up";
+                    ctx.fillStyle = isUpHover ? "rgba(34, 197, 94, 0.45)" : "rgba(255, 255, 255, 0.08)";
+                    drawRoundedRect(ctx, btnUpX, btnY, btnW, btnH, 3);
+                    ctx.fill();
+                    ctx.strokeStyle = isUpHover ? "#22c55e" : "rgba(255, 255, 255, 0.18)";
+                    ctx.lineWidth = 1;
+                    drawRoundedRect(ctx, btnUpX, btnY, btnW, btnH, 3);
+                    ctx.stroke();
+
+                    ctx.font = "bold 9px sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillStyle = canMoveUp ? (isUpHover ? "#22c55e" : "#e2e8f0") : "rgba(255, 255, 255, 0.25)";
+                    ctx.fillText("▲", btnUpX + btnW / 2, slotY);
+
+                    // ▼ DOWN button
+                    const isDownHover = this._hoveredBtn?.slotNum === slotNum && this._hoveredBtn?.dir === "down";
+                    ctx.fillStyle = isDownHover ? "rgba(34, 197, 94, 0.45)" : "rgba(255, 255, 255, 0.08)";
+                    drawRoundedRect(ctx, btnDownX, btnY, btnW, btnH, 3);
+                    ctx.fill();
+                    ctx.strokeStyle = isDownHover ? "#22c55e" : "rgba(255, 255, 255, 0.18)";
+                    ctx.lineWidth = 1;
+                    drawRoundedRect(ctx, btnDownX, btnY, btnW, btnH, 3);
+                    ctx.stroke();
+
+                    ctx.fillStyle = canMoveDown ? (isDownHover ? "#22c55e" : "#e2e8f0") : "rgba(255, 255, 255, 0.25)";
+                    ctx.fillText("▼", btnDownX + btnW / 2, slotY);
+                }
             }
 
             // 2. Draw drag indicator line and floating pill when dragging
@@ -822,9 +888,32 @@ app.registerExtension({
                 }
             }
 
-            // 3. Highlight currently executing slot row if this node is running
-            if (currentDetailerProgress && String(currentDetailerProgress.allinone_node_id) === String(this.id)) {
-                const activeInp = slotInputs.find(inp => inp.name === currentDetailerProgress.slot_name);
+            // 3. Highlight and glow currently executing slot on this node
+            const isThisDetailerActive = currentDetailerProgress && (
+                String(currentDetailerProgress.allinone_node_id) === String(this.id) ||
+                !currentDetailerProgress.allinone_node_id
+            );
+
+            if (isThisDetailerActive) {
+                const activeInp = slotInputs.find(inp => {
+                    if (currentDetailerProgress.slot_name && inp.name === currentDetailerProgress.slot_name) {
+                        return true;
+                    }
+                    if (currentDetailerProgress.slot_index != null) {
+                        const slotNum = parseInt(inp.name.replace("slot_", ""), 10);
+                        if (slotNum === currentDetailerProgress.slot_index) {
+                            return true;
+                        }
+                    }
+                    if (currentDetailerProgress.source_node_id && inp.link != null) {
+                        const link = app.graph?.links?.[inp.link];
+                        if (link && String(link.origin_id) === String(currentDetailerProgress.source_node_id)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                });
+
                 if (activeInp) {
                     const actualIdx = this.inputs.indexOf(activeInp);
                     const pos = this.getConnectionPos(true, actualIdx);
@@ -832,19 +921,50 @@ app.registerExtension({
 
                     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
 
-                    // Row background glow
-                    ctx.fillStyle = `rgba(34, 197, 94, ${0.12 + 0.14 * pulse})`;
-                    drawRoundedRect(ctx, 8, y - 9, this.size[0] - 16, 18, 4);
+                    // Row background glow band
+                    ctx.fillStyle = `rgba(34, 197, 94, ${0.14 + 0.14 * pulse})`;
+                    drawRoundedRect(ctx, 4, y - 9, this.size[0] - 8, 18, 4);
                     ctx.fill();
+
+                    ctx.strokeStyle = `rgba(34, 197, 94, ${0.5 + 0.5 * pulse})`;
+                    ctx.lineWidth = 1;
+                    drawRoundedRect(ctx, 4, y - 9, this.size[0] - 8, 18, 4);
+                    ctx.stroke();
 
                     // Left vertical glowing accent marker
                     ctx.fillStyle = "#22c55e";
                     ctx.shadowColor = "#22c55e";
                     ctx.shadowBlur = 8 + 6 * pulse;
-                    ctx.fillRect(8, y - 9, 3, 18);
+                    ctx.fillRect(4, y - 9, 3, 18);
+
+                    // Glowing socket circle terminal
+                    ctx.fillStyle = "#22c55e";
+                    ctx.shadowBlur = 10 + 6 * pulse;
+                    ctx.beginPath();
+                    ctx.arc(0, y, 5, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // THE GLOWING SLOT NAME
+                    const labelText = activeInp.label || activeInp.name;
+                    ctx.font = "bold 12px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+                    ctx.textAlign = "left";
+                    ctx.textBaseline = "middle";
+
+                    // Layer 1: Vibrant green neon aura
+                    ctx.shadowColor = "#22c55e";
+                    ctx.shadowBlur = 12 + 8 * pulse;
+                    ctx.fillStyle = "#4ade80";
+                    ctx.fillText(labelText, 22, y);
+                    ctx.fillText(labelText, 22, y);
+
+                    // Layer 2: High-luminance crisp white core
+                    ctx.shadowColor = "#ffffff";
+                    ctx.shadowBlur = 2;
+                    ctx.fillStyle = "#ffffff";
+                    ctx.fillText(labelText, 22, y);
                     ctx.shadowBlur = 0;
 
-                    // Status badge text on the right
+                    // Status badge text on the right (before the ▲/▼ buttons)
                     let statusText = "▶ RUNNING";
                     if (currentDetailerProgress.status === "detecting") {
                         statusText = "🔍 DETECTING";
@@ -865,19 +985,20 @@ app.registerExtension({
                     }
 
                     ctx.font = "bold 9px sans-serif";
-                    const badgeW = ctx.measureText(statusText).width + 10;
-                    const badgeX = this.size[0] - badgeW - 12;
+                    const badgeW = ctx.measureText(statusText).width + 8;
+                    const badgeX = btnUpX - badgeW - 6;
 
-                    ctx.fillStyle = "rgba(10, 16, 12, 0.92)";
+                    ctx.fillStyle = "rgba(10, 16, 12, 0.94)";
                     drawRoundedRect(ctx, badgeX, y - 8, badgeW, 16, 3);
                     ctx.fill();
 
-                    ctx.strokeStyle = `rgba(34, 197, 94, ${0.6 + 0.4 * pulse})`;
+                    ctx.strokeStyle = `rgba(34, 197, 94, ${0.7 + 0.3 * pulse})`;
                     ctx.lineWidth = 1;
+                    drawRoundedRect(ctx, badgeX, y - 8, badgeW, 16, 3);
                     ctx.stroke();
 
                     ctx.fillStyle = "#22c55e";
-                    ctx.fillText(statusText, badgeX + 5, y + 4);
+                    ctx.fillText(statusText, badgeX + 4, y);
 
                     // Continuous animation request while running
                     this.setDirtyCanvas(true, true);

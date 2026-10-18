@@ -582,20 +582,16 @@ function setupClassicCanvasDecorator() {
 function getNodeVisualBounds(node) {
     if (!node || !node.pos || !node.size) return null;
 
-    let titleH = 0;
-    if (node.flags?.collapsed) {
-        titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
-    } else {
-        const baseH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
-        titleH = Math.max(30, baseH);
-    }
+    const baseTitleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+    const isCollapsed = Boolean(node.flags?.collapsed);
+    const titleH = Math.max(30, baseTitleH);
 
     const x = node.pos[0];
-    const y = node.pos[1];
-    const w = node.flags?.collapsed
+    const y = node.pos[1] - titleH;
+    const w = isCollapsed
         ? (node._collapsed_width || (typeof LiteGraph !== "undefined" && LiteGraph.NODE_COLLAPSED_WIDTH) || 80)
         : node.size[0];
-    const h = node.flags?.collapsed ? titleH : node.size[1];
+    const h = isCollapsed ? titleH : (node.size[1] + titleH);
 
     return {
         x,
@@ -604,7 +600,8 @@ function getNodeVisualBounds(node) {
         h,
         right: x + w,
         bottom: y + h,
-        titleOffset: 0
+        titleH,
+        isCollapsed
     };
 }
 
@@ -1003,8 +1000,7 @@ function setupNodeEdgeDocking() {
             // ── 1. Vertical Snapping (Top & Bottom Docking + Y Alignments) ─────────
             if (hDist <= _snapThreshold * 2) {
                 // A. Dock Top: Primary Bottom flush to Other Top (- gap)
-                const targetY_top = oBounds.y - primary.size[1] - gap;
-                const dY_top = targetY_top - primary.pos[1];
+                const dY_top = (oBounds.y - gap) - pBounds.bottom;
                 if (Math.abs(dY_top) < minDiffY) {
                     minDiffY = Math.abs(dY_top);
                     bestSnapY = dY_top;
@@ -1017,8 +1013,7 @@ function setupNodeEdgeDocking() {
                 }
 
                 // B. Dock Bottom: Primary Top flush to Other Bottom (+ gap)
-                const targetY_bottom = oBounds.bottom + gap;
-                const dY_bottom = targetY_bottom - primary.pos[1];
+                const dY_bottom = (oBounds.bottom + gap) - pBounds.y;
                 if (Math.abs(dY_bottom) < minDiffY) {
                     minDiffY = Math.abs(dY_bottom);
                     bestSnapY = dY_bottom;
@@ -1031,8 +1026,7 @@ function setupNodeEdgeDocking() {
                 }
 
                 // C. Align Top: Primary Top to Other Top
-                const targetY_alignTop = oBounds.y;
-                const dY_alignTop = targetY_alignTop - primary.pos[1];
+                const dY_alignTop = oBounds.y - pBounds.y;
                 if (Math.abs(dY_alignTop) < minDiffY) {
                     minDiffY = Math.abs(dY_alignTop);
                     bestSnapY = dY_alignTop;
@@ -1045,14 +1039,12 @@ function setupNodeEdgeDocking() {
                 }
 
                 // D. Align Center-Y: Primary Center-Y to Other Center-Y
-                const oCenterY = oBounds.y + oBounds.h / 2;
-                const pCenterY = pBounds.y + pBounds.h / 2;
-                const dY_alignCenter = oCenterY - pCenterY;
+                const dY_alignCenter = (oBounds.y + oBounds.h / 2) - (pBounds.y + pBounds.h / 2);
                 if (Math.abs(dY_alignCenter) < minDiffY) {
                     minDiffY = Math.abs(dY_alignCenter);
                     bestSnapY = dY_alignCenter;
                     snapGuideY = {
-                        y: oCenterY,
+                        y: oBounds.y + oBounds.h / 2,
                         x1: Math.min(pBounds.x, oBounds.x) - 12,
                         x2: Math.max(pBounds.right, oBounds.right) + 12,
                         type: "align_center_y"
@@ -1060,8 +1052,7 @@ function setupNodeEdgeDocking() {
                 }
 
                 // E. Align Bottom: Primary Bottom to Other Bottom
-                const targetPrimaryPos1_alignBottom = oBounds.bottom - primary.size[1];
-                const dY_alignBottom = targetPrimaryPos1_alignBottom - primary.pos[1];
+                const dY_alignBottom = oBounds.bottom - pBounds.bottom;
                 if (Math.abs(dY_alignBottom) < minDiffY) {
                     minDiffY = Math.abs(dY_alignBottom);
                     bestSnapY = dY_alignBottom;
@@ -1078,8 +1069,7 @@ function setupNodeEdgeDocking() {
             // Eligible if in vertical proximity (overlapping or close to same row)
             if (vDist <= _snapThreshold * 2) {
                 // A. Dock Left: Primary Right flush to Other Left (- gap)
-                const targetX_left = oBounds.x - pBounds.w - gap;
-                const dX_left = targetX_left - primary.pos[0];
+                const dX_left = (oBounds.x - gap) - pBounds.right;
                 if (Math.abs(dX_left) < minDiffX) {
                     minDiffX = Math.abs(dX_left);
                     bestSnapX = dX_left;
@@ -1092,8 +1082,7 @@ function setupNodeEdgeDocking() {
                 }
 
                 // B. Dock Right: Primary Left flush to Other Right (+ gap)
-                const targetX_right = oBounds.right + gap;
-                const dX_right = targetX_right - primary.pos[0];
+                const dX_right = (oBounds.right + gap) - pBounds.x;
                 if (Math.abs(dX_right) < minDiffX) {
                     minDiffX = Math.abs(dX_right);
                     bestSnapX = dX_right;
@@ -1106,8 +1095,7 @@ function setupNodeEdgeDocking() {
                 }
 
                 // C. Align Left: Primary Left to Other Left
-                const targetX_alignLeft = oBounds.x;
-                const dX_alignLeft = targetX_alignLeft - primary.pos[0];
+                const dX_alignLeft = oBounds.x - pBounds.x;
                 if (Math.abs(dX_alignLeft) < minDiffX) {
                     minDiffX = Math.abs(dX_alignLeft);
                     bestSnapX = dX_alignLeft;
@@ -1120,8 +1108,7 @@ function setupNodeEdgeDocking() {
                 }
 
                 // D. Align Center-X: Primary Center-X to Other Center-X
-                const targetX_alignCenter = oBounds.x + (oBounds.w - pBounds.w) / 2;
-                const dX_alignCenter = targetX_alignCenter - primary.pos[0];
+                const dX_alignCenter = (oBounds.x + oBounds.w / 2) - (pBounds.x + pBounds.w / 2);
                 if (Math.abs(dX_alignCenter) < minDiffX) {
                     minDiffX = Math.abs(dX_alignCenter);
                     bestSnapX = dX_alignCenter;
@@ -1134,8 +1121,7 @@ function setupNodeEdgeDocking() {
                 }
 
                 // E. Align Right: Primary Right to Other Right
-                const targetX_alignRight = oBounds.right - pBounds.w;
-                const dX_alignRight = targetX_alignRight - primary.pos[0];
+                const dX_alignRight = oBounds.right - pBounds.right;
                 if (Math.abs(dX_alignRight) < minDiffX) {
                     minDiffX = Math.abs(dX_alignRight);
                     bestSnapX = dX_alignRight;

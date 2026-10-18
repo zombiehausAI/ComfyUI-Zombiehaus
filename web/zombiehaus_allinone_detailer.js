@@ -1,9 +1,148 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
+
+// --- Global Progress Tracking ---
+
+let currentDetailerProgress = null;
+let listenersRegistered = false;
+
+function setupProgressListeners() {
+    if (listenersRegistered) {
+        return;
+    }
+    listenersRegistered = true;
+
+    api.addEventListener("zombiehaus_detailer_progress", (event) => {
+        const data = event.detail;
+        if (!data) {
+            return;
+        }
+
+        if (data.status === "done" || data.slot_index == null) {
+            currentDetailerProgress = null;
+        } else {
+            currentDetailerProgress = {
+                ...data,
+                timestamp: performance.now()
+            };
+        }
+        app.graph?.setDirtyCanvas?.(true, true);
+    });
+
+    api.addEventListener("executing", (event) => {
+        const executingNodeId = event.detail;
+        if (executingNodeId == null) {
+            if (currentDetailerProgress) {
+                currentDetailerProgress = null;
+                app.graph?.setDirtyCanvas?.(true, true);
+            }
+        }
+    });
+
+    api.addEventListener("execution_error", () => {
+        if (currentDetailerProgress) {
+            currentDetailerProgress = null;
+            app.graph?.setDirtyCanvas?.(true, true);
+        }
+    });
+}
+
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+    if (typeof ctx.roundRect === "function") {
+        ctx.beginPath();
+        ctx.roundRect(x, y, width, height, radius);
+    } else {
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        ctx.lineTo(x + width, y + height - radius);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        ctx.lineTo(x + radius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+    }
+}
 
 app.registerExtension({
     name: "zombiehaus.AllInOneDetailer",
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
+        setupProgressListeners();
+
+        // -------------------------------------------------------------------
+        // DetailerSlot Node Hooks (Highlighting the active slot node)
+        // -------------------------------------------------------------------
+        if (nodeData.name === "ZombiehausDetailerSlot") {
+            const origSlotDraw = nodeType.prototype.onDrawForeground;
+            nodeType.prototype.onDrawForeground = function (ctx) {
+                const r = origSlotDraw ? origSlotDraw.apply(this, arguments) : undefined;
+                if (this.flags?.collapsed) {
+                    return r;
+                }
+
+                if (currentDetailerProgress && String(currentDetailerProgress.source_node_id) === String(this.id)) {
+                    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
+                    const alpha = 0.45 + 0.45 * pulse;
+
+                    ctx.save();
+                    // 1. Glowing outer halo border
+                    ctx.strokeStyle = `rgba(34, 197, 94, ${alpha})`;
+                    ctx.lineWidth = 3 + 2 * pulse;
+                    ctx.shadowColor = "#22c55e";
+                    ctx.shadowBlur = 14 + 10 * pulse;
+                    drawRoundedRect(ctx, -4, -4, this.size[0] + 8, this.size[1] + 8, 8);
+                    ctx.stroke();
+
+                    // 2. Floating status pill badge atop the node
+                    ctx.shadowBlur = 0;
+                    let statusLabel = "▶ RUNNING";
+                    if (currentDetailerProgress.status === "detecting") {
+                        statusLabel = "🔍 DETECTING";
+                    } else if (currentDetailerProgress.status === "inpainting") {
+                        const mCur = currentDetailerProgress.current_mask || 1;
+                        const mTot = currentDetailerProgress.total_masks || 1;
+                        statusLabel = mTot > 1 ? `⚡ INPAINTING (${mCur}/${mTot})` : "⚡ INPAINTING";
+                    } else if (currentDetailerProgress.status === "no_detections") {
+                        statusLabel = "⚠️ 0 DETECTIONS";
+                    }
+
+                    const bIdx = (currentDetailerProgress.batch_idx || 0) + 1;
+                    const bTot = currentDetailerProgress.total_batches || 1;
+                    const batchPrefix = bTot > 1 ? `[IMG ${bIdx}/${bTot}] ` : "";
+                    const fullBadgeText = `${batchPrefix}${statusLabel} (SLOT #${currentDetailerProgress.slot_index})`;
+
+                    ctx.font = "bold 10px sans-serif";
+                    const pillW = ctx.measureText(fullBadgeText).width + 18;
+                    const pillX = (this.size[0] - pillW) / 2;
+                    const pillY = -24;
+
+                    ctx.fillStyle = "rgba(12, 20, 15, 0.94)";
+                    drawRoundedRect(ctx, pillX, pillY, pillW, 18, 4);
+                    ctx.fill();
+
+                    ctx.strokeStyle = "#22c55e";
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+
+                    ctx.fillStyle = "#22c55e";
+                    ctx.fillText(fullBadgeText, pillX + 9, pillY + 13);
+
+                    ctx.restore();
+
+                    // Keep pulse breathing
+                    this.setDirtyCanvas(true, true);
+                }
+                return r;
+            };
+            return;
+        }
+
+        // -------------------------------------------------------------------
+        // AllInOneDetailer Main Node Hooks
+        // -------------------------------------------------------------------
         if (nodeData.name !== "ZombiehausAllInOneDetailer") {
             return;
         }
@@ -665,6 +804,68 @@ app.registerExtension({
                     ctx.fillRect(12, this._dragSlot.currentY - 11, textW + 14, 20);
                     ctx.fillStyle = "#000";
                     ctx.fillText(labelText, 18, this._dragSlot.currentY + 3);
+                }
+            }
+
+            // 3. Highlight currently executing slot row if this node is running
+            if (currentDetailerProgress && String(currentDetailerProgress.allinone_node_id) === String(this.id)) {
+                const activeInp = slotInputs.find(inp => inp.name === currentDetailerProgress.slot_name);
+                if (activeInp) {
+                    const actualIdx = this.inputs.indexOf(activeInp);
+                    const pos = this.getConnectionPos(true, actualIdx);
+                    const y = pos[1];
+
+                    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
+
+                    // Row background glow
+                    ctx.fillStyle = `rgba(34, 197, 94, ${0.12 + 0.14 * pulse})`;
+                    drawRoundedRect(ctx, 8, y - 9, this.size[0] - 16, 18, 4);
+                    ctx.fill();
+
+                    // Left vertical glowing accent marker
+                    ctx.fillStyle = "#22c55e";
+                    ctx.shadowColor = "#22c55e";
+                    ctx.shadowBlur = 8 + 6 * pulse;
+                    ctx.fillRect(8, y - 9, 3, 18);
+                    ctx.shadowBlur = 0;
+
+                    // Status badge text on the right
+                    let statusText = "▶ RUNNING";
+                    if (currentDetailerProgress.status === "detecting") {
+                        statusText = "🔍 DETECTING";
+                    } else if (currentDetailerProgress.status === "inpainting") {
+                        const mCur = currentDetailerProgress.current_mask || 1;
+                        const mTot = currentDetailerProgress.total_masks || 1;
+                        statusText = mTot > 1 ? `⚡ INPAINT ${mCur}/${mTot}` : "⚡ INPAINTING";
+                    } else if (currentDetailerProgress.status === "no_detections") {
+                        statusText = "⚠️ 0 DETECTS";
+                    } else if (currentDetailerProgress.status === "slot_done") {
+                        statusText = "✓ DONE";
+                    }
+
+                    const bTot = currentDetailerProgress.total_batches || 1;
+                    if (bTot > 1) {
+                        const bCur = (currentDetailerProgress.batch_idx || 0) + 1;
+                        statusText = `[${bCur}/${bTot}] ${statusText}`;
+                    }
+
+                    ctx.font = "bold 9px sans-serif";
+                    const badgeW = ctx.measureText(statusText).width + 10;
+                    const badgeX = this.size[0] - badgeW - 12;
+
+                    ctx.fillStyle = "rgba(10, 16, 12, 0.92)";
+                    drawRoundedRect(ctx, badgeX, y - 8, badgeW, 16, 3);
+                    ctx.fill();
+
+                    ctx.strokeStyle = `rgba(34, 197, 94, ${0.6 + 0.4 * pulse})`;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+
+                    ctx.fillStyle = "#22c55e";
+                    ctx.fillText(statusText, badgeX + 5, y + 4);
+
+                    // Continuous animation request while running
+                    this.setDirtyCanvas(true, true);
                 }
             }
 

@@ -77,6 +77,20 @@ The main processing node. Accepts a pipe carrying model/clip/vae/conditioning pl
 
 ---
 
+### Real-Time Execution Highlighting
+
+When generation runs, the detailer pipeline provides live visual feedback across both nodes:
+
+1. **Active Slot Row Highlighting (on All-in-One Detailer)**:
+   - The slot row currently being processed lights up with a pulsing neon green background and glowing accent bar.
+   - A real-time status pill displays current progress (e.g. `🔍 DETECTING`, `⚡ INPAINT 1/2`, or `✓ DONE`), including image batch progress (`[1/4]`).
+2. **Active Detailer Slot Node Highlighting (across the Canvas)**:
+   - The specific `ZombiehausDetailerSlot` node that is computing is illuminated with an animated, breathing green outer halo/glow.
+   - A floating status badge appears directly above the slot node (e.g. `⚡ INPAINTING (1/2) (SLOT #1)`), letting you see at a glance from anywhere on the canvas which detailer is currently running.
+   - When processing completes or moves to the next pass, the highlight seamlessly transitions or turns off automatically.
+
+---
+
 ### Batch Processing
 
 `ZombiehausAllInOneDetailer` supports batched input tensors (`[B, H, W, 3]`). When a batch is supplied, the node iterates sequentially through each image in the batch:

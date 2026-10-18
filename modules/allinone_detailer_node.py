@@ -14,6 +14,35 @@ from PIL import Image, ImageFilter, ImageDraw
 from nodes import KSampler, VAEEncode, VAEDecode
 
 try:
+    import server
+except ImportError:
+    server = None
+
+
+def _send_progress(allinone_id, slot_idx=None, source_node_id=None, status="idle",
+                   model_name="", detections=0, current_mask=0, total_masks=0,
+                   batch_idx=0, total_batches=1):
+    """Send real-time detailing progress to the frontend via PromptServer WebSocket."""
+    try:
+        if server and hasattr(server, "PromptServer") and server.PromptServer.instance:
+            server.PromptServer.instance.send_sync("zombiehaus_detailer_progress", {
+                "allinone_node_id": str(allinone_id) if allinone_id is not None else None,
+                "slot_index": slot_idx,
+                "slot_name": f"slot_{slot_idx}" if slot_idx is not None else None,
+                "source_node_id": str(source_node_id) if source_node_id is not None else None,
+                "status": status,
+                "model_name": model_name,
+                "detections": detections,
+                "current_mask": current_mask,
+                "total_masks": total_masks,
+                "batch_idx": batch_idx,
+                "total_batches": total_batches,
+            })
+    except Exception:
+        pass
+
+
+try:
     from ultralytics import YOLO
     ULTRALYTICS_AVAILABLE = True
 except ImportError:
@@ -343,6 +372,10 @@ class ZombiehausAllInOneDetailer:
                 # slot_1 is the seed socket; more are added dynamically by the JS frontend
                 "slot_1": ("DETAILER_SLOT",),
             },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+                "prompt": "PROMPT",
+            },
         }
 
     RETURN_TYPES = ("IMAGE", "PIPE")
@@ -353,102 +386,157 @@ class ZombiehausAllInOneDetailer:
     def detail(self, confidence,
                pipe=None, image=None, model=None, clip=None, vae=None,
                positive=None, negative=None, seed=0,
+               unique_id=None, prompt=None,
                **kwargs):
 
-        # Resolve inputs: individual overrides take priority over pipe
-        if pipe is not None:
-            model    = model    if model    is not None else (pipe[0] if len(pipe) > 0 else None)
-            clip     = clip     if clip     is not None else (pipe[1] if len(pipe) > 1 else None)
-            vae      = vae      if vae      is not None else (pipe[2] if len(pipe) > 2 else None)
-            positive = positive if positive is not None else (pipe[3] if len(pipe) > 3 else None)
-            negative = negative if negative is not None else (pipe[4] if len(pipe) > 4 else None)
+        try:
+            # Resolve inputs: individual overrides take priority over pipe
+            if pipe is not None:
+                model    = model    if model    is not None else (pipe[0] if len(pipe) > 0 else None)
+                clip     = clip     if clip     is not None else (pipe[1] if len(pipe) > 1 else None)
+                vae      = vae      if vae      is not None else (pipe[2] if len(pipe) > 2 else None)
+                positive = positive if positive is not None else (pipe[3] if len(pipe) > 3 else None)
+                negative = negative if negative is not None else (pipe[4] if len(pipe) > 4 else None)
 
-        # Validate required fields
-        if image is None:
-            raise ValueError("[AllInOneDetailer] IMAGE is required (wire an image input)")
-        if model is None:
-            raise ValueError("[AllInOneDetailer] MODEL is required (provide via pipe or direct input)")
-        if vae is None:
-            raise ValueError("[AllInOneDetailer] VAE is required (provide via pipe or direct input)")
-        if positive is None:
-            raise ValueError("[AllInOneDetailer] POSITIVE conditioning is required (provide via pipe or direct input)")
-        if negative is None:
-            raise ValueError("[AllInOneDetailer] NEGATIVE conditioning is required (provide via pipe or direct input)")
+            # Validate required fields
+            if image is None:
+                raise ValueError("[AllInOneDetailer] IMAGE is required (wire an image input)")
+            if model is None:
+                raise ValueError("[AllInOneDetailer] MODEL is required (provide via pipe or direct input)")
+            if vae is None:
+                raise ValueError("[AllInOneDetailer] VAE is required (provide via pipe or direct input)")
+            if positive is None:
+                raise ValueError("[AllInOneDetailer] POSITIVE conditioning is required (provide via pipe or direct input)")
+            if negative is None:
+                raise ValueError("[AllInOneDetailer] NEGATIVE conditioning is required (provide via pipe or direct input)")
 
-        # Collect all connected slot_N inputs in order (skip gaps so a
-        # disconnected/disabled slot doesn't block later ones)
-        slots = sorted(
-            [(int(m.group(1)), v)
-             for k, v in kwargs.items()
-             if (m := re.fullmatch(r"slot_(\d+)", k))],
-            key=lambda x: x[0],
-        )
+            # Helper to resolve origin node ID for a given slot name from prompt
+            def get_source_node_id(slot_name):
+                if not prompt or unique_id is None:
+                    return None
+                node_info = prompt.get(str(unique_id), {})
+                inputs_map = node_info.get("inputs", {})
+                link_entry = inputs_map.get(slot_name)
+                if isinstance(link_entry, list) and len(link_entry) > 0:
+                    return str(link_entry[0])
+                return None
 
-        print(f"[AllInOneDetailer] kwargs keys: {list(kwargs.keys())}")
-        slot_summary = ", ".join(
-            f"slot_{i}(enabled="
-            f"{s.get('enabled') if isinstance(s, dict) else 'None'})"
-            for i, s in slots
-        )
-        print(f"[AllInOneDetailer] collected {len(slots)} slot(s): {slot_summary}")
+            # Collect all connected slot_N inputs in order (skip gaps so a
+            # disconnected/disabled slot doesn't block later ones)
+            slots = sorted(
+                [(int(m.group(1)), v)
+                 for k, v in kwargs.items()
+                 if (m := re.fullmatch(r"slot_(\d+)", k))],
+                key=lambda x: x[0],
+            )
 
-        batch_size = image.shape[0]
-        processed_batch = []
+            print(f"[AllInOneDetailer] kwargs keys: {list(kwargs.keys())}")
+            slot_summary = ", ".join(
+                f"slot_{i}(enabled="
+                f"{s.get('enabled') if isinstance(s, dict) else 'None'})"
+                for i, s in slots
+            )
+            print(f"[AllInOneDetailer] collected {len(slots)} slot(s): {slot_summary}")
 
-        for b_idx in range(batch_size):
-            if batch_size > 1:
-                print(f"[AllInOneDetailer] Processing batch item {b_idx + 1}/{batch_size}...")
-            single_tensor = image[b_idx:b_idx + 1]
+            batch_size = image.shape[0]
+            processed_batch = []
 
-            for i, slot in slots:
-                if slot is None:
-                    continue
-                if not slot.get("enabled", True):
-                    continue
-                model_name = slot.get("model", "disabled")
-                if model_name in _SKIP_MODELS:
-                    continue
+            for b_idx in range(batch_size):
+                if batch_size > 1:
+                    print(f"[AllInOneDetailer] Processing batch item {b_idx + 1}/{batch_size}...")
+                single_tensor = image[b_idx:b_idx + 1]
 
-                try:
-                    yolo_model = load_detector_model(model_name)
-                except (FileNotFoundError, RuntimeError) as e:
-                    print(f"[AllInOneDetailer] Slot {i} ({model_name}): failed to load model — {e}")
-                    continue
-
-                slot_positive = slot.get("positive") or positive
-                slot_negative = slot.get("negative") or negative
-
-                pil_image = tensor_to_pil(single_tensor)
-                try:
-                    det_masks = get_detection_masks(yolo_model, pil_image, confidence)
-                except Exception as e:
-                    print(f"[AllInOneDetailer] Slot {i} ({model_name}): detection failed — {e}")
-                    continue
-
-                prefix_log = f" [img {b_idx + 1}/{batch_size}]" if batch_size > 1 else ""
-                print(f"[AllInOneDetailer] Slot {i} ({model_name}){prefix_log}: {len(det_masks)} detections")
-
-                for mask in det_masks:
-                    try:
-                        mask = expand_mask(mask, slot["padding"])
-                        mask = apply_blur(mask, slot["mask_blur"])
-                        item_seed = seed + b_idx
-                        single_tensor = detail_region(
-                            single_tensor, mask,
-                            model, clip, vae,
-                            slot_positive, slot_negative,
-                            item_seed,
-                            slot["steps"], slot["cfg"], slot["denoise"],
-                            slot["sampler"], slot["scheduler"],
-                            blend_feather=slot.get("blend_feather", 16),
-                            context_pad=slot.get("context_pad", 32),
-                        )
-                    except Exception as e:
-                        print(f"[AllInOneDetailer] Slot {i} ({model_name}): inpaint error — {e}")
+                for i, slot in slots:
+                    source_id = get_source_node_id(f"slot_{i}")
+                    if slot is None:
+                        continue
+                    if not slot.get("enabled", True):
+                        continue
+                    model_name = slot.get("model", "disabled")
+                    if model_name in _SKIP_MODELS:
                         continue
 
-            processed_batch.append(single_tensor)
+                    # Notify frontend: detecting phase starting for this slot
+                    _send_progress(
+                        unique_id, slot_idx=i, source_node_id=source_id,
+                        status="detecting", model_name=model_name,
+                        batch_idx=b_idx, total_batches=batch_size
+                    )
 
-        final_tensor = torch.cat(processed_batch, dim=0) if len(processed_batch) > 1 else processed_batch[0]
-        output_pipe = (model, clip, vae, positive, negative)
-        return (final_tensor, output_pipe)
+                    try:
+                        yolo_model = load_detector_model(model_name)
+                    except (FileNotFoundError, RuntimeError) as e:
+                        print(f"[AllInOneDetailer] Slot {i} ({model_name}): failed to load model — {e}")
+                        _send_progress(
+                            unique_id, slot_idx=i, source_node_id=source_id,
+                            status="error", model_name=model_name,
+                            batch_idx=b_idx, total_batches=batch_size
+                        )
+                        continue
+
+                    slot_positive = slot.get("positive") or positive
+                    slot_negative = slot.get("negative") or negative
+
+                    pil_image = tensor_to_pil(single_tensor)
+                    try:
+                        det_masks = get_detection_masks(yolo_model, pil_image, confidence)
+                    except Exception as e:
+                        print(f"[AllInOneDetailer] Slot {i} ({model_name}): detection failed — {e}")
+                        _send_progress(
+                            unique_id, slot_idx=i, source_node_id=source_id,
+                            status="error", model_name=model_name,
+                            batch_idx=b_idx, total_batches=batch_size
+                        )
+                        continue
+
+                    prefix_log = f" [img {b_idx + 1}/{batch_size}]" if batch_size > 1 else ""
+                    print(f"[AllInOneDetailer] Slot {i} ({model_name}){prefix_log}: {len(det_masks)} detections")
+
+                    if len(det_masks) == 0:
+                        _send_progress(
+                            unique_id, slot_idx=i, source_node_id=source_id,
+                            status="no_detections", model_name=model_name,
+                            detections=0, batch_idx=b_idx, total_batches=batch_size
+                        )
+
+                    for m_idx, mask in enumerate(det_masks, start=1):
+                        _send_progress(
+                            unique_id, slot_idx=i, source_node_id=source_id,
+                            status="inpainting", model_name=model_name,
+                            detections=len(det_masks), current_mask=m_idx,
+                            total_masks=len(det_masks),
+                            batch_idx=b_idx, total_batches=batch_size
+                        )
+                        try:
+                            mask = expand_mask(mask, slot["padding"])
+                            mask = apply_blur(mask, slot["mask_blur"])
+                            item_seed = seed + b_idx
+                            single_tensor = detail_region(
+                                single_tensor, mask,
+                                model, clip, vae,
+                                slot_positive, slot_negative,
+                                item_seed,
+                                slot["steps"], slot["cfg"], slot["denoise"],
+                                slot["sampler"], slot["scheduler"],
+                                blend_feather=slot.get("blend_feather", 16),
+                                context_pad=slot.get("context_pad", 32),
+                            )
+                        except Exception as e:
+                            print(f"[AllInOneDetailer] Slot {i} ({model_name}): inpaint error — {e}")
+                            continue
+
+                    _send_progress(
+                        unique_id, slot_idx=i, source_node_id=source_id,
+                        status="slot_done", model_name=model_name,
+                        detections=len(det_masks),
+                        batch_idx=b_idx, total_batches=batch_size
+                    )
+
+                processed_batch.append(single_tensor)
+
+            final_tensor = torch.cat(processed_batch, dim=0) if len(processed_batch) > 1 else processed_batch[0]
+            output_pipe = (model, clip, vae, positive, negative)
+            return (final_tensor, output_pipe)
+        finally:
+            _send_progress(unique_id, status="done")
+

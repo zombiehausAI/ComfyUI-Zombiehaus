@@ -88,47 +88,62 @@ app.registerExtension({
                     const alpha = 0.45 + 0.45 * pulse;
 
                     ctx.save();
-                    // 1. Glowing outer halo border
+                    const titleHeight = (LiteGraph && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+
+                    // 1. Glowing outer halo border wrapping the entire node (including title bar)
                     ctx.strokeStyle = `rgba(34, 197, 94, ${alpha})`;
                     ctx.lineWidth = 3 + 2 * pulse;
                     ctx.shadowColor = "#22c55e";
                     ctx.shadowBlur = 14 + 10 * pulse;
-                    drawRoundedRect(ctx, -4, -4, this.size[0] + 8, this.size[1] + 8, 8);
+                    drawRoundedRect(ctx, -4, -titleHeight - 4, this.size[0] + 8, this.size[1] + titleHeight + 8, 8);
                     ctx.stroke();
 
-                    // 2. Floating status pill badge atop the node
+                    // 2. Floating status pill badge positioned cleanly ABOVE the title bar
                     ctx.shadowBlur = 0;
-                    let statusLabel = "▶ RUNNING";
+                    let statusLabel = "RUNNING";
+                    let statusIcon = "▶";
                     if (currentDetailerProgress.status === "detecting") {
-                        statusLabel = "🔍 DETECTING";
+                        statusLabel = "DETECTING";
+                        statusIcon = "🔍";
                     } else if (currentDetailerProgress.status === "inpainting") {
                         const mCur = currentDetailerProgress.current_mask || 1;
                         const mTot = currentDetailerProgress.total_masks || 1;
-                        statusLabel = mTot > 1 ? `⚡ INPAINTING (${mCur}/${mTot})` : "⚡ INPAINTING";
+                        statusLabel = mTot > 1 ? `INPAINTING (${mCur}/${mTot})` : "INPAINTING";
+                        statusIcon = "⚡";
                     } else if (currentDetailerProgress.status === "no_detections") {
-                        statusLabel = "⚠️ 0 DETECTIONS";
+                        statusLabel = "0 DETECTIONS";
+                        statusIcon = "⚠️";
                     }
 
                     const bIdx = (currentDetailerProgress.batch_idx || 0) + 1;
                     const bTot = currentDetailerProgress.total_batches || 1;
                     const batchPrefix = bTot > 1 ? `[IMG ${bIdx}/${bTot}] ` : "";
-                    const fullBadgeText = `${batchPrefix}${statusLabel} (SLOT #${currentDetailerProgress.slot_index})`;
+                    const fullBadgeText = `${statusIcon} ${batchPrefix}${statusLabel} (SLOT #${currentDetailerProgress.slot_index})`;
 
-                    ctx.font = "bold 10px sans-serif";
-                    const pillW = ctx.measureText(fullBadgeText).width + 18;
+                    ctx.font = "bold 11px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+                    const textMetrics = ctx.measureText(fullBadgeText);
+                    const pillW = textMetrics.width + 22;
+                    const pillH = 22;
                     const pillX = (this.size[0] - pillW) / 2;
-                    const pillY = -24;
+                    // Position clearly above the title bar with a clean 6px air gap
+                    const pillY = -titleHeight - pillH - 6;
 
-                    ctx.fillStyle = "rgba(12, 20, 15, 0.94)";
-                    drawRoundedRect(ctx, pillX, pillY, pillW, 18, 4);
+                    // Solid opaque dark background (no see-through or bleed)
+                    ctx.fillStyle = "#0c140e";
+                    drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 5);
                     ctx.fill();
 
+                    // Glowing accent border around pill
                     ctx.strokeStyle = "#22c55e";
                     ctx.lineWidth = 1.5;
+                    ctx.shadowColor = "#22c55e";
+                    ctx.shadowBlur = 6;
                     ctx.stroke();
+                    ctx.shadowBlur = 0;
 
-                    ctx.fillStyle = "#22c55e";
-                    ctx.fillText(fullBadgeText, pillX + 9, pillY + 13);
+                    // High-contrast text
+                    ctx.fillStyle = "#ffffff";
+                    ctx.fillText(fullBadgeText, pillX + 11, pillY + 15);
 
                     ctx.restore();
 

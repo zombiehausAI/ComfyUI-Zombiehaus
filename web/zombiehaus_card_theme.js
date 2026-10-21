@@ -411,19 +411,66 @@ function findRackContainingNode(node) {
     return null;
 }
 
+function resolveCanvasAndCtx(arg1, arg2) {
+    let ctx = null;
+    let canvas = null;
+    if (arg1 && typeof arg1.save === "function") {
+        ctx = arg1;
+        canvas = arg2;
+    } else if (arg2 && typeof arg2.save === "function") {
+        ctx = arg2;
+        canvas = arg1;
+    }
+    return { ctx, canvas };
+}
+
+function sanitizeGraphGroups(graph) {
+    if (!graph) return;
+    if (graph._nodes && graph._nodes.length > 0) {
+        const misplaced = graph._nodes.filter((n) => n && (n.is_equipment_rack === true || isEquipmentRackGroup(n) || n.is_group));
+        if (misplaced.length > 0) {
+            graph._nodes = graph._nodes.filter((n) => !misplaced.includes(n));
+            if (!graph._groups) graph._groups = [];
+            for (const m of misplaced) {
+                if (graph._nodes_by_id && graph._nodes_by_id[m.id] === m) {
+                    delete graph._nodes_by_id[m.id];
+                }
+                if (!graph._groups.includes(m)) {
+                    graph._groups.push(m);
+                }
+                m.graph = graph;
+            }
+        }
+    }
+}
+
 function createEquipmentRack(canvas, pos) {
-    if (typeof LiteGraph === "undefined" || !app.graph) return null;
-    const GroupClass = LiteGraph.LGraphGroup || (typeof LGraphGroup !== "undefined" && LGraphGroup);
+    if (!app.graph) return null;
+    const GroupClass = (typeof LiteGraph !== "undefined" && LiteGraph.LGraphGroup) || 
+                       (typeof window !== "undefined" && window.LGraphGroup) || 
+                       (typeof LGraphGroup !== "undefined" && LGraphGroup);
     if (!GroupClass) return null;
 
     const mousePos = pos || (canvas && canvas.graph_mouse) || [200, 200];
     const rack = new GroupClass("🗄️ Equipment Rack");
     rack.is_equipment_rack = true;
+    rack.is_group = true;
     rack.pos = [Math.round(mousePos[0]), Math.round(mousePos[1])];
     rack.size = [320, 240];
     rack.color = "#181825";
 
-    app.graph.add(rack);
+    try {
+        app.graph.add(rack);
+    } catch (_) {}
+
+    // Guarantee it is in _groups and purged from _nodes
+    sanitizeGraphGroups(app.graph);
+    if (!app.graph._groups) app.graph._groups = [];
+    if (!app.graph._groups.includes(rack)) {
+        app.graph._groups.push(rack);
+    }
+    rack.graph = app.graph;
+
     if (canvas) canvas.setDirty(true, true);
     showDockingToast("🗄️ Created Equipment Rack. Drag minimized nodes here to slot them!");
     return rack;
@@ -503,14 +550,24 @@ function rackAllMinimizedNodes(canvas) {
 
 function sendNodeToNearestRack(node, canvas) {
     if (!node) return;
-    const groups = app.graph?._groups || [];
-    let rack = groups.find((g) => isEquipmentRackGroup(g));
-    if (!rack) {
-        rack = createEquipmentRack(canvas, [node.pos[0] - 20, node.pos[1] - 50]);
+    const groups = (app.graph?._groups || []).filter((g) => isEquipmentRackGroup(g));
+    let nearestRack = null;
+    let minDist = Infinity;
+    for (const g of groups) {
+        const dx = (g.pos[0] + g.size[0] / 2) - (node.pos[0] + (node.size[0] || 100) / 2);
+        const dy = (g.pos[1] + g.size[1] / 2) - (node.pos[1] + 15);
+        const dist = Math.hypot(dx, dy);
+        if (dist < minDist) {
+            minDist = dist;
+            nearestRack = g;
+        }
     }
-    if (rack) {
-        slotNodesIntoRack(rack, [node], canvas);
-        showDockingToast(`🗄️ Slotted "${node.title || node.type}" into Equipment Rack`);
+    if (!nearestRack) {
+        nearestRack = createEquipmentRack(canvas, [node.pos[0] - 20, node.pos[1] - 50]);
+    }
+    if (nearestRack) {
+        slotNodesIntoRack(nearestRack, [node], canvas);
+        showDockingToast(`🗄️ Slotted "${node.title || node.type}" into ${nearestRack.title || "Equipment Rack"}`);
     }
 }
 
@@ -526,14 +583,275 @@ function detachNodeFromRack(node, canvas) {
     showDockingToast(`🗄️ Detached "${node.title || node.type}" from Rack`);
 }
 
-function drawEquipmentRackChassis(group, ctx, canvas) {
-    if (!group || !group.pos || !group.size) return;
-    const x = group.pos[0];
-    const y = group.pos[1];
-    const w = group.size[0];
-    const h = group.size[1];
+// ── Mini Patchbay Flyout for Minimized / Racked Nodes ─────────────────────────
+let _activePatchbay = null;
+
+function getSlotTypeColor(type) {
+    if (!type) return "#94a3b8";
+    const t = String(type).toUpperCase();
+    if (t === "MODEL") return "#f59e0b";
+    if (t === "CLIP") return "#eab308";
+    if (t === "VAE") return "#ef4444";
+    if (t === "LATENT") return "#c084fc";
+    if (t === "IMAGE") return "#38bdf8";
+    if (t === "CONDITIONING") return "#ec4899";
+    if (t === "MASK") return "#10b981";
+    if (t === "CONTROL_NET") return "#06b6d4";
+    if (t === "AUDIO") return "#a3e635";
+    if (t === "STRING" || t === "TEXT") return "#22c55e";
+    if (t === "INT" || t === "FLOAT" || t === "NUMBER") return "#60a5fa";
+    if (t === "PIPE_LINE" || t === "PIPE") return "#f43f5e";
+    if (typeof LiteGraph !== "undefined" && LiteGraph.LGraphCanvas && LiteGraph.LGraphCanvas.link_type_colors) {
+        if (LiteGraph.LGraphCanvas.link_type_colors[type]) {
+            return LiteGraph.LGraphCanvas.link_type_colors[type];
+        }
+    }
+    return "#89b4fa";
+}
+
+function findCollapsedNodeUnderPoint(graph, x, y) {
+    if (!graph || !graph._nodes) return null;
+    const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+    for (const n of graph._nodes) {
+        if (!n || !n.flags?.collapsed || !n.pos) continue;
+        const w = n._collapsed_width || (n.size ? n.size[0] : 180);
+        const nx = n.pos[0];
+        const ny = n.pos[1];
+        if (x >= nx - 20 && x <= nx + w + 20 && y >= ny - titleH - 15 && y <= ny + titleH + 15) {
+            return n;
+        }
+    }
+    return null;
+}
+
+function openPatchbayForNode(node, isInput, canvas) {
+    if (!node) return;
+    const slots = isInput ? (node.inputs || []) : (node.outputs || []);
+    if (slots.length === 0) return;
+
+    const inRack = findRackContainingNode(node);
+    const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+    const nodeW = node._collapsed_width || (node.size ? node.size[0] : 240);
+    const flyoutW = 210;
+    const rowH = 26;
+    const headerH = 32;
+    const flyoutH = headerH + slots.length * rowH + 8;
+
+    let fx, fy;
+    if (inRack) {
+        if (isInput) {
+            fx = inRack.pos[0] - flyoutW - 14;
+        } else {
+            fx = inRack.pos[0] + inRack.size[0] + 14;
+        }
+        fy = node.pos[1] - titleH - 4;
+    } else {
+        if (isInput) {
+            fx = node.pos[0] - flyoutW - 14;
+        } else {
+            fx = node.pos[0] + nodeW + 14;
+        }
+        fy = node.pos[1] - titleH - 4;
+    }
+
+    const items = slots.map((s, idx) => {
+        const itemY = fy + headerH + idx * rowH;
+        const hasLink = isInput ? (s.link != null) : (s.links && s.links.length > 0);
+        return {
+            index: idx,
+            name: s.name || `Slot ${idx}`,
+            type: s.type || "*",
+            hasLink: !!hasLink,
+            slot: s,
+            y1: itemY,
+            y2: itemY + rowH
+        };
+    });
+
+    _activePatchbay = {
+        node,
+        isInput,
+        x: fx,
+        y: fy,
+        w: flyoutW,
+        h: flyoutH,
+        hoveredIndex: -1,
+        slots: items
+    };
+
+    if (canvas) canvas.setDirty(true, true);
+}
+
+function drawCollapsedNodeJackPorts(node, ctx) {
+    if (!node || !node.flags?.collapsed || !ctx) return;
+    const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+    const nodeW = node._collapsed_width || (node.size ? node.size[0] : 180);
+    const midY = -titleH * 0.5;
+
+    // Draw Input Port Jack on Left Edge
+    if (node.inputs && node.inputs.length > 0) {
+        ctx.save();
+        const hasConnectedInput = node.inputs.some((i) => i && i.link != null);
+        ctx.fillStyle = hasConnectedInput ? "rgba(0, 240, 255, 0.45)" : "rgba(22, 22, 34, 0.9)";
+        ctx.strokeStyle = hasConnectedInput ? "#00f0ff" : "rgba(137, 180, 250, 0.5)";
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(8, midY, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = hasConnectedInput ? "#00f0ff" : "rgba(137, 180, 250, 0.7)";
+        ctx.beginPath();
+        ctx.arc(8, midY, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // Draw Output Port Jack on Right Edge
+    if (node.outputs && node.outputs.length > 0) {
+        ctx.save();
+        const hasConnectedOutput = node.outputs.some((o) => o && o.links && o.links.length > 0);
+        ctx.fillStyle = hasConnectedOutput ? "rgba(137, 220, 235, 0.45)" : "rgba(22, 22, 34, 0.9)";
+        ctx.strokeStyle = hasConnectedOutput ? "#89dceb" : "rgba(137, 180, 250, 0.5)";
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(nodeW - 8, midY, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = hasConnectedOutput ? "#89dceb" : "rgba(137, 180, 250, 0.7)";
+        ctx.beginPath();
+        ctx.arc(nodeW - 8, midY, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+function drawPatchbayFlyout(patchbay, ctx, canvas) {
+    if (!patchbay || !patchbay.node) return;
+    const { node, isInput, x, y, w, h, hoveredIndex, slots } = patchbay;
+    const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+    const nodeW = node._collapsed_width || (node.size ? node.size[0] : 240);
 
     ctx.save();
+
+    // Connecting laser guide line from collapsed node edge to flyout
+    const anchorX = isInput ? node.pos[0] : (node.pos[0] + nodeW);
+    const anchorY = node.pos[1] - titleH * 0.5;
+    const targetAnchorX = isInput ? (x + w) : x;
+    const targetAnchorY = y + 16;
+
+    ctx.strokeStyle = "rgba(0, 240, 255, 0.5)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(anchorX, anchorY);
+    ctx.lineTo(targetAnchorX, targetAnchorY);
+    ctx.stroke();
+
+    // Flyout Container Shadow
+    ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetY = 6;
+
+    // Flyout Card Background
+    ctx.fillStyle = "rgba(17, 18, 28, 0.97)";
+    if (typeof ctx.roundRect === "function") {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, 8);
+        ctx.fill();
+    } else {
+        ctx.fillRect(x, y, w, h);
+    }
+
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+
+    // Flyout Border
+    ctx.strokeStyle = "rgba(0, 240, 255, 0.6)";
+    ctx.lineWidth = 1.5;
+    if (typeof ctx.roundRect === "function") {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, 8);
+        ctx.stroke();
+    } else {
+        ctx.strokeRect(x, y, w, h);
+    }
+
+    // Header Bar
+    const headerH = 32;
+    ctx.fillStyle = "rgba(24, 26, 40, 0.98)";
+    ctx.fillRect(x + 1, y + 1, w - 2, headerH - 1);
+    ctx.strokeStyle = "rgba(137, 180, 250, 0.2)";
+    ctx.beginPath();
+    ctx.moveTo(x + 1, y + headerH);
+    ctx.lineTo(x + w - 1, y + headerH);
+    ctx.stroke();
+
+    // Header Title
+    ctx.font = "bold 11px monospace, -apple-system, sans-serif";
+    ctx.fillStyle = "#00f0ff";
+    const headerTitle = `${isInput ? "⇥ INPUTS" : "↦ OUTPUTS"} • ${node.title || node.type}`.toUpperCase();
+    ctx.fillText(headerTitle.slice(0, 24), x + 10, y + 20);
+
+    // Slot Rows
+    const rowH = 26;
+    for (let i = 0; i < slots.length; i++) {
+        const item = slots[i];
+        const rowY = y + headerH + i * rowH;
+        const isHovered = (hoveredIndex === i);
+        const typeColor = getSlotTypeColor(item.type);
+
+        if (isHovered) {
+            ctx.fillStyle = "rgba(0, 240, 255, 0.18)";
+            ctx.fillRect(x + 2, rowY, w - 4, rowH);
+            ctx.strokeStyle = "rgba(0, 240, 255, 0.5)";
+            ctx.strokeRect(x + 2, rowY, w - 4, rowH);
+        }
+
+        // Jack socket ring
+        const jackX = isInput ? (x + 16) : (x + w - 16);
+        const jackY = rowY + rowH / 2;
+
+        ctx.strokeStyle = typeColor;
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.arc(jackX, jackY, 5, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = item.hasLink ? typeColor : "rgba(17, 18, 28, 0.9)";
+        ctx.beginPath();
+        ctx.arc(jackX, jackY, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Label
+        ctx.font = isHovered ? "bold 11px sans-serif" : "11px sans-serif";
+        ctx.fillStyle = isHovered ? "#ffffff" : "#cdd6f4";
+        const textX = isInput ? (x + 28) : (x + 10);
+        ctx.fillText(item.name.slice(0, 18), textX, rowY + 17);
+
+        // Status badge (Connected / Open)
+        if (item.hasLink) {
+            ctx.font = "9px monospace";
+            ctx.fillStyle = "rgba(166, 227, 161, 0.9)";
+            const badge = "●";
+            const badgeX = isInput ? (x + w - 18) : (x + 10);
+            ctx.fillText(badge, badgeX, rowY + 17);
+        }
+    }
+
+    ctx.restore();
+}
+
+function drawEquipmentRackChassis(group, ctx, canvas) {
+    if (!group || !ctx || typeof ctx.save !== "function") return;
+    try {
+        const x = Number(group.pos?.[0] ?? (group._pos?.[0] ?? 0));
+        const y = Number(group.pos?.[1] ?? (group._pos?.[1] ?? 0));
+        const w = Number(group.size?.[0] ?? (group._size?.[0] ?? 320));
+        const h = Number(group.size?.[1] ?? (group._size?.[1] ?? 240));
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) return;
+
+        ctx.save();
 
     // 1. Chassis Outer Shadow
     ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
@@ -661,32 +979,48 @@ function drawEquipmentRackChassis(group, ctx, canvas) {
     }
 
     ctx.restore();
+    } catch (err) {
+        console.error("Zombiehaus: drawEquipmentRackChassis error:", err);
+    }
 }
 
 // ── Classic LiteGraph Canvas Card Decorator ───────────────────────────────────
 function setupClassicCanvasDecorator() {
     if (typeof LGraphCanvas === "undefined") return;
 
-    // Hook group drawing for 19" Equipment Rack chassis
-    if (typeof LiteGraph !== "undefined" && LiteGraph.LGraphGroup) {
-        const origGroupDraw = LiteGraph.LGraphGroup.prototype.draw;
-        LiteGraph.LGraphGroup.prototype.draw = function (ctx, canvas) {
-            if (isEquipmentRackGroup(this)) {
-                drawEquipmentRackChassis(this, ctx, canvas);
-                this._drawn_by_proto = true;
-                return;
-            }
-            return origGroupDraw ? origGroupDraw.apply(this, arguments) : undefined;
-        };
+    // Hook group drawing for 19" Equipment Rack chassis across both LiteGraph and ComfyUI Modern Frontend
+    const GroupClasses = [
+        (typeof LiteGraph !== "undefined" && LiteGraph.LGraphGroup),
+        (typeof window !== "undefined" && window.LGraphGroup)
+    ].filter(Boolean);
+
+    for (const GC of GroupClasses) {
+        if (GC.prototype && !GC.prototype._zombiehaus_hooked) {
+            GC.prototype._zombiehaus_hooked = true;
+            const origGroupDraw = GC.prototype.draw;
+            GC.prototype.draw = function (arg1, arg2) {
+                if (isEquipmentRackGroup(this)) {
+                    const { ctx, canvas } = resolveCanvasAndCtx(arg1, arg2);
+                    if (ctx) {
+                        drawEquipmentRackChassis(this, ctx, canvas || this.graph?.canvas);
+                        this._drawn_by_proto = true;
+                        return;
+                    }
+                }
+                return origGroupDraw ? origGroupDraw.apply(this, arguments) : undefined;
+            };
+        }
     }
 
     const origDrawGroups = LGraphCanvas.prototype.drawGroups;
-    LGraphCanvas.prototype.drawGroups = function (ctx) {
+    LGraphCanvas.prototype.drawGroups = function (arg1, arg2) {
+        sanitizeGraphGroups(this.graph);
+        const { ctx, canvas } = resolveCanvasAndCtx(arg1, arg2);
         const res = origDrawGroups ? origDrawGroups.apply(this, arguments) : undefined;
-        if (this.graph?._groups) {
+        if (ctx && this.graph?._groups) {
             for (const g of this.graph._groups) {
                 if (isEquipmentRackGroup(g) && !g._drawn_by_proto) {
-                    drawEquipmentRackChassis(g, ctx, this);
+                    drawEquipmentRackChassis(g, ctx, canvas || this);
                 }
                 delete g._drawn_by_proto;
             }
@@ -696,6 +1030,9 @@ function setupClassicCanvasDecorator() {
 
     const origDrawNode = LGraphCanvas.prototype.drawNode;
     LGraphCanvas.prototype.drawNode = function (node, ctx) {
+        if (!node || node.is_group || isEquipmentRackGroup(node) || !node.inputs) {
+            return;
+        }
         if (_themeEnabled && node && !node.flags?.collapsed) {
             const th = getActiveTheme();
             if (!node._hasOriginalColors) {
@@ -813,6 +1150,11 @@ function setupClassicCanvasDecorator() {
             ctx.restore();
         }
 
+        // Tactile Jack Ports on Minimized / Collapsed Nodes
+        if (_themeEnabled && node && node.flags?.collapsed && ctx) {
+            drawCollapsedNodeJackPorts(node, ctx);
+        }
+
         return res;
     };
 
@@ -897,6 +1239,25 @@ function setupClassicCanvasDecorator() {
                     content: "🗄️ Send to Equipment Rack",
                     callback: () => {
                         sendNodeToNearestRack(node, this);
+                    }
+                });
+            }
+        }
+
+        if (node.flags?.collapsed) {
+            if (node.inputs && node.inputs.length > 0) {
+                options.push({
+                    content: "🔌 Open Inputs Patchbay",
+                    callback: () => {
+                        openPatchbayForNode(node, true, this);
+                    }
+                });
+            }
+            if (node.outputs && node.outputs.length > 0) {
+                options.push({
+                    content: "🔌 Open Outputs Patchbay",
+                    callback: () => {
+                        openPatchbayForNode(node, false, this);
                     }
                 });
             }
@@ -1294,6 +1655,54 @@ function setupNodeEdgeDocking() {
             _draggedNodeFromRack = null;
         }
 
+        // Check if user clicked a slot inside an active Mini Patchbay Flyout
+        if (_activePatchbay && _activePatchbay.hoveredIndex >= 0) {
+            const pb = _activePatchbay;
+            const slotItem = pb.slots[pb.hoveredIndex];
+            if (slotItem) {
+                if (!pb.isInput) {
+                    this.connecting_node = pb.node;
+                    this.connecting_slot = slotItem.index;
+                    this.connecting_output = pb.node.outputs[slotItem.index];
+                    this.connecting_input = null;
+                    this.connecting_pos = [this.graph_mouse[0], this.graph_mouse[1]];
+                    _activePatchbay = null;
+                    this.setDirty(true, true);
+                    return true;
+                } else {
+                    if (slotItem.hasLink) {
+                        pb.node.disconnectInput(slotItem.index);
+                        showDockingToast(`🔌 Disconnected "${slotItem.name}" on ${pb.node.title || pb.node.type}`);
+                        slotItem.hasLink = false;
+                        this.setDirty(true, true);
+                        return true;
+                    } else {
+                        this.connecting_node = pb.node;
+                        this.connecting_slot = slotItem.index;
+                        this.connecting_input = pb.node.inputs[slotItem.index];
+                        this.connecting_output = null;
+                        this.connecting_pos = [this.graph_mouse[0], this.graph_mouse[1]];
+                        _activePatchbay = null;
+                        this.setDirty(true, true);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Clicking collapsed node left/right edge directly opens Patchbay
+        if (primary && primary.flags?.collapsed) {
+            const w = primary._collapsed_width || (primary.size ? primary.size[0] : 180);
+            const clickLocalX = this.graph_mouse[0] - primary.pos[0];
+            if (clickLocalX >= -10 && clickLocalX <= 32 && primary.inputs && primary.inputs.length > 0) {
+                openPatchbayForNode(primary, true, this);
+                return true;
+            } else if (clickLocalX >= w - 32 && clickLocalX <= w + 10 && primary.outputs && primary.outputs.length > 0) {
+                openPatchbayForNode(primary, false, this);
+                return true;
+            }
+        }
+
         if (_dockingMode === "sticky" && !e.altKey && this.graph?._nodes) {
             const draggedNodes = Object.values(this.selected_nodes || {});
             const primary = draggedNodes[0] || this.current_node || this.node_over;
@@ -1325,6 +1734,61 @@ function setupNodeEdgeDocking() {
     // 1. Process Mouse Move for Magnetic Edge Snapping & Sticky Dragging
     const origProcessMouseMove = LGraphCanvas.prototype.processMouseMove;
     LGraphCanvas.prototype.processMouseMove = function (e) {
+        // Mini Patchbay Hover & Wire Tracking (runs unconditionally)
+        if (_activePatchbay) {
+            const pb = _activePatchbay;
+            const mx = this.graph_mouse[0];
+            const my = this.graph_mouse[1];
+            if (mx >= pb.x && mx <= pb.x + pb.w && my >= pb.y + 32 && my <= pb.y + pb.h) {
+                const idx = Math.floor((my - (pb.y + 32)) / 26);
+                if (idx >= 0 && idx < pb.slots.length) {
+                    if (pb.hoveredIndex !== idx) {
+                        pb.hoveredIndex = idx;
+                        this.setDirty(true, true);
+                    }
+                }
+            } else {
+                if (pb.hoveredIndex !== -1) {
+                    pb.hoveredIndex = -1;
+                    this.setDirty(true, true);
+                }
+                const distNode = Math.hypot(mx - (pb.node.pos[0] + (pb.node.size ? pb.node.size[0] : 180) / 2), my - pb.node.pos[1]);
+                const distFlyout = Math.hypot(mx - (pb.x + pb.w / 2), my - (pb.y + pb.h / 2));
+                if (distNode > 280 && distFlyout > 280) {
+                    _activePatchbay = null;
+                    this.setDirty(true, true);
+                }
+            }
+        }
+
+        // When dragging a wire over a collapsed node, open matching patchbay
+        if (this.connecting_node) {
+            const isOutputDrag = !!this.connecting_output || (this.connecting_input == null && this.connecting_slot != null);
+            const targetMode = isOutputDrag ? true : false;
+            const collapsedTarget = findCollapsedNodeUnderPoint(this.graph, this.graph_mouse[0], this.graph_mouse[1]);
+            if (collapsedTarget && collapsedTarget !== this.connecting_node) {
+                if (!_activePatchbay || _activePatchbay.node !== collapsedTarget || _activePatchbay.isInput !== targetMode) {
+                    openPatchbayForNode(collapsedTarget, targetMode, this);
+                }
+            }
+        } else if (!this.node_capturing_input && !this.selected_group) {
+            // Hovering near collapsed node edges reveals patchbay
+            const cNode = findCollapsedNodeUnderPoint(this.graph, this.graph_mouse[0], this.graph_mouse[1]);
+            if (cNode) {
+                const w = cNode._collapsed_width || (cNode.size ? cNode.size[0] : 180);
+                const localX = this.graph_mouse[0] - cNode.pos[0];
+                if (localX >= -10 && localX <= 28 && cNode.inputs && cNode.inputs.length > 0) {
+                    if (!_activePatchbay || _activePatchbay.node !== cNode || !_activePatchbay.isInput) {
+                        openPatchbayForNode(cNode, true, this);
+                    }
+                } else if (localX >= w - 28 && localX <= w + 10 && cNode.outputs && cNode.outputs.length > 0) {
+                    if (!_activePatchbay || _activePatchbay.node !== cNode || _activePatchbay.isInput) {
+                        openPatchbayForNode(cNode, false, this);
+                    }
+                }
+            }
+        }
+
         if (_dockingMode === "off") {
             return origProcessMouseMove ? origProcessMouseMove.apply(this, arguments) : undefined;
         }
@@ -1643,6 +2107,37 @@ function setupNodeEdgeDocking() {
         _lastPrimaryPos = null;
         _dragCluster.clear();
         _clusterOffsets = new Map();
+
+        // Dropping wire onto active Mini Patchbay Flyout slot
+        if (this.connecting_node && _activePatchbay) {
+            const pb = _activePatchbay;
+            const targetSlotItem = (pb.hoveredIndex >= 0) ? pb.slots[pb.hoveredIndex] : pb.slots[0];
+            if (targetSlotItem) {
+                if (pb.isInput) {
+                    const sourceNode = this.connecting_node;
+                    const sourceSlot = this.connecting_slot;
+                    if (sourceNode && sourceNode.connect) {
+                        sourceNode.connect(sourceSlot, pb.node, targetSlotItem.index);
+                        showDockingToast(`🔌 Connected to "${pb.node.title || pb.node.type}" [${targetSlotItem.name}]`);
+                    }
+                } else {
+                    const destNode = this.connecting_node;
+                    const destSlot = this.connecting_slot;
+                    if (pb.node && pb.node.connect) {
+                        pb.node.connect(targetSlotItem.index, destNode, destSlot);
+                        showDockingToast(`🔌 Connected from "${pb.node.title || pb.node.type}" [${targetSlotItem.name}]`);
+                    }
+                }
+                this.connecting_node = null;
+                this.connecting_slot = -1;
+                this.connecting_output = null;
+                this.connecting_input = null;
+                _activePatchbay = null;
+                this.setDirty(true, true);
+                return;
+            }
+        }
+
         const res = origProcessMouseUp ? origProcessMouseUp.apply(this, arguments) : undefined;
         this.setDirty(true, true);
         return res;
@@ -1710,6 +2205,11 @@ function setupNodeEdgeDocking() {
                 }
             }
             ctx.restore();
+        }
+
+        // Draw Mini Patchbay Flyout on front canvas
+        if (_activePatchbay && ctx) {
+            drawPatchbayFlyout(_activePatchbay, ctx, this);
         }
 
         return res;
@@ -2130,6 +2630,7 @@ app.registerExtension({
         }
 
         setupNodeEdgeDocking();
+        sanitizeGraphGroups(app.graph);
 
         // Register ComfyUI Settings
         if (app.ui?.settings) {

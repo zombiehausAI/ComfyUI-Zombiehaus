@@ -61,7 +61,14 @@ The **Zombiehaus Card Theme** transforms ComfyUI's standard nodes into tactile, 
    - **Quick Extraction & Context Menus**: Dragging a node out detaches it and auto-compacts remaining nodes. Right-clicking collapsed nodes offers **🗄️ Send to Equipment Rack** or **🗄️ Detach from Equipment Rack**.
    - **Workflow JSON Persistence**: Built on top of native `LiteGraph.LGraphGroup`, ensuring all racks and slotted nodes persist seamlessly in ComfyUI workflow files without extra plugins.
 
-9. **Direct GPU Memory Reclamation**
+9. **Mini Patchbay Flyout for Minimized / Racked Nodes**
+   - **Direct Input & Output Wiring**: Solves the vanilla ComfyUI limitation where collapsed nodes cannot receive or emit wires.
+   - **Tactile Jack Ports**: Renders small glowing jack sockets on the left edge (`[IN]`) and right edge (`[OUT]`) of every collapsed node.
+   - **Interactive Flyout Panel**: Hovering a wire near a collapsed node, clicking its jack ports, or right-clicking the node reveals a sleek floating patchbay listing all ports with color-coded type rings (`MODEL`, `CLIP`, `VAE`, `LATENT`, `IMAGE`, `CONDITIONING`, etc.).
+   - **Connect in 1 Click**: Drop incoming wires directly onto a target slot in the flyout, or click any output slot in the flyout to start pulling a new wire across the canvas.
+   - **Disconnect / Reroute**: Clicking an already-connected input in the flyout instantly unplugs it.
+
+10. **Direct GPU Memory Reclamation**
    - Canvas right-click context menu and node right-click context menu both feature **🧹 Clear GPU Memory** for instant PyTorch cache and model unloading.
 
 ---
@@ -71,10 +78,12 @@ The **Zombiehaus Card Theme** transforms ComfyUI's standard nodes into tactile, 
 ### Opening the Theme Studio
 Click the **🎨 Themes** button in the ComfyUI menu bar, or right-click any empty canvas area and select **🎨 Zombiehaus Theme Studio...**.
 
-### Using the Equipment Rack
+### Using the Equipment Rack & Patchbay
 - **Rack All Minimized Nodes**: Click **[🗄️ Rack Nodes]** in the top bar or press `Shift + R`.
 - **Create an Empty Rack**: Right-click canvas -> **🗄️ Add Equipment Rack**.
 - **Dock / Detach Nodes**: Drag minimized nodes into or out of the rack, or right-click any collapsed node to send/detach.
+- **Wire To Minimized Nodes**: Drag a wire towards any collapsed node to open its **Inputs Patchbay Flyout**, then release onto the slot.
+- **Wire From Minimized Nodes**: Click or hover the right edge of any collapsed node to open the **Outputs Patchbay Flyout**, then click/drag a wire out.
 
 ### Saving Custom Themes
 1. Adjust any color or corner radius slider.

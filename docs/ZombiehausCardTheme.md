@@ -53,12 +53,28 @@ The **Zombiehaus Card Theme** transforms ComfyUI's standard nodes into tactile, 
    - **Modern Nodes 2.0 (Vue)**: Styled via clean DOM overrides with backdrop blur, rounded borders, and dynamic ResizeObserver tracking.
    - **Old Style Nodes (Classic Canvas)**: Directly decorated in LiteGraph's 2D canvas pipeline (`LGraphCanvas.prototype.drawNode`), rendering crisp outer card borders, matching header and body palette fills, live execution breathing glow pulse, role badges, and widget overlays (`.comfy-multiline-input`).
 
+8. **19" Equipment Rack for Minimized Nodes**
+   - **Tactile Server Chassis Aesthetics**: Beautiful on-canvas 19" studio equipment rack frame featuring brushed rails, rack unit mounting screws/rivets, status LEDs, unit count badges (`[ NU • N MODULES ]`), and dark matte chassis styling.
+   - **Drag-and-Snap Organization**: Dragging any collapsed/minimized node over an Equipment Rack projects a cyan glowing slot indicator and snaps it flush into the nearest 1U slot.
+   - **Auto-Formatting & Vertical Spacing**: Slotted nodes automatically conform to uniform width (`rack.size[0] - 32`), align with a 38px 1U slot pitch, and expand the rack chassis height smoothly.
+   - **One-Click Gathering**: Use the **[🗄️ Rack Nodes]** top-bar button, press `Shift + R`, or right-click the canvas and select **🗄️ Rack Minimized Nodes** to automatically collect all collapsed nodes on the canvas into a neat rack.
+   - **Quick Extraction & Context Menus**: Dragging a node out detaches it and auto-compacts remaining nodes. Right-clicking collapsed nodes offers **🗄️ Send to Equipment Rack** or **🗄️ Detach from Equipment Rack**.
+   - **Workflow JSON Persistence**: Built on top of native `LiteGraph.LGraphGroup`, ensuring all racks and slotted nodes persist seamlessly in ComfyUI workflow files without extra plugins.
+
+9. **Direct GPU Memory Reclamation**
+   - Canvas right-click context menu and node right-click context menu both feature **🧹 Clear GPU Memory** for instant PyTorch cache and model unloading.
+
 ---
 
 ## Configuration & Usage
 
 ### Opening the Theme Studio
 Click the **🎨 Themes** button in the ComfyUI menu bar, or right-click any empty canvas area and select **🎨 Zombiehaus Theme Studio...**.
+
+### Using the Equipment Rack
+- **Rack All Minimized Nodes**: Click **[🗄️ Rack Nodes]** in the top bar or press `Shift + R`.
+- **Create an Empty Rack**: Right-click canvas -> **🗄️ Add Equipment Rack**.
+- **Dock / Detach Nodes**: Drag minimized nodes into or out of the rack, or right-click any collapsed node to send/detach.
 
 ### Saving Custom Themes
 1. Adjust any color or corner radius slider.

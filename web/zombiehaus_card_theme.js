@@ -103,6 +103,7 @@ let _lastDragPrimary = null;
 let _lastPrimaryPos = null;
 let _dragCluster = new Set();
 let _clusterOffsets = new Map();
+let _draggedNodeFromRack = null;
 
 try {
     const savedName = localStorage.getItem("zombiehaus_card_theme_name");
@@ -371,9 +372,327 @@ function applyCardThemeCSS() {
     }
 }
 
+// ── 19" Equipment Rack for Minimized Nodes ───────────────────────────────────
+function isEquipmentRackGroup(g) {
+    if (!g) return false;
+    if (g.is_equipment_rack === true) return true;
+    const title = (g.title || "").toLowerCase();
+    return title.includes("equipment rack") || title.includes("node rack") || title.startsWith("🗄️");
+}
+
+function findRackUnderPoint(x, y) {
+    if (!app.graph || !app.graph._groups) return null;
+    for (const g of app.graph._groups) {
+        if (!isEquipmentRackGroup(g) || !g.pos || !g.size) continue;
+        const gx = g.pos[0];
+        const gy = g.pos[1];
+        const gw = g.size[0];
+        const gh = g.size[1];
+        if (x >= gx - 10 && x <= gx + gw + 10 && y >= gy - 10 && y <= gy + gh + 10) {
+            return g;
+        }
+    }
+    return null;
+}
+
+function findRackContainingNode(node) {
+    if (!node || !node.pos || !app.graph?._groups) return null;
+    for (const g of app.graph._groups) {
+        if (!isEquipmentRackGroup(g) || !g.pos || !g.size) continue;
+        if (g._nodes && g._nodes.includes(node)) return g;
+        const gx = g.pos[0];
+        const gy = g.pos[1];
+        const gw = g.size[0];
+        const gh = g.size[1];
+        if (node.pos[0] >= gx - 15 && node.pos[0] <= gx + gw + 15 && node.pos[1] >= gy - 15 && node.pos[1] <= gy + gh + 15) {
+            return g;
+        }
+    }
+    return null;
+}
+
+function createEquipmentRack(canvas, pos) {
+    if (typeof LiteGraph === "undefined" || !app.graph) return null;
+    const GroupClass = LiteGraph.LGraphGroup || (typeof LGraphGroup !== "undefined" && LGraphGroup);
+    if (!GroupClass) return null;
+
+    const mousePos = pos || (canvas && canvas.graph_mouse) || [200, 200];
+    const rack = new GroupClass("🗄️ Equipment Rack");
+    rack.is_equipment_rack = true;
+    rack.pos = [Math.round(mousePos[0]), Math.round(mousePos[1])];
+    rack.size = [320, 240];
+    rack.color = "#181825";
+
+    app.graph.add(rack);
+    if (canvas) canvas.setDirty(true, true);
+    showDockingToast("🗄️ Created Equipment Rack. Drag minimized nodes here to slot them!");
+    return rack;
+}
+
+function slotNodesIntoRack(rack, nodes, canvas) {
+    if (!rack || !nodes) return;
+    const railX = rack.pos[0] + 16;
+    const innerW = Math.max(220, rack.size[0] - 32);
+    const startY = rack.pos[1] + 44;
+    const slotPitch = 38;
+
+    // Find all nodes that belong in this rack
+    const existing = (rack._nodes || []).filter((n) => n && n.flags?.collapsed && !nodes.includes(n));
+    const allNodes = [...existing, ...nodes.filter((n) => n && n.pos)];
+
+    // Sort by Y coordinate so dragging up/down in rack reorders intuitively
+    allNodes.sort((a, b) => (a.pos[1] || 0) - (b.pos[1] || 0));
+
+    allNodes.forEach((n, idx) => {
+        n.flags = n.flags || {};
+        n.flags.collapsed = true;
+        n._collapsed_width = innerW;
+        n.size[0] = innerW;
+        n.pos[0] = railX;
+        n.pos[1] = startY + idx * slotPitch;
+        n._in_equipment_rack = true;
+        if (n.setDirtyCanvas) n.setDirtyCanvas(true, true);
+    });
+
+    const neededH = Math.max(180, 52 + allNodes.length * slotPitch);
+    if (rack.size[1] < neededH) {
+        rack.size[1] = neededH;
+    }
+
+    rack.recomputeInsideNodes?.();
+    if (canvas) canvas.setDirty(true, true);
+}
+
+function compactRackNodes(rack, canvas) {
+    if (!rack || !app.graph?._nodes) return;
+    const gx = rack.pos[0];
+    const gy = rack.pos[1];
+    const gw = rack.size[0];
+    const gh = rack.size[1];
+
+    const nodesInside = app.graph._nodes.filter((n) => {
+        if (!n || !n.flags?.collapsed || !n.pos) return false;
+        return n.pos[0] >= gx - 10 && n.pos[0] <= gx + gw + 10 && n.pos[1] >= gy - 10 && n.pos[1] <= gy + gh + 10;
+    });
+
+    slotNodesIntoRack(rack, nodesInside, canvas);
+}
+
+function rackAllMinimizedNodes(canvas) {
+    if (!app.graph || !app.graph._nodes) return;
+    const collapsedNodes = app.graph._nodes.filter((n) => n && n.flags?.collapsed && !n.flags?.pinned);
+    if (collapsedNodes.length === 0) {
+        showDockingToast("No minimized nodes found in workflow (select nodes and press Alt+C)");
+        return;
+    }
+
+    const groups = app.graph._groups || [];
+    let rack = groups.find((g) => isEquipmentRackGroup(g));
+
+    if (!rack) {
+        const first = collapsedNodes[0];
+        const rackPos = [Math.round(first.pos[0] - 20), Math.round(first.pos[1] - 50)];
+        rack = createEquipmentRack(canvas, rackPos);
+    }
+
+    if (!rack) return;
+
+    slotNodesIntoRack(rack, collapsedNodes, canvas);
+    showDockingToast(`🗄️ Racked ${collapsedNodes.length} minimized modules in Equipment Rack!`);
+}
+
+function sendNodeToNearestRack(node, canvas) {
+    if (!node) return;
+    const groups = app.graph?._groups || [];
+    let rack = groups.find((g) => isEquipmentRackGroup(g));
+    if (!rack) {
+        rack = createEquipmentRack(canvas, [node.pos[0] - 20, node.pos[1] - 50]);
+    }
+    if (rack) {
+        slotNodesIntoRack(rack, [node], canvas);
+        showDockingToast(`🗄️ Slotted "${node.title || node.type}" into Equipment Rack`);
+    }
+}
+
+function detachNodeFromRack(node, canvas) {
+    if (!node) return;
+    const inRack = findRackContainingNode(node);
+    node.pos[0] += (inRack ? inRack.size[0] : 320) + 30;
+    node._in_equipment_rack = false;
+    if (inRack) {
+        compactRackNodes(inRack, canvas);
+    }
+    if (canvas) canvas.setDirty(true, true);
+    showDockingToast(`🗄️ Detached "${node.title || node.type}" from Rack`);
+}
+
+function drawEquipmentRackChassis(group, ctx, canvas) {
+    if (!group || !group.pos || !group.size) return;
+    const x = group.pos[0];
+    const y = group.pos[1];
+    const w = group.size[0];
+    const h = group.size[1];
+
+    ctx.save();
+
+    // 1. Chassis Outer Shadow
+    ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetY = 6;
+
+    // 2. Chassis Background (Dark Matte Metallic)
+    ctx.fillStyle = "rgba(18, 19, 28, 0.96)";
+    if (typeof ctx.roundRect === "function") {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, 10);
+        ctx.fill();
+    } else {
+        ctx.fillRect(x, y, w, h);
+    }
+
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+
+    // 3. Chassis Bevel Border
+    ctx.strokeStyle = "rgba(137, 180, 250, 0.35)";
+    ctx.lineWidth = 1.5;
+    if (typeof ctx.roundRect === "function") {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, 10);
+        ctx.stroke();
+    } else {
+        ctx.strokeRect(x, y, w, h);
+    }
+
+    // 4. Left & Right 19" Steel Rack Rails (16px wide each)
+    const railW = 16;
+    ctx.fillStyle = "rgba(28, 30, 44, 0.98)";
+    ctx.fillRect(x + 1, y + 1, railW, h - 2);
+    ctx.fillRect(x + w - railW - 1, y + 1, railW, h - 2);
+
+    // Rail Divider Lines
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + railW + 1, y + 1);
+    ctx.lineTo(x + railW + 1, y + h - 1);
+    ctx.moveTo(x + w - railW - 1, y + 1);
+    ctx.lineTo(x + w - railW - 1, y + h - 1);
+    ctx.stroke();
+
+    // Screw Rivets along left & right rails every 38px (1U slot spacing)
+    const slotPitch = 38;
+    const startY = y + 44;
+    const endY = y + h - 18;
+    for (let sy = startY; sy <= endY; sy += slotPitch) {
+        // Left Rail Screw
+        const lx = x + railW / 2 + 1;
+        ctx.fillStyle = "rgba(205, 214, 244, 0.4)";
+        ctx.beginPath();
+        ctx.arc(lx, sy, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#11111b";
+        ctx.beginPath();
+        ctx.arc(lx, sy, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Right Rail Screw
+        const rx = x + w - railW / 2 - 1;
+        ctx.fillStyle = "rgba(205, 214, 244, 0.4)";
+        ctx.beginPath();
+        ctx.arc(rx, sy, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#11111b";
+        ctx.beginPath();
+        ctx.arc(rx, sy, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Subtle 1U slot divider guideline across the interior
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.035)";
+        ctx.beginPath();
+        ctx.moveTo(x + railW + 4, sy - 18);
+        ctx.lineTo(x + w - railW - 4, sy - 18);
+        ctx.stroke();
+    }
+
+    // 5. Header Bar (Tactile Faceplate)
+    const headerH = 34;
+    ctx.fillStyle = "rgba(26, 28, 42, 0.98)";
+    ctx.fillRect(x + railW + 1, y + 1, w - 2 * railW - 2, headerH);
+
+    ctx.strokeStyle = "rgba(137, 180, 250, 0.22)";
+    ctx.beginPath();
+    ctx.moveTo(x + 1, y + headerH);
+    ctx.lineTo(x + w - 1, y + headerH);
+    ctx.stroke();
+
+    // 6. LED Power Dot (Teal / Neon)
+    const ledX = x + railW + 14;
+    const ledY = y + headerH / 2 + 1;
+    ctx.fillStyle = "#00f0ff";
+    ctx.shadowColor = "#00f0ff";
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(ledX, ledY, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // 7. Rack Title Text
+    ctx.font = "bold 12px monospace, -apple-system, sans-serif";
+    ctx.fillStyle = "#cdd6f4";
+    ctx.fillText(group.title || "EQUIPMENT RACK", ledX + 12, ledY + 4);
+
+    // 8. Units count badge
+    const nodesInRack = (group._nodes || []).filter((n) => n && n.flags?.collapsed);
+    const uCount = nodesInRack.length;
+    const badgeText = uCount > 0 ? `[ ${uCount}U • ${uCount} MODULES ]` : "[ EMPTY RACK ]";
+    ctx.font = "10px monospace, sans-serif";
+    ctx.fillStyle = uCount > 0 ? "rgba(137, 220, 235, 0.85)" : "rgba(108, 112, 134, 0.8)";
+    const badgeW = ctx.measureText(badgeText).width;
+    ctx.fillText(badgeText, x + w - railW - badgeW - 12, ledY + 4);
+
+    // 9. Watermark if empty
+    if (uCount === 0) {
+        ctx.font = "11px sans-serif";
+        ctx.fillStyle = "rgba(108, 112, 134, 0.4)";
+        const hint = "DROP MINIMIZED NODES HERE TO SLOT IN RACK";
+        const hintW = ctx.measureText(hint).width;
+        ctx.fillText(hint, x + (w - hintW) / 2, y + h / 2 + 6);
+    }
+
+    ctx.restore();
+}
+
 // ── Classic LiteGraph Canvas Card Decorator ───────────────────────────────────
 function setupClassicCanvasDecorator() {
     if (typeof LGraphCanvas === "undefined") return;
+
+    // Hook group drawing for 19" Equipment Rack chassis
+    if (typeof LiteGraph !== "undefined" && LiteGraph.LGraphGroup) {
+        const origGroupDraw = LiteGraph.LGraphGroup.prototype.draw;
+        LiteGraph.LGraphGroup.prototype.draw = function (ctx, canvas) {
+            if (isEquipmentRackGroup(this)) {
+                drawEquipmentRackChassis(this, ctx, canvas);
+                this._drawn_by_proto = true;
+                return;
+            }
+            return origGroupDraw ? origGroupDraw.apply(this, arguments) : undefined;
+        };
+    }
+
+    const origDrawGroups = LGraphCanvas.prototype.drawGroups;
+    LGraphCanvas.prototype.drawGroups = function (ctx) {
+        const res = origDrawGroups ? origDrawGroups.apply(this, arguments) : undefined;
+        if (this.graph?._groups) {
+            for (const g of this.graph._groups) {
+                if (isEquipmentRackGroup(g) && !g._drawn_by_proto) {
+                    drawEquipmentRackChassis(g, ctx, this);
+                }
+                delete g._drawn_by_proto;
+            }
+        }
+        return res;
+    };
 
     const origDrawNode = LGraphCanvas.prototype.drawNode;
     LGraphCanvas.prototype.drawNode = function (node, ctx) {
@@ -502,6 +821,18 @@ function setupClassicCanvasDecorator() {
         const options = origGetCanvasMenuOptions ? origGetCanvasMenuOptions.apply(this, arguments) : [];
         options.push(null);
         options.push({
+            content: "🗄️ Add Equipment Rack",
+            callback: () => {
+                createEquipmentRack(this, this.graph_mouse);
+            }
+        });
+        options.push({
+            content: "🗄️ Rack Minimized Nodes",
+            callback: () => {
+                rackAllMinimizedNodes(this);
+            }
+        });
+        options.push({
             content: "🧹 Clear GPU Memory",
             callback: () => {
                 clearGpuMemory();
@@ -551,6 +882,25 @@ function setupClassicCanvasDecorator() {
         const isClusterLocked = isCluster && Array.from(cluster).some((n) => n.flags?.pinned || n.locked);
 
         options.push(null); // Separator
+
+        if (node.flags?.collapsed) {
+            const inRack = findRackContainingNode(node);
+            if (inRack) {
+                options.push({
+                    content: "🗄️ Detach from Equipment Rack",
+                    callback: () => {
+                        detachNodeFromRack(node, this);
+                    }
+                });
+            } else {
+                options.push({
+                    content: "🗄️ Send to Equipment Rack",
+                    callback: () => {
+                        sendNodeToNearestRack(node, this);
+                    }
+                });
+            }
+        }
 
         options.push({
             content: "🧹 Clear GPU Memory",
@@ -856,6 +1206,22 @@ function attachTopBarControls() {
             };
             container.appendChild(lockBtn);
         }
+
+        // 4. Equipment Rack Button
+        let rackBtn = document.getElementById("zombiehaus-rack-nodes-btn");
+        if (!rackBtn) {
+            rackBtn = document.createElement("button");
+            rackBtn.id = "zombiehaus-rack-nodes-btn";
+            rackBtn.type = "button";
+            rackBtn.style.cssText = "display: inline-flex; align-items: center; gap: 5px; background: rgba(22, 22, 34, 0.9); border: 1px solid rgba(137, 180, 250, 0.45); border-radius: 6px; padding: 4px 10px; color: #cdd6f4; font-size: 11px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);";
+            rackBtn.title = "Rack Minimized Nodes (Shift+R): Gather all collapsed nodes into an organized 19\" Equipment Rack frame.";
+            rackBtn.innerHTML = "<span>🗄️</span> Rack Nodes";
+            rackBtn.onclick = (e) => {
+                e.preventDefault();
+                rackAllMinimizedNodes(app.canvas);
+            };
+            container.appendChild(rackBtn);
+        }
     }
 
     updateDockingBtnUI();
@@ -920,6 +1286,14 @@ function setupNodeEdgeDocking() {
         _lastDragPrimary = null;
         _lastPrimaryPos = null;
 
+        const draggedNodes = Object.values(this.selected_nodes || {});
+        const primary = draggedNodes[0] || this.current_node || this.node_over;
+        if (primary && primary.flags?.collapsed) {
+            _draggedNodeFromRack = findRackContainingNode(primary);
+        } else {
+            _draggedNodeFromRack = null;
+        }
+
         if (_dockingMode === "sticky" && !e.altKey && this.graph?._nodes) {
             const draggedNodes = Object.values(this.selected_nodes || {});
             const primary = draggedNodes[0] || this.current_node || this.node_over;
@@ -980,6 +1354,27 @@ function setupNodeEdgeDocking() {
         // Prevent dragging if primary or cluster is locked
         if (primary.flags?.pinned || primary.locked) {
             return res;
+        }
+
+        // Equipment Rack drag-and-snap preview for collapsed nodes
+        if (primary.flags?.collapsed) {
+            const hRack = findRackUnderPoint(primary.pos[0] + (primary.size[0] || 80) / 2, primary.pos[1] + 15);
+            if (hRack) {
+                const railX = hRack.pos[0] + 16;
+                const innerW = Math.max(220, hRack.size[0] - 32);
+                const currentRackNodes = (hRack._nodes || []).filter((n) => n && n.flags?.collapsed && n !== primary);
+                const slotIdx = Math.max(0, Math.min(currentRackNodes.length, Math.round((primary.pos[1] - (hRack.pos[1] + 44)) / 38)));
+                const targetY = hRack.pos[1] + 44 + slotIdx * 38;
+                _activeSnapGuides = [{
+                    type: "rack_slot",
+                    x1: railX,
+                    x2: railX + innerW,
+                    y: targetY,
+                    rack: hRack
+                }];
+                this.setDirty(true, true);
+                return res;
+            }
         }
 
         // Initialize drag cluster on new drag if not already captured in processMouseDown
@@ -1225,6 +1620,24 @@ function setupNodeEdgeDocking() {
     // 2. Process Mouse Up to finalize snap
     const origProcessMouseUp = LGraphCanvas.prototype.processMouseUp;
     LGraphCanvas.prototype.processMouseUp = function (e) {
+        const draggedPrimary = _lastDragPrimary;
+        const fromRack = _draggedNodeFromRack;
+        _draggedNodeFromRack = null;
+
+        if (draggedPrimary && draggedPrimary.flags?.collapsed) {
+            const targetRack = findRackUnderPoint(draggedPrimary.pos[0] + (draggedPrimary.size[0] || 80) / 2, draggedPrimary.pos[1] + 15);
+            if (targetRack) {
+                slotNodesIntoRack(targetRack, [draggedPrimary], this);
+                if (fromRack && fromRack !== targetRack) {
+                    compactRackNodes(fromRack, this);
+                }
+            } else if (fromRack) {
+                draggedPrimary._in_equipment_rack = false;
+                compactRackNodes(fromRack, this);
+                showDockingToast(`🗄️ Detached "${draggedPrimary.title || draggedPrimary.type}" from Rack`);
+            }
+        }
+
         _activeSnapGuides = [];
         _lastDragPrimary = null;
         _lastPrimaryPos = null;
@@ -1253,6 +1666,25 @@ function setupNodeEdgeDocking() {
             ctx.shadowBlur = 6;
 
             for (const g of _activeSnapGuides) {
+                if (g.type === "rack_slot") {
+                    ctx.save();
+                    ctx.strokeStyle = "#00f0ff";
+                    ctx.fillStyle = "rgba(0, 240, 255, 0.12)";
+                    ctx.shadowColor = "rgba(0, 240, 255, 0.85)";
+                    ctx.shadowBlur = 10;
+                    ctx.lineWidth = 2;
+                    if (typeof ctx.roundRect === "function") {
+                        ctx.beginPath();
+                        ctx.roundRect(g.x1, g.y, g.x2 - g.x1, 32, 6);
+                        ctx.fill();
+                        ctx.stroke();
+                    } else {
+                        ctx.fillRect(g.x1, g.y, g.x2 - g.x1, 32);
+                        ctx.strokeRect(g.x1, g.y, g.x2 - g.x1, 32);
+                    }
+                    ctx.restore();
+                    continue;
+                }
                 if (g.x !== undefined) {
                     ctx.beginPath();
                     ctx.moveTo(g.x, g.y1);
@@ -1292,6 +1724,13 @@ function setupNodeEdgeDocking() {
                 if (activeTag === "INPUT" || activeTag === "TEXTAREA" || document.activeElement?.isContentEditable) return;
                 e.preventDefault();
                 toggleSelectedClusterLock();
+            }
+            // Shift + R: Rack all minimized nodes into an Equipment Rack
+            if (e.shiftKey && e.code === "KeyR" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                const activeTag = document.activeElement?.tagName;
+                if (activeTag === "INPUT" || activeTag === "TEXTAREA" || document.activeElement?.isContentEditable) return;
+                e.preventDefault();
+                rackAllMinimizedNodes(app.canvas);
             }
         });
     }

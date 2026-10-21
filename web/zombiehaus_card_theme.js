@@ -382,7 +382,8 @@ function isEquipmentRackGroup(g) {
 
 function findRackUnderPoint(x, y) {
     if (!app.graph || !app.graph._groups) return null;
-    for (const g of app.graph._groups) {
+    for (let i = app.graph._groups.length - 1; i >= 0; i--) {
+        const g = app.graph._groups[i];
         if (!isEquipmentRackGroup(g) || !g.pos || !g.size) continue;
         const gx = g.pos[0];
         const gy = g.pos[1];
@@ -396,35 +397,22 @@ function findRackUnderPoint(x, y) {
 }
 
 function findRackContainingNode(node) {
-    if (!node || !node.pos || !app.graph?._groups) return null;
-    if (node._equipment_rack && isEquipmentRackGroup(node._equipment_rack) && node._equipment_rack.pos && node._equipment_rack.size) {
-        const r = node._equipment_rack;
-        const rx = r.pos[0];
-        const ry = r.pos[1];
-        const rw = r.size[0];
-        const rh = r.size[1];
-        if (node.pos[0] >= rx - 30 && node.pos[0] <= rx + rw + 30 && node.pos[1] >= ry - 30 && node.pos[1] <= ry + rh + 30) {
-            return r;
+    if (!node) return null;
+    if (node._equipment_rack && isEquipmentRackGroup(node._equipment_rack)) {
+        if (app.graph?._groups && app.graph._groups.includes(node._equipment_rack)) {
+            return node._equipment_rack;
         }
         delete node._equipment_rack;
         node._in_equipment_rack = false;
     }
-    for (const g of app.graph._groups) {
-        if (!isEquipmentRackGroup(g) || !g.pos || !g.size) continue;
-        if (g._nodes && g._nodes.includes(node)) {
-            node._equipment_rack = g;
-            return g;
-        }
-        const gx = g.pos[0];
-        const gy = g.pos[1];
-        const gw = g.size[0];
-        const gh = g.size[1];
-        if (node.pos[0] >= gx - 15 && node.pos[0] <= gx + gw + 15 && node.pos[1] >= gy - 15 && node.pos[1] <= gy + gh + 15) {
-            node._equipment_rack = g;
-            return g;
-        }
-    }
     return null;
+}
+
+function getRackNodes(rack) {
+    if (!rack || !app.graph?._nodes) return [];
+    return app.graph._nodes.filter((n) => (
+        n && n.flags?.collapsed && n._equipment_rack === rack
+    ));
 }
 
 function resolveCanvasAndCtx(arg1, arg2) {
@@ -457,6 +445,47 @@ function sanitizeGraphGroups(graph) {
                 m.graph = graph;
             }
         }
+    }
+
+    if (!graph._groups || !graph._nodes) return;
+
+    const racks = graph._groups.filter((g) => isEquipmentRackGroup(g));
+    if (racks.length === 0) return;
+
+    for (const r of racks) {
+        r.is_equipment_rack = true;
+    }
+
+    // Clean up stale rack references if rack was removed from graph
+    for (const n of graph._nodes) {
+        if (!n) continue;
+        if (n._equipment_rack && !graph._groups.includes(n._equipment_rack)) {
+            delete n._equipment_rack;
+            n._in_equipment_rack = false;
+        }
+    }
+
+    // Initialize unassigned collapsed nodes that were saved inside a rack on load
+    for (const n of graph._nodes) {
+        if (!n || !n.flags?.collapsed || !n.pos) continue;
+        if (!n._equipment_rack) {
+            for (const r of racks) {
+                const rx = r.pos[0];
+                const ry = r.pos[1];
+                const rw = r.size[0];
+                const rh = r.size[1];
+                if (n.pos[0] >= rx - 10 && n.pos[0] <= rx + rw + 10 && n.pos[1] >= ry - 10 && n.pos[1] <= ry + rh + 10) {
+                    n._equipment_rack = r;
+                    n._in_equipment_rack = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Ensure each rack's _nodes strictly contains only its own assigned nodes
+    for (const r of racks) {
+        r._nodes = graph._nodes.filter((n) => n && n.flags?.collapsed && n._equipment_rack === r);
     }
 }
 
@@ -529,16 +558,9 @@ function slotNodesIntoRack(rack, nodes, canvas) {
 
 function compactRackNodes(rack, canvas) {
     if (!rack || !app.graph?._nodes) return;
-    const gx = rack.pos[0];
-    const gy = rack.pos[1];
-    const gw = rack.size[0];
-    const gh = rack.size[1];
-
-    const nodesInside = app.graph._nodes.filter((n) => {
-        if (!n || !n.flags?.collapsed || !n.pos) return false;
-        return n.pos[0] >= gx - 10 && n.pos[0] <= gx + gw + 10 && n.pos[1] >= gy - 10 && n.pos[1] <= gy + gh + 10;
-    });
-
+    const nodesInside = app.graph._nodes.filter((n) => (
+        n && n.flags?.collapsed && n._equipment_rack === rack
+    ));
     slotNodesIntoRack(rack, nodesInside, canvas);
 }
 
@@ -992,57 +1014,336 @@ function renderDOMPatchbay(patchbay, canvas) {
     });
 }
 
-function drawCollapsedNodeJackPorts(node, ctx) {
-    if (!node || !node.flags?.collapsed || !ctx) return;
-    const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
-    const inRack = findRackContainingNode(node);
-    const nodeW = inRack ? Math.max(220, inRack.size[0] - 32) : (node._collapsed_width || (node.size ? node.size[0] : 180));
+// ── 1U Rack Mount Module Renderer (Dedicated Hardware Faceplate & Separator) ─
+function draw1URackModule(node, ctx, nodeW, rack) {
+    if (!node || !ctx) return;
+    const titleH = Math.max(28, (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30);
     const midY = -titleH * 0.5;
     const plateH = Math.max(18, titleH - 10);
     const plateY = -titleH + 5;
 
     ctx.save();
 
-    // ── 0. 19" Rack Module Chassis Faceplate & Center Title ──────────────────
-    if (inRack) {
-        // Subtle 1U unit faceplate frame spanning between rails
-        ctx.fillStyle = "rgba(20, 22, 34, 0.95)";
+    // ── 1. Recessed Rack Shelf Separator Channel (Between Slots) ───────────
+    // Dark recessed slot seam separating adjacent 1U modules
+    ctx.fillStyle = "#0b0c13";
+    ctx.fillRect(0, 0, nodeW, 7);
+
+    // Subtle horizontal brushed metal divider rail
+    ctx.strokeStyle = "rgba(137, 180, 250, 0.22)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(2, 3.5);
+    ctx.lineTo(nodeW - 2, 3.5);
+    ctx.stroke();
+
+    // Deep shadow groove under rail
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.beginPath();
+    ctx.moveTo(2, 4.5);
+    ctx.lineTo(nodeW - 2, 4.5);
+    ctx.stroke();
+
+    // Ventilation cooling slots in center of separator channel
+    const ventW = 28;
+    const ventStartX = (nodeW - ventW * 3) / 2;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.09)";
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < 3; i++) {
+        const vx = ventStartX + i * ventW;
+        ctx.beginPath();
+        ctx.moveTo(vx + 4, 3.5);
+        ctx.lineTo(vx + ventW - 4, 3.5);
+        ctx.stroke();
+    }
+
+    // ── 2. 1U Solid Chassis Faceplate Panel ────────────────────────────────
+    // Sleek brushed matte anodized panel background (100% opaque to block background text)
+    const grad = ctx.createLinearGradient(0, -titleH, 0, 0);
+    grad.addColorStop(0, "#222538");
+    grad.addColorStop(0.5, "#1a1c2a");
+    grad.addColorStop(1, "#141622");
+    ctx.fillStyle = grad;
+
+    if (typeof ctx.roundRect === "function") {
+        ctx.beginPath();
+        ctx.roundRect(0, -titleH, nodeW, titleH, 4);
+        ctx.fill();
+    } else {
+        ctx.fillRect(0, -titleH, nodeW, titleH);
+    }
+
+    // Crisp metallic chassis outer bevel border
+    ctx.strokeStyle = "rgba(137, 180, 250, 0.32)";
+    ctx.lineWidth = 1.2;
+    if (typeof ctx.roundRect === "function") {
+        ctx.beginPath();
+        ctx.roundRect(0, -titleH, nodeW, titleH, 4);
+        ctx.stroke();
+    } else {
+        ctx.strokeRect(0, -titleH, nodeW, titleH);
+    }
+
+    // Top milled aluminum highlight edge
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(2, -titleH + 1);
+    ctx.lineTo(nodeW - 2, -titleH + 1);
+    ctx.stroke();
+
+    // Bottom milled shadow bevel edge
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.9)";
+    ctx.beginPath();
+    ctx.moveTo(2, -0.5);
+    ctx.lineTo(nodeW - 2, -0.5);
+    ctx.stroke();
+
+    // ── 3. Left & Right 1U Rack Ears & Mounting Screws ─────────────────────
+    // Seams at left & right rack mount brackets
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+    ctx.beginPath();
+    ctx.moveTo(12, -titleH + 2);
+    ctx.lineTo(12, -2);
+    ctx.moveTo(nodeW - 12, -titleH + 2);
+    ctx.lineTo(nodeW - 12, -2);
+    ctx.stroke();
+
+    // Left Rack Ear Screw
+    ctx.fillStyle = "#282a3c";
+    ctx.beginPath();
+    ctx.arc(6, midY, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#0c0d14";
+    ctx.beginPath();
+    ctx.arc(6, midY, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(137, 180, 250, 0.5)";
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(4.5, midY); ctx.lineTo(7.5, midY);
+    ctx.moveTo(6, midY - 1.5); ctx.lineTo(6, midY + 1.5);
+    ctx.stroke();
+
+    // Right Rack Ear Screw
+    ctx.fillStyle = "#282a3c";
+    ctx.beginPath();
+    ctx.arc(nodeW - 6, midY, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#0c0d14";
+    ctx.beginPath();
+    ctx.arc(nodeW - 6, midY, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(137, 180, 250, 0.5)";
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(nodeW - 7.5, midY); ctx.lineTo(nodeW - 4.5, midY);
+    ctx.moveTo(nodeW - 6, midY - 1.5); ctx.lineTo(nodeW - 6, midY + 1.5);
+    ctx.stroke();
+
+    // ── 4. Left Input Jack Module [ ⇥IN ] ──────────────────────────────────
+    const plateW = 54;
+    const inPlateX = 14;
+    if (node.inputs && node.inputs.length > 0) {
+        const hasConnectedInput = node.inputs.some((i) => i && i.link != null);
+        const inputCount = node.inputs.length;
+
+        ctx.fillStyle = "#12131e";
         if (typeof ctx.roundRect === "function") {
             ctx.beginPath();
-            ctx.roundRect(0, -titleH, nodeW, titleH, 4);
+            ctx.roundRect(inPlateX, plateY, plateW, plateH, 4);
             ctx.fill();
         } else {
-            ctx.fillRect(0, -titleH, nodeW, titleH);
+            ctx.fillRect(inPlateX, plateY, plateW, plateH);
         }
 
-        ctx.strokeStyle = "rgba(137, 180, 250, 0.25)";
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = hasConnectedInput ? "#00f0ff" : "rgba(137, 180, 250, 0.4)";
+        ctx.lineWidth = 1.2;
+        if (hasConnectedInput) {
+            ctx.shadowColor = "#00f0ff";
+            ctx.shadowBlur = 6;
+        }
         if (typeof ctx.roundRect === "function") {
             ctx.beginPath();
-            ctx.roundRect(0, -titleH, nodeW, titleH, 4);
+            ctx.roundRect(inPlateX, plateY, plateW, plateH, 4);
             ctx.stroke();
         } else {
-            ctx.strokeRect(0, -titleH, nodeW, titleH);
+            ctx.strokeRect(inPlateX, plateY, plateW, plateH);
+        }
+        ctx.shadowBlur = 0;
+
+        const jackX = inPlateX + 10;
+        const jackY = midY;
+        ctx.strokeStyle = "rgba(205, 214, 244, 0.9)";
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(jackX, jackY, 4, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = hasConnectedInput ? "#00f0ff" : "#11111b";
+        if (hasConnectedInput) {
+            ctx.shadowColor = "#00f0ff";
+            ctx.shadowBlur = 5;
+        }
+        ctx.beginPath();
+        ctx.arc(jackX, jackY, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        ctx.font = "bold 9px monospace, sans-serif";
+        ctx.fillStyle = hasConnectedInput ? "#00f0ff" : "#cdd6f4";
+        ctx.fillText("⇥IN", inPlateX + 18, midY + 3);
+
+        const maxDots = Math.min(3, inputCount);
+        for (let i = 0; i < maxDots; i++) {
+            const slot = node.inputs[i];
+            const dotX = inPlateX + plateW + 5 + i * 6;
+            const isConn = slot && slot.link != null;
+            const dotColor = getSlotTypeColor(slot?.type);
+            ctx.fillStyle = isConn ? dotColor : "rgba(255,255,255,0.15)";
+            ctx.strokeStyle = dotColor;
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.arc(dotX, midY, 1.8, 0, Math.PI * 2);
+            if (isConn) {
+                ctx.fill();
+            } else {
+                ctx.stroke();
+            }
+        }
+    }
+
+    // ── 5. Right Output Jack Module [ OUT↦ ] ────────────────────────────────
+    const outPlateX = nodeW - plateW - 14;
+    if (node.outputs && node.outputs.length > 0) {
+        const hasConnectedOutput = node.outputs.some((o) => o && o.links && o.links.length > 0);
+        const outputCount = node.outputs.length;
+
+        ctx.fillStyle = "#12131e";
+        if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(outPlateX, plateY, plateW, plateH, 4);
+            ctx.fill();
+        } else {
+            ctx.fillRect(outPlateX, plateY, plateW, plateH);
         }
 
-        // Module Title Badge neatly centered between left and right jack plates
-        const title = (node.getTitle ? node.getTitle() : (node.title || node.type)) || "Node";
-        ctx.save();
-        ctx.font = "bold 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        const maxTitleW = Math.max(40, nodeW - 140);
-        let displayTitle = title;
-        if (ctx.measureText(displayTitle).width > maxTitleW) {
-            while (displayTitle.length > 3 && ctx.measureText(displayTitle + "…").width > maxTitleW) {
-                displayTitle = displayTitle.slice(0, -1);
-            }
-            displayTitle += "…";
+        ctx.strokeStyle = hasConnectedOutput ? "#cba6f7" : "rgba(137, 180, 250, 0.4)";
+        ctx.lineWidth = 1.2;
+        if (hasConnectedOutput) {
+            ctx.shadowColor = "#cba6f7";
+            ctx.shadowBlur = 6;
         }
-        ctx.fillStyle = node.color || "#cdd6f4";
-        ctx.fillText(displayTitle, nodeW / 2, midY);
-        ctx.restore();
+        if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(outPlateX, plateY, plateW, plateH, 4);
+            ctx.stroke();
+        } else {
+            ctx.strokeRect(outPlateX, plateY, plateW, plateH);
+        }
+        ctx.shadowBlur = 0;
+
+        ctx.font = "bold 9px monospace, sans-serif";
+        ctx.fillStyle = hasConnectedOutput ? "#cba6f7" : "#cdd6f4";
+        ctx.fillText("OUT↦", outPlateX + 5, midY + 3);
+
+        const jackX = outPlateX + plateW - 10;
+        const jackY = midY;
+        ctx.strokeStyle = "rgba(205, 214, 244, 0.9)";
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(jackX, jackY, 4, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = hasConnectedOutput ? "#cba6f7" : "#11111b";
+        if (hasConnectedOutput) {
+            ctx.shadowColor = "#cba6f7";
+            ctx.shadowBlur = 5;
+        }
+        ctx.beginPath();
+        ctx.arc(jackX, jackY, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        const maxDots = Math.min(3, outputCount);
+        for (let i = 0; i < maxDots; i++) {
+            const slot = node.outputs[i];
+            const dotX = outPlateX - 5 - i * 6;
+            const isConn = slot && slot.links && slot.links.length > 0;
+            const dotColor = getSlotTypeColor(slot?.type);
+            ctx.fillStyle = isConn ? dotColor : "rgba(255,255,255,0.15)";
+            ctx.strokeStyle = dotColor;
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.arc(dotX, midY, 1.8, 0, Math.PI * 2);
+            if (isConn) {
+                ctx.fill();
+            } else {
+                ctx.stroke();
+            }
+        }
     }
+
+    // ── 6. Crisp, High-Contrast Module Title & Status Jewel LED ────────────
+    const rawTitle = (node.getTitle ? node.getTitle() : (node.title || node.type)) || "Node";
+    const title = String(rawTitle);
+
+    ctx.save();
+    ctx.font = "bold 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    const leftBound = inPlateX + plateW + 28;
+    const rightBound = outPlateX - 28;
+    const maxTitleW = Math.max(40, rightBound - leftBound);
+
+    let displayTitle = title;
+    if (ctx.measureText(displayTitle).width > maxTitleW) {
+        while (displayTitle.length > 3 && ctx.measureText(displayTitle + "…").width > maxTitleW) {
+            displayTitle = displayTitle.slice(0, -1);
+        }
+        displayTitle += "…";
+    }
+
+    const titleW = ctx.measureText(displayTitle).width;
+    const titleCenterX = nodeW / 2;
+
+    // Jewel Status LED next to title
+    const jewelColor = (node.color && node.color !== "#222" && node.color !== "#333" && !node.color.startsWith("#1") && !node.color.startsWith("#2"))
+        ? node.color
+        : "#89b4fa";
+    const jewelX = titleCenterX - titleW / 2 - 10;
+    ctx.fillStyle = jewelColor;
+    ctx.shadowColor = jewelColor;
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.arc(jewelX, midY, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Razor-sharp bright off-white text with rich shadow
+    ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
+    ctx.shadowBlur = 5;
+    ctx.shadowOffsetY = 1;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(displayTitle, titleCenterX + 4, midY);
+    ctx.restore();
+
+    ctx.restore();
+}
+
+function drawCollapsedNodeJackPorts(node, ctx) {
+    if (!node || !node.flags?.collapsed || !ctx) return;
+    const inRack = findRackContainingNode(node);
+    if (inRack) return; // Handled exclusively by draw1URackModule
+
+    const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+    const nodeW = node._collapsed_width || (node.size ? node.size[0] : 180);
+    const midY = -titleH * 0.5;
+    const plateH = Math.max(18, titleH - 10);
+    const plateY = -titleH + 5;
+
+    ctx.save();
 
     // ── 1. Left Input Jack Module ──────────────────────────────────────────
     if (node.inputs && node.inputs.length > 0) {
@@ -1422,7 +1723,7 @@ function drawEquipmentRackChassis(group, ctx, canvas) {
         ctx.fillText(group.title || "EQUIPMENT RACK", ledX + 12, ledY + 4);
 
         // 8. Units count badge
-        const nodesInRack = (group._nodes || []).filter((n) => n && n.flags?.collapsed);
+        const nodesInRack = getRackNodes(group);
         const uCount = nodesInRack.length;
         const badgeText = uCount > 0 ? `[ ${uCount}U • ${uCount} MODULES ]` : "[ EMPTY RACK ]";
         ctx.font = "10px monospace, sans-serif";
@@ -1448,6 +1749,8 @@ function drawEquipmentRackChassis(group, ctx, canvas) {
 // ── Classic LiteGraph Canvas Card Decorator ───────────────────────────────────
 function setupClassicCanvasDecorator() {
     if (typeof LGraphCanvas === "undefined") return;
+    if (LGraphCanvas.prototype._zombiehaus_canvas_hooked) return;
+    LGraphCanvas.prototype._zombiehaus_canvas_hooked = true;
 
     // Hook group drawing for 19" Equipment Rack chassis across both LiteGraph and ComfyUI Modern Frontend
     const GroupClasses = [
@@ -1469,6 +1772,43 @@ function setupClassicCanvasDecorator() {
                     }
                 }
                 return origGroupDraw ? origGroupDraw.apply(this, arguments) : undefined;
+            };
+
+            const origRecompute = GC.prototype.recomputeInsideNodes;
+            GC.prototype.recomputeInsideNodes = function () {
+                if (isEquipmentRackGroup(this)) {
+                    // Equipment Rack: strictly contains ONLY collapsed nodes assigned to THIS rack
+                    this._nodes = (this.graph?._nodes || []).filter((n) => (
+                        n && n.flags?.collapsed && n._equipment_rack === this
+                    ));
+                    return;
+                }
+                // Normal groups: compute normally, but never drag or steal nodes belonging to an equipment rack
+                if (origRecompute) {
+                    origRecompute.apply(this, arguments);
+                }
+                if (this._nodes) {
+                    this._nodes = this._nodes.filter((n) => !(n && n._in_equipment_rack && n._equipment_rack));
+                }
+            };
+
+            const origMove = GC.prototype.move;
+            GC.prototype.move = function (deltax, deltay, ignore_nodes) {
+                if (isEquipmentRackGroup(this)) {
+                    this.pos[0] += deltax;
+                    this.pos[1] += deltay;
+                    if (!ignore_nodes && this.graph?._nodes) {
+                        const railX = this.pos[0] + 16;
+                        for (const n of this.graph._nodes) {
+                            if (n && n.flags?.collapsed && n._equipment_rack === this && n.pos) {
+                                n.pos[0] = railX;
+                                n.pos[1] += deltay;
+                            }
+                        }
+                    }
+                    return;
+                }
+                return origMove ? origMove.apply(this, arguments) : undefined;
             };
         }
     }
@@ -1535,7 +1875,7 @@ function setupClassicCanvasDecorator() {
 
                     for (const n of this.graph._nodes) {
                         if (!n || !n.flags?.collapsed || !n.pos) continue;
-                        if (n._equipment_rack === g || (n.pos[0] >= gx - 15 && n.pos[0] <= gx + gw + 15 && n.pos[1] >= gy - 15 && n.pos[1] <= gy + gh + 15)) {
+                        if (n._equipment_rack === g) {
                             const isDraggingNode = (_lastDragPrimary === n) || (this.selected_nodes && this.selected_nodes[n.id]);
                             if (!isDraggingNode) {
                                 n.pos[0] = railX;
@@ -1543,7 +1883,6 @@ function setupClassicCanvasDecorator() {
                             n._collapsed_width = innerW;
                             n.size[0] = innerW;
                             n._in_equipment_rack = true;
-                            n._equipment_rack = g;
                         }
                     }
                 }
@@ -1571,14 +1910,10 @@ function setupClassicCanvasDecorator() {
                 const innerW = Math.max(220, rack.size[0] - 32);
                 node._collapsed_width = innerW;
                 node.size[0] = innerW;
+                draw1URackModule(node, ctx, innerW, rack);
+                return;
             }
-            const res = origDrawNodeCollapsed.apply(this, arguments);
-            if (rack) {
-                const innerW = Math.max(220, rack.size[0] - 32);
-                node._collapsed_width = innerW;
-                node.size[0] = innerW;
-            }
-            return res;
+            return origDrawNodeCollapsed ? origDrawNodeCollapsed.apply(this, arguments) : undefined;
         };
     }
 
@@ -1597,6 +1932,8 @@ function setupClassicCanvasDecorator() {
                 if (!isDraggingNode) {
                     node.pos[0] = rack.pos[0] + 16;
                 }
+                draw1URackModule(node, ctx, innerW, rack);
+                return;
             }
         }
         if (_themeEnabled && node && !node.flags?.collapsed) {
@@ -1750,6 +2087,19 @@ function setupClassicCanvasDecorator() {
             }
         });
         options.push({
+            content: "🗄️ Re-slot All Equipment Racks",
+            callback: () => {
+                if (this.graph?._groups) {
+                    for (const g of this.graph._groups) {
+                        if (isEquipmentRackGroup(g)) {
+                            compactRackNodes(g, this);
+                        }
+                    }
+                }
+                showDockingToast("🗄️ Re-slotted and cleaned all Equipment Racks");
+            }
+        });
+        options.push({
             content: "🧹 Clear GPU Memory",
             callback: () => {
                 clearGpuMemory();
@@ -1785,6 +2135,32 @@ function setupClassicCanvasDecorator() {
             }
         });
 
+        return options;
+    };
+
+    const origGetGroupMenuOptions = LGraphCanvas.prototype.getGroupMenuOptions;
+    LGraphCanvas.prototype.getGroupMenuOptions = function (group) {
+        const options = origGetGroupMenuOptions ? origGetGroupMenuOptions.apply(this, arguments) : [];
+        if (group && isEquipmentRackGroup(group)) {
+            options.push(null);
+            options.push({
+                content: "🗄️ Clean & Re-slot Rack",
+                callback: () => {
+                    compactRackNodes(group, this);
+                    showDockingToast(`🗄️ Cleaned and re-slotted ${group.title || "Equipment Rack"}`);
+                }
+            });
+            options.push({
+                content: "🗄️ Detach All Nodes from Rack",
+                callback: () => {
+                    const rackNodes = getRackNodes(group);
+                    for (const n of rackNodes) {
+                        detachNodeFromRack(n, this);
+                    }
+                    showDockingToast(`🗄️ Detached all nodes from ${group.title || "Equipment Rack"}`);
+                }
+            });
+        }
         return options;
     };
 
@@ -1904,6 +2280,24 @@ function getNodeVisualBounds(node) {
         bottom: y + h,
         titleH,
         isCollapsed
+    };
+}
+
+function getGroupVisualBounds(group) {
+    if (!group || !group.pos || !group.size) return null;
+    const x = group.pos[0];
+    const y = group.pos[1];
+    const w = group.size[0];
+    const h = group.size[1];
+    return {
+        x,
+        y,
+        w,
+        h,
+        right: x + w,
+        bottom: y + h,
+        isGroup: true,
+        group
     };
 }
 
@@ -2224,12 +2618,17 @@ function setupNodeEdgeDocking() {
         _lastDragPrimary = null;
         _lastPrimaryPos = null;
 
-        const draggedNodes = Object.values(this.selected_nodes || {});
-        const primary = draggedNodes[0] || this.current_node || this.node_over;
-        if (primary && primary.flags?.collapsed) {
-            _draggedNodeFromRack = findRackContainingNode(primary);
-        } else {
+        if (this.selected_group) {
             _draggedNodeFromRack = null;
+            _lastDragPrimary = null;
+        } else {
+            const draggedNodes = Object.values(this.selected_nodes || {});
+            const primary = draggedNodes[0] || this.current_node;
+            if (primary && primary.flags?.collapsed) {
+                _draggedNodeFromRack = findRackContainingNode(primary);
+            } else {
+                _draggedNodeFromRack = null;
+            }
         }
 
         // 1. Check if user clicked a slot inside an active Mini Patchbay Flyout (canvas hit)
@@ -2400,7 +2799,7 @@ function setupNodeEdgeDocking() {
         if (!this.graph || !this.graph._nodes) return res;
 
         const hasSelected = this.selected_nodes && Object.keys(this.selected_nodes).length > 0;
-        const isDragging = (e.buttons & 1) === 1 && !this.dragging_canvas && (hasSelected || this.current_node || this.node_over);
+        const isDragging = (e.buttons & 1) === 1 && !this.dragging_canvas && (hasSelected || this.current_node || this.selected_group);
         if (!isDragging) {
             if (_activeSnapGuides.length > 0) {
                 _activeSnapGuides = [];
@@ -2413,8 +2812,201 @@ function setupNodeEdgeDocking() {
             return res;
         }
 
+        // ── Group / Equipment Rack Magnetic Edge Snapping ─────────────────
+        if (this.selected_group) {
+            _lastDragPrimary = null;
+            _lastPrimaryPos = null;
+            _dragCluster.clear();
+            _clusterOffsets = new Map();
+
+            if (e.altKey || _dockingMode === "off") {
+                if (_activeSnapGuides.length > 0) {
+                    _activeSnapGuides = [];
+                    this.setDirty(true, true);
+                }
+                return res;
+            }
+
+            const group = this.selected_group;
+            if (!group.pos || !group.size) return res;
+
+            const pBounds = getGroupVisualBounds(group);
+            if (!pBounds) return res;
+
+            let bestSnapX = null;
+            let minDiffX = _snapThreshold + 1;
+            let snapGuideX = null;
+
+            let bestSnapY = null;
+            let minDiffY = _snapThreshold + 1;
+            let snapGuideY = null;
+
+            const gap = _dockingGap;
+            const candidateTargets = [];
+
+            // 1. Other groups / racks
+            if (this.graph._groups) {
+                for (const otherG of this.graph._groups) {
+                    if (otherG === group || !otherG.pos || !otherG.size) continue;
+                    const gb = getGroupVisualBounds(otherG);
+                    if (gb) candidateTargets.push(gb);
+                }
+            }
+
+            // 2. Normal uncollapsed nodes (not in an equipment rack)
+            if (this.graph._nodes) {
+                for (const otherN of this.graph._nodes) {
+                    if (!otherN || otherN.flags?.collapsed || otherN._in_equipment_rack || !otherN.pos || !otherN.size) continue;
+                    const nb = getNodeVisualBounds(otherN);
+                    if (nb) candidateTargets.push(nb);
+                }
+            }
+
+            for (const oBounds of candidateTargets) {
+                const hDist = Math.max(0, Math.max(pBounds.x, oBounds.x) - Math.min(pBounds.right, oBounds.right));
+                const vDist = Math.max(0, Math.max(pBounds.y, oBounds.y) - Math.min(pBounds.bottom, oBounds.bottom));
+
+                // Vertical Snapping (when horizontally near/overlapping)
+                if (hDist <= _snapThreshold * 2) {
+                    // Dock top: pBounds bottom flush to oBounds top
+                    const dY_top = (oBounds.y - gap) - pBounds.bottom;
+                    if (Math.abs(dY_top) < minDiffY) {
+                        minDiffY = Math.abs(dY_top);
+                        bestSnapY = dY_top;
+                        snapGuideY = {
+                            y: oBounds.y - (gap > 0 ? gap / 2 : 0),
+                            x1: Math.min(pBounds.x, oBounds.x) - 16,
+                            x2: Math.max(pBounds.right, oBounds.right) + 16,
+                            type: "dock_top"
+                        };
+                    }
+
+                    // Dock bottom: pBounds top flush to oBounds bottom
+                    const dY_bottom = (oBounds.bottom + gap) - pBounds.y;
+                    if (Math.abs(dY_bottom) < minDiffY) {
+                        minDiffY = Math.abs(dY_bottom);
+                        bestSnapY = dY_bottom;
+                        snapGuideY = {
+                            y: oBounds.bottom + (gap > 0 ? gap / 2 : 0),
+                            x1: Math.min(pBounds.x, oBounds.x) - 16,
+                            x2: Math.max(pBounds.right, oBounds.right) + 16,
+                            type: "dock_bottom"
+                        };
+                    }
+
+                    // Align top
+                    const dY_alignTop = oBounds.y - pBounds.y;
+                    if (Math.abs(dY_alignTop) < minDiffY) {
+                        minDiffY = Math.abs(dY_alignTop);
+                        bestSnapY = dY_alignTop;
+                        snapGuideY = {
+                            y: oBounds.y,
+                            x1: Math.min(pBounds.x, oBounds.x) - 16,
+                            x2: Math.max(pBounds.right, oBounds.right) + 16,
+                            type: "align_top"
+                        };
+                    }
+
+                    // Align bottom
+                    const dY_alignBottom = oBounds.bottom - pBounds.bottom;
+                    if (Math.abs(dY_alignBottom) < minDiffY) {
+                        minDiffY = Math.abs(dY_alignBottom);
+                        bestSnapY = dY_alignBottom;
+                        snapGuideY = {
+                            y: oBounds.bottom,
+                            x1: Math.min(pBounds.x, oBounds.x) - 16,
+                            x2: Math.max(pBounds.right, oBounds.right) + 16,
+                            type: "align_bottom"
+                        };
+                    }
+                }
+
+                // Horizontal Snapping (when vertically near/overlapping)
+                if (vDist <= _snapThreshold * 2) {
+                    // Dock left: pBounds right flush to oBounds left
+                    const dX_left = (oBounds.x - gap) - pBounds.right;
+                    if (Math.abs(dX_left) < minDiffX) {
+                        minDiffX = Math.abs(dX_left);
+                        bestSnapX = dX_left;
+                        snapGuideX = {
+                            x: oBounds.x - (gap > 0 ? gap / 2 : 0),
+                            y1: Math.min(pBounds.y, oBounds.y) - 16,
+                            y2: Math.max(pBounds.bottom, oBounds.bottom) + 16,
+                            type: "dock_left"
+                        };
+                    }
+
+                    // Dock right: pBounds left flush to oBounds right
+                    const dX_right = (oBounds.right + gap) - pBounds.x;
+                    if (Math.abs(dX_right) < minDiffX) {
+                        minDiffX = Math.abs(dX_right);
+                        bestSnapX = dX_right;
+                        snapGuideX = {
+                            x: oBounds.right + (gap > 0 ? gap / 2 : 0),
+                            y1: Math.min(pBounds.y, oBounds.y) - 16,
+                            y2: Math.max(pBounds.bottom, oBounds.bottom) + 16,
+                            type: "dock_right"
+                        };
+                    }
+
+                    // Align left
+                    const dX_alignLeft = oBounds.x - pBounds.x;
+                    if (Math.abs(dX_alignLeft) < minDiffX) {
+                        minDiffX = Math.abs(dX_alignLeft);
+                        bestSnapX = dX_alignLeft;
+                        snapGuideX = {
+                            x: oBounds.x,
+                            y1: Math.min(pBounds.y, oBounds.y) - 16,
+                            y2: Math.max(pBounds.bottom, oBounds.bottom) + 16,
+                            type: "align_left"
+                        };
+                    }
+
+                    // Align right
+                    const dX_alignRight = oBounds.right - pBounds.right;
+                    if (Math.abs(dX_alignRight) < minDiffX) {
+                        minDiffX = Math.abs(dX_alignRight);
+                        bestSnapX = dX_alignRight;
+                        snapGuideX = {
+                            x: oBounds.right,
+                            y1: Math.min(pBounds.y, oBounds.y) - 16,
+                            y2: Math.max(pBounds.bottom, oBounds.bottom) + 16,
+                            type: "align_right"
+                        };
+                    }
+
+                    // Align center X
+                    const dX_alignCenter = (oBounds.x + oBounds.w / 2) - (pBounds.x + pBounds.w / 2);
+                    if (Math.abs(dX_alignCenter) < minDiffX) {
+                        minDiffX = Math.abs(dX_alignCenter);
+                        bestSnapX = dX_alignCenter;
+                        snapGuideX = {
+                            x: oBounds.x + oBounds.w / 2,
+                            y1: Math.min(pBounds.y, oBounds.y) - 16,
+                            y2: Math.max(pBounds.bottom, oBounds.bottom) + 16,
+                            type: "align_center_x"
+                        };
+                    }
+                }
+            }
+
+            const newGuides = [];
+            const moveDeltaX = (bestSnapX !== null && Math.abs(bestSnapX) <= _snapThreshold) ? bestSnapX : 0;
+            const moveDeltaY = (bestSnapY !== null && Math.abs(bestSnapY) <= _snapThreshold) ? bestSnapY : 0;
+
+            if (moveDeltaX !== 0 || moveDeltaY !== 0) {
+                group.move(moveDeltaX, moveDeltaY);
+            }
+            if (moveDeltaX !== 0 && snapGuideX) newGuides.push(snapGuideX);
+            if (moveDeltaY !== 0 && snapGuideY) newGuides.push(snapGuideY);
+
+            _activeSnapGuides = newGuides;
+            this.setDirty(true, true);
+            return res;
+        }
+
         const draggedNodes = Object.values(this.selected_nodes || {});
-        const primary = draggedNodes[0] || this.current_node || this.node_over;
+        const primary = draggedNodes[0] || this.current_node;
         if (!primary || !primary.pos || !primary.size) return res;
 
         // Prevent dragging if primary or cluster is locked
@@ -2501,12 +3093,22 @@ function setupNodeEdgeDocking() {
         if (!pBounds) return res;
         const gap = _dockingGap;
 
+        const candidateTargets = [];
         for (const other of this.graph._nodes) {
             if (!other || other === primary || _dragCluster.has(other) || (this.selected_nodes && this.selected_nodes[other.id])) continue;
-            if (other.flags?.collapsed || !other.pos || !other.size) continue;
+            if (other.flags?.collapsed || other._in_equipment_rack || !other.pos || !other.size) continue;
+            const ob = getNodeVisualBounds(other);
+            if (ob) candidateTargets.push(ob);
+        }
+        if (this.graph._groups) {
+            for (const otherG of this.graph._groups) {
+                if (!otherG.pos || !otherG.size) continue;
+                const gb = getGroupVisualBounds(otherG);
+                if (gb) candidateTargets.push(gb);
+            }
+        }
 
-            const oBounds = getNodeVisualBounds(other);
-            if (!oBounds) continue;
+        for (const oBounds of candidateTargets) {
 
             const hDist = Math.max(0, Math.max(pBounds.x, oBounds.x) - Math.min(pBounds.right, oBounds.right));
             const vDist = Math.max(0, Math.max(pBounds.y, oBounds.y) - Math.min(pBounds.bottom, oBounds.bottom));
@@ -2674,9 +3276,10 @@ function setupNodeEdgeDocking() {
     LGraphCanvas.prototype.processMouseUp = function (e) {
         const draggedPrimary = _lastDragPrimary;
         const fromRack = _draggedNodeFromRack;
+        const wasDraggingGroup = !!this.selected_group;
         _draggedNodeFromRack = null;
 
-        if (draggedPrimary && draggedPrimary.flags?.collapsed) {
+        if (!wasDraggingGroup && draggedPrimary && draggedPrimary.flags?.collapsed) {
             const targetRack = findRackUnderPoint(draggedPrimary.pos[0] + (draggedPrimary.size[0] || 80) / 2, draggedPrimary.pos[1] - 15);
             if (targetRack) {
                 slotNodesIntoRack(targetRack, [draggedPrimary], this);

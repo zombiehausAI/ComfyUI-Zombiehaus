@@ -1024,7 +1024,10 @@ app.registerExtension({
 
                 const listContainer = createElement("div", { className: "zombiehaus-lora-list-dynamic" });
                 const mainWidgetContainer = createElement("div", { className: "zombiehaus-lora-main-container" }, headerContainer, listContainer);
-                const domWidget = node.addDOMWidget("advanced_list", "html", mainWidgetContainer, { serialize: false });
+                const domWidget = node.addDOMWidget("advanced_list", "html", mainWidgetContainer, { 
+                    serialize: false,
+                    hideOnZoom: true
+                });
 
                 function getWidgetStartY() {
                     if (domWidget && typeof domWidget.last_y === "number" && domWidget.last_y > 80) {
@@ -1043,35 +1046,24 @@ app.registerExtension({
                 }
 
                 const updateWidgetSize = () => {
+                    if (!node.size) return;
                     const startY = getWidgetStartY();
-                    const availableHeight = Math.max(180, (node.size?.[1] || 680) - startY - 20);
+                    const availableHeight = Math.max(140, node.size[1] - startY - 20);
 
-                    mainWidgetContainer.style.setProperty("display", "flex", "important");
-                    mainWidgetContainer.style.setProperty("flex-direction", "column", "important");
-                    mainWidgetContainer.style.setProperty("flex", "1 1 0%", "important");
-                    mainWidgetContainer.style.setProperty("width", "100%", "important");
-                    mainWidgetContainer.style.setProperty("height", "100%", "important");
-                    mainWidgetContainer.style.setProperty("min-height", "180px", "important");
-                    mainWidgetContainer.style.removeProperty("max-height");
-                    mainWidgetContainer.style.setProperty("box-sizing", "border-box", "important");
+                    mainWidgetContainer.style.width = "100%";
+                    mainWidgetContainer.style.height = "100%";
+                    mainWidgetContainer.style.maxHeight = `${availableHeight}px`;
 
-                    listContainer.style.setProperty("display", "flex", "important");
-                    listContainer.style.setProperty("flex-direction", "column", "important");
-                    listContainer.style.setProperty("flex", "1 1 0%", "important");
-                    listContainer.style.setProperty("width", "100%", "important");
-                    listContainer.style.setProperty("height", "100%", "important");
-                    listContainer.style.setProperty("min-height", "0", "important");
-                    listContainer.style.setProperty("overflow-y", "auto", "important");
-                    listContainer.style.setProperty("overflow-x", "hidden", "important");
+                    listContainer.style.width = "100%";
+                    listContainer.style.height = "100%";
 
-                    if (mainWidgetContainer.parentElement) {
-                        mainWidgetContainer.parentElement.style.setProperty("display", "flex", "important");
-                        mainWidgetContainer.parentElement.style.setProperty("flex-direction", "column", "important");
-                        mainWidgetContainer.parentElement.style.setProperty("flex", "1 1 0%", "important");
-                        mainWidgetContainer.parentElement.style.setProperty("width", "100%", "important");
-                        mainWidgetContainer.parentElement.style.setProperty("height", "100%", "important");
-                        mainWidgetContainer.parentElement.style.setProperty("min-height", "180px", "important");
-                        mainWidgetContainer.parentElement.style.removeProperty("max-height");
+                    if (typeof node.arrange === "function" && !node._arranging) {
+                        node._arranging = true;
+                        try {
+                            node.arrange();
+                        } finally {
+                            node._arranging = false;
+                        }
                     }
                 };
                 node._zombiehausUpdateWidgetSize = updateWidgetSize;
@@ -1082,6 +1074,7 @@ app.registerExtension({
                     return { minHeight: 180, maxHeight: 100000, minWidth: 0 };
                 };
                 if (!domWidget.options) domWidget.options = {};
+                domWidget.options.hideOnZoom = true;
                 domWidget.options.getMinHeight = () => 180;
                 domWidget.options.getMaxHeight = () => 100000;
                 delete domWidget.options.getHeight;
@@ -1093,19 +1086,6 @@ app.registerExtension({
                     updateWidgetSize();
                     return r;
                 };
-
-                // Attach ResizeObserver to detect resize in Vue and canvas DOM hosts
-                if (typeof ResizeObserver !== "undefined") {
-                    const ro = new ResizeObserver(() => {
-                        updateWidgetSize();
-                    });
-                    ro.observe(mainWidgetContainer);
-                    requestAnimationFrame(() => {
-                        if (mainWidgetContainer.parentElement) {
-                            ro.observe(mainWidgetContainer.parentElement);
-                        }
-                    });
-                }
 
                 updateWidgetSize();
 
@@ -1602,7 +1582,7 @@ loraStylesEl.innerHTML = `
                 width: 100% !important;
                 height: 100% !important;
                 flex: 1 1 0% !important;
-                min-height: 180px !important;
+                min-height: 0 !important;
                 overflow: hidden !important;
                 padding-right: 4px !important;
                 padding-bottom: 4px !important;

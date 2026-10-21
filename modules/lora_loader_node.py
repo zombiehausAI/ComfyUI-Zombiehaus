@@ -4,6 +4,7 @@ import os
 import json
 import random
 import re
+import math
 from nodes import LoraLoader as CoreLoraLoader
 from ..config import settings
 
@@ -63,6 +64,8 @@ class ZombiehausLoraLoader:
                 "negative": ("CONDITIONING",),
                 # Seed is a passthrough and provides deterministic random selection.
                 "seed": ("INT", {"forceInput": True}),
+                # Master toggle for dynamic scheduling / dropoffs
+                "enable_dynamic_lora": ("BOOLEAN", {"default": True}),
                 # Optional prompt text to dynamically detect and load <lora:name:strength> tags
                 "prompt": ("STRING", {"forceInput": True, "multiline": True}),
                 # This widget is for the UI only, to filter the LoRA list.
@@ -145,38 +148,164 @@ class ZombiehausLoraLoader:
         return []
 
     @staticmethod
+    def _create_hook_keyframes(start_percent=0.0, end_percent=1.0, start_strength=1.0, end_strength=0.0, decay_profile="cosine", steps=8):
+        """Builds a HookKeyframeGroup for time-scheduled LoRA dropoff."""
+        try:
+            import comfy.hooks
+        except ImportError:
+            return None
+
+        kfg = comfy.hooks.HookKeyframeGroup()
+        start_percent = max(0.0, min(1.0, float(start_percent)))
+        end_percent = max(0.0, min(1.0, float(end_percent)))
+        if end_percent < start_percent:
+            end_percent = start_percent
+
+        end_ratio = (end_strength / start_strength) if start_strength != 0 else 0.0
+
+        if start_percent > 0.0:
+            kfg.add(comfy.hooks.HookKeyframe(strength=0.0, start_percent=0.0))
+            kfg.add(comfy.hooks.HookKeyframe(strength=1.0, start_percent=start_percent))
+        else:
+            kfg.add(comfy.hooks.HookKeyframe(strength=1.0, start_percent=0.0))
+
+        if decay_profile == "step":
+            if end_percent < 1.0:
+                kfg.add(comfy.hooks.HookKeyframe(strength=end_ratio, start_percent=end_percent))
+        else:
+            num_pts = max(2, steps)
+            for i in range(1, num_pts):
+                fraction = i / (num_pts - 1)
+                pct = start_percent + (end_percent - start_percent) * fraction
+                if decay_profile == "cosine":
+                    factor = 0.5 * (1.0 + math.cos(math.pi * fraction))
+                elif decay_profile == "exponential":
+                    factor = math.exp(-3.0 * fraction)
+                else:  # linear
+                    factor = 1.0 - fraction
+                curr_ratio = end_ratio + (1.0 - end_ratio) * factor
+                kfg.add(comfy.hooks.HookKeyframe(strength=round(curr_ratio, 4), start_percent=round(pct, 4)))
+
+        if end_percent < 1.0 and decay_profile != "step":
+            kfg.add(comfy.hooks.HookKeyframe(strength=end_ratio, start_percent=end_percent))
+
+        return kfg
+
+    @staticmethod
+    def parse_lora_tag_content(content: str) -> dict | None:
+        """
+        Parses extended prompt LoRA syntax:
+          - <lora:name>
+          - <lora:name:strength>
+          - <lora:name:model:clip>
+          - <lora:name:min~max> (random range)
+          - <lora:name:1.0>0.2> (dropoff)
+          - <lora:name:1.0@0.0-0.5> (step window)
+          - <lora:name:1.0>0.2@0.0-0.6:cosine> (scheduled curve)
+        """
+        parts = [p.strip() for p in content.split(':') if p.strip()]
+        if not parts:
+            return None
+
+        name = parts[0].strip().replace('\\', '/')
+        result = {
+            "name": name,
+            "model_strength": 1.0,
+            "clip_strength": 1.0,
+            "is_range": False,
+            "min_strength": 1.0,
+            "max_strength": 1.0,
+            "dynamic": False,
+            "start_percent": 0.0,
+            "end_percent": 1.0,
+            "end_strength": 0.0,
+            "decay_profile": "cosine",
+        }
+
+        if len(parts) == 1:
+            return result
+
+        raw_args = parts[1:]
+        known_profiles = {"linear", "cosine", "exponential", "step"}
+        if raw_args and raw_args[-1].lower() in known_profiles:
+            result["decay_profile"] = raw_args.pop(-1).lower()
+            result["dynamic"] = True
+
+        for idx, arg in enumerate(raw_args):
+            # Check for timing window @start-end or @end
+            if '@' in arg:
+                weight_part, time_part = arg.split('@', 1)
+                arg = weight_part.strip()
+                time_part = time_part.strip()
+                result["dynamic"] = True
+                if '-' in time_part:
+                    t1, t2 = time_part.split('-', 1)
+                    try:
+                        result["start_percent"] = max(0.0, min(1.0, float(t1)))
+                        result["end_percent"] = max(0.0, min(1.0, float(t2)))
+                    except ValueError:
+                        pass
+                else:
+                    try:
+                        result["end_percent"] = max(0.0, min(1.0, float(time_part)))
+                    except ValueError:
+                        pass
+
+            # Check for dropoff > e.g. 1.0>0.2
+            if '>' in arg:
+                w_start, w_end = arg.split('>', 1)
+                arg = w_start.strip()
+                result["dynamic"] = True
+                try:
+                    result["end_strength"] = float(w_end.strip())
+                except ValueError:
+                    pass
+
+            # Check for random range ~ e.g. 0.4~0.8
+            if '~' in arg:
+                min_s, max_s = arg.split('~', 1)
+                try:
+                    result["is_range"] = True
+                    result["min_strength"] = float(min_s.strip())
+                    result["max_strength"] = float(max_s.strip())
+                    result["model_strength"] = result["max_strength"]
+                    result["clip_strength"] = result["max_strength"]
+                except ValueError:
+                    pass
+            elif arg:
+                try:
+                    val = float(arg)
+                    if idx == 0:
+                        result["model_strength"] = val
+                        result["clip_strength"] = val
+                    elif idx == 1:
+                        result["clip_strength"] = val
+                except ValueError:
+                    pass
+
+        return result
+
+    @staticmethod
     def extract_prompt_loras(prompt: str) -> tuple[list[dict], str]:
         """
-        Parses <lora:name:strength> or <lora:name:model_weight:clip_weight> tags from prompt text.
+        Parses <lora:...> tags from prompt text, supporting standard, random range (~), and dynamic dropoff (> / @).
         Ignores tags wrapped in /* ... */ comments.
         Returns:
-            (lora_entries: list of dict(name, model_strength, clip_strength), clean_prompt: str)
+            (lora_entries: list of dict, clean_prompt: str)
         """
         if not prompt or not isinstance(prompt, str):
             return [], ""
 
-        # Remove C-style block comments /* ... */ first so commented/muted tags are ignored
         uncommented = re.sub(r'/\*.*?\*/', '', prompt, flags=re.DOTALL)
-
-        # Match <lora:filename:model_weight:clip_weight> or <lora:filename:weight> or <lora:filename>
-        pattern = r'<lora:([^:>]+)(?::([+-]?[0-9]*\.?[0-9]+))?(?::([+-]?[0-9]*\.?[0-9]+))?>'
+        tag_pattern = r'<lora:([^>]+)>'
 
         loras = []
-        for m in re.finditer(pattern, uncommented, flags=re.IGNORECASE):
-            name = m.group(1).strip().replace('\\', '/')
-            w1 = m.group(2)
-            w2 = m.group(3)
+        for m in re.finditer(tag_pattern, uncommented, flags=re.IGNORECASE):
+            content = m.group(1).strip()
+            parsed = ZombiehausLoraLoader.parse_lora_tag_content(content)
+            if parsed:
+                loras.append(parsed)
 
-            model_w = float(w1) if w1 is not None and w1 != '' else 1.0
-            clip_w = float(w2) if w2 is not None and w2 != '' else model_w
-
-            loras.append({
-                "name": name,
-                "model_strength": model_w,
-                "clip_strength": clip_w,
-            })
-
-        # Produce clean prompt: strip all <lora:[^>]+> and commented loras
         clean = re.sub(r'/\*\s*<lora:[^>]+>\s*\*/|<lora:[^>]+>', '', prompt)
         clean = re.sub(r'[ \t]+', ' ', clean)
         clean = re.sub(r'\s*,\s*,+', ', ', clean)
@@ -194,48 +323,43 @@ class ZombiehausLoraLoader:
     def IS_CHANGED(cls, lora_stack, **kwargs):
         try:
             items = json.loads(lora_stack)
-            random_pool = [i for i in items if i.get("enabled", False) and i.get("random", False)]
+            random_pool = [i for i in items if i.get("enabled", False) and (i.get("random", False) or i.get("random_strength", False))]
             seed_val = kwargs.get("seed")
-            # If there is a random pool and seed is left blank (None or 0), randomize every run
-            if len(random_pool) > 1 and (seed_val is None or seed_val == 0):
+            if len(random_pool) > 0 and (seed_val is None or seed_val == 0):
                 import time
                 return time.time()
         except Exception:
             pass
         return False
 
-    def load_loras(self, lora_stack, base_model_name, pipe=None, model=None, clip=None, positive=None, negative=None, lora_filter="", seed=0, civitai_api_key="", random_pick_count=1, auto_keyword_discovery=True, keyword_blacklist="", prompt=None, **kwargs):
+    def load_loras(self, lora_stack, base_model_name, pipe=None, model=None, clip=None, positive=None, negative=None, lora_filter="", seed=0, civitai_api_key="", random_pick_count=1, auto_keyword_discovery=True, keyword_blacklist="", prompt=None, enable_dynamic_lora=True, **kwargs):
         # Extract from pipe if provided (individual inputs override pipe)
         if pipe is not None:
-            # Pipe format: (model, clip, vae, positive, negative)
             model = model if model is not None else (pipe[0] if len(pipe) > 0 else None)
             clip = clip if clip is not None else (pipe[1] if len(pipe) > 1 else None)
             vae = pipe[2] if len(pipe) > 2 else None
             positive = positive if positive is not None else (pipe[3] if len(pipe) > 3 else positive)
             negative = negative if negative is not None else (pipe[4] if len(pipe) > 4 else negative)
-            # If an extended pipe has a seed at index 5 and seed input is blank, use it
             if (seed is None or seed == 0) and len(pipe) > 5 and isinstance(pipe[5], int):
                 seed = pipe[5]
         else:
             vae = None
-        
-        # Validate that we have model and clip
+
         if model is None or clip is None:
             raise ValueError("MODEL and CLIP are required (provide via pipe or individual inputs)")
-        
+
         lora_loader = CoreLoraLoader()
         lora_paths = folder_paths.get_filename_list("loras")
 
-        # Parse prompt-tagged LoRAs (<lora:name:strength>)
+        # Parse prompt-tagged LoRAs (<lora:name:...>)
         prompt_loras, clean_prompt = self.extract_prompt_loras(prompt) if prompt else ([], prompt or "")
 
-        # If prompt was not wired directly, auto-discover from incoming positive conditioning or pipe metadata
         if not prompt_loras:
             cond_to_check = positive if (positive and isinstance(positive, (list, tuple))) else (pipe[3] if (pipe is not None and len(pipe) > 3 and pipe[3]) else None)
             if cond_to_check and isinstance(cond_to_check, (list, tuple)):
                 for chunk in cond_to_check:
                     if isinstance(chunk, (list, tuple)) and len(chunk) > 1 and isinstance(chunk[1], dict):
-                        meta_loras = chunk[1].get("zombiehaus_prompt_loras") or chunk[1].get("zombiehaus_prompt_loras")
+                        meta_loras = chunk[1].get("zombiehaus_prompt_loras")
                         if meta_loras:
                             prompt_loras = list(meta_loras)
                             if not clean_prompt:
@@ -259,7 +383,6 @@ class ZombiehausLoraLoader:
         enabled_loras = [item for item in lora_items if item.get("enabled", False)]
 
         if not enabled_loras and not prompt_loras:
-            # If positive conditioning was not provided and clean_prompt is available, encode with clip
             if (positive is None or len(positive) == 0) and clean_prompt and clip is not None:
                 try:
                     from nodes import CLIPTextEncode
@@ -272,17 +395,17 @@ class ZombiehausLoraLoader:
             output_pipe = (model, clip, vae, positive, negative)
             return (model, clip, positive, negative, seed, output_pipe, "No LoRAs loaded", "", clean_prompt)
 
-        # Separate fixed vs random pool
+        # Deterministic RNG based on seed
+        rng = random.Random(seed if seed is not None and seed != 0 else None)
+
         fixed_loras = [item for item in enabled_loras if not item.get("random", False)]
         random_pool = [item for item in enabled_loras if item.get("random", False)]
 
         chosen_random = []
         if random_pool:
-            rng = random.Random(seed if seed is not None and seed != 0 else None)
             k = min(random_pick_count, len(random_pool))
             chosen_random = rng.sample(random_pool, k)
 
-        # Build blacklist set from input and config
         if not keyword_blacklist and "key_blacklist" in kwargs:
             keyword_blacklist = kwargs["key_blacklist"]
 
@@ -300,6 +423,7 @@ class ZombiehausLoraLoader:
         loaded_summaries = []
         all_trigger_words = []
         applied_lora_files = set()
+        accumulated_hooks = []
 
         for item, tag in active_loras:
             lora_name = item.get("name")
@@ -317,17 +441,66 @@ class ZombiehausLoraLoader:
                             if (not blacklist_set or t.strip().lower() not in blacklist_set) and t not in all_trigger_words:
                                 all_trigger_words.append(t)
 
-                strength = item.get("strength", 1.0)
+                # Determine effective strength (fixed vs randomized range)
+                is_random_str = item.get("random_strength", False)
+                if is_random_str:
+                    min_s = float(item.get("min_strength", 0.5))
+                    max_s = float(item.get("max_strength", 1.0))
+                    if min_s > max_s:
+                        min_s, max_s = max_s, min_s
+                    strength = round(rng.uniform(min_s, max_s), 3)
+                    weight_desc = f"rolled: {strength:g} [{min_s:g}~{max_s:g}]"
+                else:
+                    strength = float(item.get("strength", 1.0))
+                    weight_desc = f"strength: {strength:g}"
+
                 if strength == 0:
                     continue
 
-                try:
-                    model, clip = lora_loader.load_lora(model, clip, lora_file, strength, strength)
-                    loaded_summaries.append(f"[{tag}] {lora_name} (strength: {strength:g})")
-                except Exception as e:
-                    pass
+                is_dynamic = enable_dynamic_lora and item.get("dynamic", False)
+                if is_dynamic:
+                    start_pct = float(item.get("start_percent", 0.0))
+                    end_pct = float(item.get("end_percent", 1.0))
+                    end_str = float(item.get("end_strength", 0.0))
+                    decay_prof = str(item.get("decay_profile", "cosine")).lower()
 
-        # Apply prompt-tagged LoRAs (<lora:name:strength>)
+                    applied_via_hook = False
+                    try:
+                        import comfy.hooks
+                        import comfy.utils
+                        full_path = folder_paths.get_full_path("loras", lora_file)
+                        if full_path and os.path.isfile(full_path):
+                            lora_sd = comfy.utils.load_torch_file(full_path, safe_load=True)
+                            m_model, m_clip, hook_group = comfy.hooks.load_hook_lora_for_models(
+                                model, clip, lora_sd, strength_model=strength, strength_clip=strength
+                            )
+                            kfg = self._create_hook_keyframes(start_pct, end_pct, strength, end_str, decay_prof)
+                            if kfg:
+                                for h in hook_group.hooks:
+                                    h.hook_keyframe = kfg
+                                    h.hook_scope = comfy.hooks.EnumHookScope.AllConditioning
+                                model = m_model
+                                clip = m_clip
+                                accumulated_hooks.append(hook_group)
+                                applied_via_hook = True
+                                loaded_summaries.append(f"[{tag}+Dynamic] {lora_name} ({weight_desc} ➔ {end_str:g} @ {start_pct:g}-{end_pct:g} [{decay_prof}])")
+                    except Exception:
+                        pass
+
+                    if not applied_via_hook:
+                        try:
+                            model, clip = lora_loader.load_lora(model, clip, lora_file, strength, strength)
+                            loaded_summaries.append(f"[{tag}] {lora_name} ({weight_desc})")
+                        except Exception:
+                            pass
+                else:
+                    try:
+                        model, clip = lora_loader.load_lora(model, clip, lora_file, strength, strength)
+                        loaded_summaries.append(f"[{tag}] {lora_name} ({weight_desc})")
+                    except Exception:
+                        pass
+
+        # Apply prompt-tagged LoRAs (<lora:name:...>)
         for p_item in prompt_loras:
             lora_name = p_item.get("name")
             if not lora_name:
@@ -336,7 +509,6 @@ class ZombiehausLoraLoader:
             lora_file = self.find_lora_path(lora_name, lora_paths)
             if lora_file:
                 lora_key = lora_file.lower().replace('\\', '/')
-                # Avoid duplicate application if already loaded in this run
                 if lora_key in applied_lora_files:
                     continue
                 applied_lora_files.add(lora_key)
@@ -349,23 +521,69 @@ class ZombiehausLoraLoader:
                             if (not blacklist_set or t.strip().lower() not in blacklist_set) and t not in all_trigger_words:
                                 all_trigger_words.append(t)
 
-                m_strength = p_item.get("model_strength", 1.0)
-                c_strength = p_item.get("clip_strength", m_strength)
+                if p_item.get("is_range", False):
+                    min_s = float(p_item.get("min_strength", 0.5))
+                    max_s = float(p_item.get("max_strength", 1.0))
+                    if min_s > max_s:
+                        min_s, max_s = max_s, min_s
+                    rolled_val = round(rng.uniform(min_s, max_s), 3)
+                    m_strength = rolled_val
+                    c_strength = rolled_val
+                    weight_desc = f"rolled: {rolled_val:g} [{min_s:g}~{max_s:g}]"
+                else:
+                    m_strength = float(p_item.get("model_strength", 1.0))
+                    c_strength = float(p_item.get("clip_strength", m_strength))
+                    weight_desc = f"strength: {m_strength:g}" if m_strength == c_strength else f"model: {m_strength:g}, clip: {c_strength:g}"
+
                 if m_strength == 0 and c_strength == 0:
                     continue
 
-                try:
-                    model, clip = lora_loader.load_lora(model, clip, lora_file, m_strength, c_strength)
-                    if m_strength == c_strength:
-                        loaded_summaries.append(f"[Prompt] {lora_name} (strength: {m_strength:g})")
-                    else:
-                        loaded_summaries.append(f"[Prompt] {lora_name} (model: {m_strength:g}, clip: {c_strength:g})")
-                except Exception as e:
-                    pass
+                is_dynamic = enable_dynamic_lora and p_item.get("dynamic", False)
+                if is_dynamic:
+                    start_pct = float(p_item.get("start_percent", 0.0))
+                    end_pct = float(p_item.get("end_percent", 1.0))
+                    end_str = float(p_item.get("end_strength", 0.0))
+                    decay_prof = str(p_item.get("decay_profile", "cosine")).lower()
+
+                    applied_via_hook = False
+                    try:
+                        import comfy.hooks
+                        import comfy.utils
+                        full_path = folder_paths.get_full_path("loras", lora_file)
+                        if full_path and os.path.isfile(full_path):
+                            lora_sd = comfy.utils.load_torch_file(full_path, safe_load=True)
+                            m_model, m_clip, hook_group = comfy.hooks.load_hook_lora_for_models(
+                                model, clip, lora_sd, strength_model=m_strength, strength_clip=c_strength
+                            )
+                            kfg = self._create_hook_keyframes(start_pct, end_pct, m_strength, end_str, decay_prof)
+                            if kfg:
+                                for h in hook_group.hooks:
+                                    h.hook_keyframe = kfg
+                                    h.hook_scope = comfy.hooks.EnumHookScope.AllConditioning
+                                model = m_model
+                                clip = m_clip
+                                accumulated_hooks.append(hook_group)
+                                applied_via_hook = True
+                                loaded_summaries.append(f"[Prompt+Dynamic] {lora_name} ({weight_desc} ➔ {end_str:g} @ {start_pct:g}-{end_pct:g} [{decay_prof}])")
+                    except Exception:
+                        pass
+
+                    if not applied_via_hook:
+                        try:
+                            model, clip = lora_loader.load_lora(model, clip, lora_file, m_strength, c_strength)
+                            loaded_summaries.append(f"[Prompt] {lora_name} ({weight_desc})")
+                        except Exception:
+                            pass
+                else:
+                    try:
+                        model, clip = lora_loader.load_lora(model, clip, lora_file, m_strength, c_strength)
+                        loaded_summaries.append(f"[Prompt] {lora_name} ({weight_desc})")
+                    except Exception:
+                        pass
             else:
                 loaded_summaries.append(f"[Prompt] {lora_name} (NOT FOUND on disk)")
 
-        # If prompt LoRAs were applied, or if positive conditioning was not provided, encode clean_prompt with modified clip
+        # Encode clean prompt if needed
         if (bool(prompt_loras) or positive is None or len(positive) == 0) and clean_prompt and clip is not None:
             try:
                 from nodes import CLIPTextEncode
@@ -374,10 +592,18 @@ class ZombiehausLoraLoader:
             except Exception:
                 pass
 
-        # Ensure conditioning outputs are valid lists, not None
+        # Attach accumulated hooks to positive conditioning
+        if accumulated_hooks and positive is not None and isinstance(positive, (list, tuple)):
+            try:
+                import comfy.hooks
+                for hg in accumulated_hooks:
+                    positive = comfy.hooks.set_hooks_for_conditioning(positive, hg)
+            except Exception:
+                pass
+
         if positive is None: positive = []
         if negative is None: negative = []
-        
+
         output_pipe = (model, clip, vae, positive, negative)
         lora_summary_text = "\n".join(loaded_summaries) if loaded_summaries else "No LoRAs loaded"
         trigger_words_str = ", ".join(all_trigger_words)

@@ -134,36 +134,117 @@ class ZombiehausTextEditor:
         return "\n".join(lines).strip()
 
     @staticmethod
+    def parse_lora_tag_content(content: str) -> dict | None:
+        try:
+            from .lora_loader_node import ZombiehausLoraLoader
+            return ZombiehausLoraLoader.parse_lora_tag_content(content)
+        except Exception:
+            pass
+
+        parts = [p.strip() for p in content.split(':') if p.strip()]
+        if not parts:
+            return None
+
+        name = parts[0].strip().replace('\\', '/')
+        result = {
+            "name": name,
+            "model_strength": 1.0,
+            "clip_strength": 1.0,
+            "is_range": False,
+            "min_strength": 1.0,
+            "max_strength": 1.0,
+            "dynamic": False,
+            "start_percent": 0.0,
+            "end_percent": 1.0,
+            "end_strength": 0.0,
+            "decay_profile": "cosine",
+        }
+
+        if len(parts) == 1:
+            return result
+
+        raw_args = parts[1:]
+        known_profiles = {"linear", "cosine", "exponential", "step"}
+        if raw_args and raw_args[-1].lower() in known_profiles:
+            result["decay_profile"] = raw_args.pop(-1).lower()
+            result["dynamic"] = True
+
+        for idx, arg in enumerate(raw_args):
+            if '@' in arg:
+                weight_part, time_part = arg.split('@', 1)
+                arg = weight_part.strip()
+                time_part = time_part.strip()
+                result["dynamic"] = True
+                if '-' in time_part:
+                    t1, t2 = time_part.split('-', 1)
+                    try:
+                        result["start_percent"] = max(0.0, min(1.0, float(t1)))
+                        result["end_percent"] = max(0.0, min(1.0, float(t2)))
+                    except ValueError:
+                        pass
+                else:
+                    try:
+                        result["end_percent"] = max(0.0, min(1.0, float(time_part)))
+                    except ValueError:
+                        pass
+
+            if '>' in arg:
+                w_start, w_end = arg.split('>', 1)
+                arg = w_start.strip()
+                result["dynamic"] = True
+                try:
+                    result["end_strength"] = float(w_end.strip())
+                except ValueError:
+                    pass
+
+            if '~' in arg:
+                min_s, max_s = arg.split('~', 1)
+                try:
+                    result["is_range"] = True
+                    result["min_strength"] = float(min_s.strip())
+                    result["max_strength"] = float(max_s.strip())
+                    result["model_strength"] = result["max_strength"]
+                    result["clip_strength"] = result["max_strength"]
+                except ValueError:
+                    pass
+            elif arg:
+                try:
+                    val = float(arg)
+                    if idx == 0:
+                        result["model_strength"] = val
+                        result["clip_strength"] = val
+                    elif idx == 1:
+                        result["clip_strength"] = val
+                except ValueError:
+                    pass
+
+        return result
+
+    @staticmethod
     def extract_prompt_loras(prompt: str) -> tuple[list[dict], str]:
         """
-        Parses <lora:name:strength> or <lora:name:model_weight:clip_weight> tags from prompt text.
+        Parses <lora:...> tags from prompt text, supporting standard, random range (~), and dynamic dropoff (> / @).
         Ignores tags wrapped in /* ... */ comments.
         Returns:
-            (lora_entries: list of dict(name, model_strength, clip_strength), clean_prompt: str)
+            (lora_entries: list of dict, clean_prompt: str)
         """
         if not prompt or not isinstance(prompt, str):
             return [], ""
 
         uncommented = re.sub(r'/\*.*?\*/', '', prompt, flags=re.DOTALL)
-        pattern = r'<lora:([^:>]+)(?::([+-]?[0-9]*\.?[0-9]+))?(?::([+-]?[0-9]*\.?[0-9]+))?>'
+        tag_pattern = r'<lora:([^>]+)>'
 
         loras = []
-        for m in re.finditer(pattern, uncommented, flags=re.IGNORECASE):
-            name = m.group(1).strip().replace('\\', '/')
-            w1 = m.group(2)
-            w2 = m.group(3)
-
-            model_w = float(w1) if w1 is not None and w1 != '' else 1.0
-            clip_w = float(w2) if w2 is not None and w2 != '' else model_w
-
-            loras.append({
-                "name": name,
-                "model_strength": model_w,
-                "clip_strength": clip_w,
-            })
+        for m in re.finditer(tag_pattern, uncommented, flags=re.IGNORECASE):
+            content = m.group(1).strip()
+            parsed = ZombiehausTextEditor.parse_lora_tag_content(content)
+            if parsed:
+                loras.append(parsed)
 
         clean = re.sub(r'/\*\s*<lora:[^>]+>\s*\*/|<lora:[^>]+>', '', prompt)
-        clean = re.sub(r',\s*,+', ', ', clean)
+        clean = re.sub(r'[ \t]+', ' ', clean)
+        clean = re.sub(r'\s*,\s*,+', ', ', clean)
+        clean = re.sub(r'\s+,', ',', clean)
         clean = re.sub(r'^[,\s]+|[,\s]+$', '', clean)
         return loras, clean
 

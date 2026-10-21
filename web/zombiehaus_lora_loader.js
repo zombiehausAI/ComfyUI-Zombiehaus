@@ -792,7 +792,8 @@ app.registerExtension({
 
                 // Ensure node is resizable with corner drag arrows and has a healthy initial size
                 node.resizable = true;
-                if (!node.size || node.size[0] < 460 || node.size[1] > 1800 || node.size[1] < 500) {
+                node.min_size = [460, 320];
+                if (!node.size || node.size[0] < 460 || node.size[1] < 400) {
                     node.size = [480, 680];
                 }
 
@@ -1042,32 +1043,69 @@ app.registerExtension({
                 }
 
                 const updateWidgetSize = () => {
-                    if (!node.size) return;
-                    if (node.size[1] > 1800 || node.size[1] < 450) {
-                        node.size[1] = 680;
-                    }
                     const startY = getWidgetStartY();
-                    // Leave 26px clearance at the bottom and 14px on the right so LiteGraph's corner resize handle is always unobstructed
-                    const availableHeight = Math.max(120, node.size[1] - startY - 26);
-                    mainWidgetContainer.style.height = `${availableHeight}px`;
-                    mainWidgetContainer.style.maxHeight = `${availableHeight}px`;
-                };
+                    const availableHeight = Math.max(180, (node.size?.[1] || 680) - startY - 20);
 
-                // Static minimum size: must never calculate height dynamically from node.size in computeSize,
-                // as that causes an infinite expansion feedback loop with LiteGraph's node sizing.
-                domWidget.computeSize = function (width) {
-                    return [width || 460, 220];
-                };
+                    mainWidgetContainer.style.setProperty("display", "flex", "important");
+                    mainWidgetContainer.style.setProperty("flex-direction", "column", "important");
+                    mainWidgetContainer.style.setProperty("flex", "1 1 0%", "important");
+                    mainWidgetContainer.style.setProperty("width", "100%", "important");
+                    mainWidgetContainer.style.setProperty("height", "100%", "important");
+                    mainWidgetContainer.style.setProperty("min-height", "180px", "important");
+                    mainWidgetContainer.style.removeProperty("max-height");
+                    mainWidgetContainer.style.setProperty("box-sizing", "border-box", "important");
 
+                    listContainer.style.setProperty("display", "flex", "important");
+                    listContainer.style.setProperty("flex-direction", "column", "important");
+                    listContainer.style.setProperty("flex", "1 1 0%", "important");
+                    listContainer.style.setProperty("width", "100%", "important");
+                    listContainer.style.setProperty("height", "100%", "important");
+                    listContainer.style.setProperty("min-height", "0", "important");
+                    listContainer.style.setProperty("overflow-y", "auto", "important");
+                    listContainer.style.setProperty("overflow-x", "hidden", "important");
+
+                    if (mainWidgetContainer.parentElement) {
+                        mainWidgetContainer.parentElement.style.setProperty("display", "flex", "important");
+                        mainWidgetContainer.parentElement.style.setProperty("flex-direction", "column", "important");
+                        mainWidgetContainer.parentElement.style.setProperty("flex", "1 1 0%", "important");
+                        mainWidgetContainer.parentElement.style.setProperty("width", "100%", "important");
+                        mainWidgetContainer.parentElement.style.setProperty("height", "100%", "important");
+                        mainWidgetContainer.parentElement.style.setProperty("min-height", "180px", "important");
+                        mainWidgetContainer.parentElement.style.removeProperty("max-height");
+                    }
+                };
+                node._zombiehausUpdateWidgetSize = updateWidgetSize;
+
+                // Configure dynamic layout sizing so ComfyUI distributes all remaining free vertical space to this widget
+                delete domWidget.computeSize;
+                domWidget.computeLayoutSize = function () {
+                    return { minHeight: 180, maxHeight: 100000, minWidth: 0 };
+                };
+                if (!domWidget.options) domWidget.options = {};
+                domWidget.options.getMinHeight = () => 180;
+                domWidget.options.getMaxHeight = () => 100000;
+                delete domWidget.options.getHeight;
+
+                // Hook instance onResize
                 const origOnResize = node.onResize;
                 node.onResize = function (size) {
                     const r = origOnResize ? origOnResize.apply(this, arguments) : undefined;
-                    if (node.size && (node.size[1] > 1800 || node.size[1] < 450)) {
-                        node.size[1] = 680;
-                    }
                     updateWidgetSize();
                     return r;
                 };
+
+                // Attach ResizeObserver to detect resize in Vue and canvas DOM hosts
+                if (typeof ResizeObserver !== "undefined") {
+                    const ro = new ResizeObserver(() => {
+                        updateWidgetSize();
+                    });
+                    ro.observe(mainWidgetContainer);
+                    requestAnimationFrame(() => {
+                        if (mainWidgetContainer.parentElement) {
+                            ro.observe(mainWidgetContainer.parentElement);
+                        }
+                    });
+                }
 
                 updateWidgetSize();
 
@@ -1505,7 +1543,8 @@ app.registerExtension({
                 node.onConfigure = function (info) {
                     originalOnConfigure?.apply(this, arguments);
                     node.resizable = true;
-                    if (!this.size || this.size[0] < 460 || this.size[1] > 1800 || this.size[1] < 500) {
+                    node.min_size = [460, 320];
+                    if (!this.size || this.size[0] < 460 || this.size[1] < 400) {
                         this.size = [Math.max(this.size?.[0] || 480, 460), 680];
                     }
                     updateWidgetSize();
@@ -1538,6 +1577,14 @@ app.registerExtension({
                 // Listen for external refresh events from ComfyUI (e.g., pressing 'R')
                 api.addEventListener("loras_updated", refreshLoras);
             };
+
+            // Hook prototype onResize so canvas resize immediately propagates
+            const origPrototypeOnResize = nodeType.prototype.onResize;
+            nodeType.prototype.onResize = function (size) {
+                const r = origPrototypeOnResize ? origPrototypeOnResize.apply(this, arguments) : undefined;
+                this._zombiehausUpdateWidgetSize?.();
+                return r;
+            };
         }
     },
 });
@@ -1552,24 +1599,26 @@ loraStylesEl.innerHTML = `
             .zombiehaus-lora-main-container {
                 display: flex !important;
                 flex-direction: column !important;
-                width: calc(100% - 14px) !important;
-                max-height: 100% !important;
-                min-height: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                flex: 1 1 0% !important;
+                min-height: 180px !important;
                 overflow: hidden !important;
-                margin-right: 14px !important;
-                margin-bottom: 26px !important;
+                padding-right: 4px !important;
                 padding-bottom: 4px !important;
                 box-sizing: border-box !important;
             }
             .zombiehaus-lora-list-dynamic {
-                width: 100%;
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
-                overflow-y: auto;
-                overflow-x: hidden;
-                flex: 1;
-                min-height: 0;
+                width: 100% !important;
+                height: 100% !important;
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 4px !important;
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+                flex: 1 1 0% !important;
+                min-height: 0 !important;
+                box-sizing: border-box !important;
             }
             .zombiehaus-lora-header {
                 display: flex;

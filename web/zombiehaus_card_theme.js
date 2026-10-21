@@ -397,14 +397,30 @@ function findRackUnderPoint(x, y) {
 
 function findRackContainingNode(node) {
     if (!node || !node.pos || !app.graph?._groups) return null;
+    if (node._equipment_rack && isEquipmentRackGroup(node._equipment_rack) && node._equipment_rack.pos && node._equipment_rack.size) {
+        const r = node._equipment_rack;
+        const rx = r.pos[0];
+        const ry = r.pos[1];
+        const rw = r.size[0];
+        const rh = r.size[1];
+        if (node.pos[0] >= rx - 30 && node.pos[0] <= rx + rw + 30 && node.pos[1] >= ry - 30 && node.pos[1] <= ry + rh + 30) {
+            return r;
+        }
+        delete node._equipment_rack;
+        node._in_equipment_rack = false;
+    }
     for (const g of app.graph._groups) {
         if (!isEquipmentRackGroup(g) || !g.pos || !g.size) continue;
-        if (g._nodes && g._nodes.includes(node)) return g;
+        if (g._nodes && g._nodes.includes(node)) {
+            node._equipment_rack = g;
+            return g;
+        }
         const gx = g.pos[0];
         const gy = g.pos[1];
         const gw = g.size[0];
         const gh = g.size[1];
         if (node.pos[0] >= gx - 15 && node.pos[0] <= gx + gw + 15 && node.pos[1] >= gy - 15 && node.pos[1] <= gy + gh + 15) {
+            node._equipment_rack = g;
             return g;
         }
     }
@@ -480,7 +496,7 @@ function slotNodesIntoRack(rack, nodes, canvas) {
     if (!rack || !nodes) return;
     const railX = rack.pos[0] + 16;
     const innerW = Math.max(220, rack.size[0] - 32);
-    const startY = rack.pos[1] + 44;
+    const startY = rack.pos[1] + 74; // Aligns 1U module top neatly at rack.pos[1] + 44
     const slotPitch = 38;
 
     // Find all nodes that belong in this rack
@@ -498,10 +514,11 @@ function slotNodesIntoRack(rack, nodes, canvas) {
         n.pos[0] = railX;
         n.pos[1] = startY + idx * slotPitch;
         n._in_equipment_rack = true;
+        n._equipment_rack = rack;
         if (n.setDirtyCanvas) n.setDirtyCanvas(true, true);
     });
 
-    const neededH = Math.max(180, 52 + allNodes.length * slotPitch);
+    const neededH = Math.max(180, 56 + allNodes.length * slotPitch);
     if (rack.size[1] < neededH) {
         rack.size[1] = neededH;
     }
@@ -574,8 +591,10 @@ function sendNodeToNearestRack(node, canvas) {
 function detachNodeFromRack(node, canvas) {
     if (!node) return;
     const inRack = findRackContainingNode(node);
-    node.pos[0] += (inRack ? inRack.size[0] : 320) + 30;
+    delete node._equipment_rack;
     node._in_equipment_rack = false;
+    node._collapsed_width = null;
+    node.pos[0] += (inRack ? inRack.size[0] : 320) + 30;
     if (inRack) {
         compactRackNodes(inRack, canvas);
     }
@@ -583,8 +602,52 @@ function detachNodeFromRack(node, canvas) {
     showDockingToast(`🗄️ Detached "${node.title || node.type}" from Rack`);
 }
 
-// ── Mini Patchbay Flyout for Minimized / Racked Nodes ─────────────────────────
+// ── Coordinate Converter (Graph Space ➔ Client Screen DOM Space) ─────────────
+function graphToScreenCoords(canvas, gx, gy) {
+    if (!canvas) return [gx, gy, 1];
+    const canvasEl = canvas.canvas || canvas.frontcanvas || document.querySelector("canvas#graph-canvas") || document.querySelector("canvas");
+    const rect = canvasEl ? canvasEl.getBoundingClientRect() : { left: 0, top: 0 };
+    if (canvas.ds) {
+        const scale = canvas.ds.scale || 1;
+        const offsetX = canvas.ds.offset ? canvas.ds.offset[0] : 0;
+        const offsetY = canvas.ds.offset ? canvas.ds.offset[1] : 0;
+        const x = rect.left + (gx + offsetX) * scale;
+        const y = rect.top + (gy + offsetY) * scale;
+        return [x, y, scale];
+    } else if (canvas.offset && canvas.scale) {
+        const scale = canvas.scale || 1;
+        const x = rect.left + (gx + canvas.offset[0]) * scale;
+        const y = rect.top + (gy + canvas.offset[1]) * scale;
+        return [x, y, scale];
+    }
+    return [rect.left + gx, rect.top + gy, 1];
+}
+
+// ── Interactive Patchbay & Wire Management ────────────────────────────────────
 let _activePatchbay = null;
+let _patchbayCloseTimer = null;
+
+function cancelClosePatchbay() {
+    if (_patchbayCloseTimer) {
+        clearTimeout(_patchbayCloseTimer);
+        _patchbayCloseTimer = null;
+    }
+}
+
+function closePatchbay(canvas) {
+    cancelClosePatchbay();
+    _activePatchbay = null;
+    const el = document.getElementById("zombiehaus-patchbay-overlay");
+    if (el) el.style.display = "none";
+    if (canvas && canvas.setDirty) canvas.setDirty(true, true);
+}
+
+function scheduleClosePatchbay(canvas, delayMs = 350) {
+    cancelClosePatchbay();
+    _patchbayCloseTimer = setTimeout(() => {
+        closePatchbay(canvas);
+    }, delayMs);
+}
 
 function getSlotTypeColor(type) {
     if (!type) return "#94a3b8";
@@ -614,44 +677,116 @@ function findCollapsedNodeUnderPoint(graph, x, y) {
     const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
     for (const n of graph._nodes) {
         if (!n || !n.flags?.collapsed || !n.pos) continue;
-        const w = n._collapsed_width || (n.size ? n.size[0] : 180);
+        const inRack = findRackContainingNode(n);
+        const w = inRack ? Math.max(220, inRack.size[0] - 32) : (n._collapsed_width || (n.size ? n.size[0] : 180));
         const nx = n.pos[0];
         const ny = n.pos[1];
-        if (x >= nx - 20 && x <= nx + w + 20 && y >= ny - titleH - 15 && y <= ny + titleH + 15) {
+        if (x >= nx - 20 && x <= nx + w + 20 && y >= ny - titleH - 15 && y <= ny + 15) {
             return n;
         }
     }
     return null;
 }
 
+function startDraggingWireFromOutput(canvas, node, slotIndex) {
+    if (!canvas || !node || !node.outputs || !node.outputs[slotIndex]) return;
+    const slot = node.outputs[slotIndex];
+    if (canvas.linkConnector && typeof canvas.linkConnector.dragNewFromOutput === "function") {
+        try {
+            canvas.linkConnector.dragNewFromOutput(canvas.graph, node, slot);
+        } catch (_) {}
+    }
+    canvas.connecting_node = node;
+    canvas.connecting_slot = slotIndex;
+    canvas.connecting_output = slot;
+    canvas.connecting_input = null;
+    canvas.connecting_pos = [
+        canvas.graph_mouse?.[0] || (node.pos[0] + (node.size?.[0] || 180)),
+        canvas.graph_mouse?.[1] || (node.pos[1] - 15)
+    ];
+    if (canvas.setDirty) canvas.setDirty(true, true);
+    showDockingToast(`🔌 Dragging "${slot.name || 'output'}" wire... drop onto any input!`);
+}
+
+function connectNodesWithWire(canvas, sourceNode, sourceSlotIndex, targetNode, targetSlotIndex) {
+    if (!sourceNode || !targetNode) return false;
+    try {
+        if (typeof sourceNode.connect === "function") {
+            sourceNode.connect(sourceSlotIndex, targetNode, targetSlotIndex);
+        }
+        if (canvas.linkConnector && typeof canvas.linkConnector.reset === "function") {
+            try { canvas.linkConnector.reset(true); } catch (_) {}
+        }
+        canvas.connecting_node = null;
+        canvas.connecting_slot = -1;
+        canvas.connecting_output = null;
+        canvas.connecting_input = null;
+        if (canvas.graph?.change) canvas.graph.change();
+        if (canvas.setDirty) canvas.setDirty(true, true);
+        const sourceSlotName = sourceNode.outputs?.[sourceSlotIndex]?.name || `out ${sourceSlotIndex}`;
+        const targetSlotName = targetNode.inputs?.[targetSlotIndex]?.name || `in ${targetSlotIndex}`;
+        showDockingToast(`🔌 Wired "${sourceNode.title || sourceNode.type}" [${sourceSlotName}] ➔ "${targetNode.title || targetNode.type}" [${targetSlotName}]`);
+        return true;
+    } catch (err) {
+        console.error("Zombiehaus: failed to connect nodes:", err);
+        return false;
+    }
+}
+
+function findBestInputSlotForOutput(targetNode, outputSlotType, outputSlotName) {
+    if (!targetNode || !targetNode.inputs || targetNode.inputs.length === 0) return 0;
+    const typeStr = String(outputSlotType || "").toUpperCase();
+    const nameStr = String(outputSlotName || "").toLowerCase();
+
+    // 1. Exact type match (e.g. MODEL -> MODEL, LATENT -> LATENT, IMAGE -> IMAGE)
+    const exactTypeIdx = targetNode.inputs.findIndex((i) => i && String(i.type).toUpperCase() === typeStr);
+    if (exactTypeIdx !== -1) return exactTypeIdx;
+
+    // 2. Substring match on slot name
+    if (nameStr.length > 2) {
+        const nameIdx = targetNode.inputs.findIndex((i) => i && String(i.name || "").toLowerCase().includes(nameStr));
+        if (nameIdx !== -1) return nameIdx;
+    }
+
+    // 3. Fallback to first unconnected input
+    const firstOpen = targetNode.inputs.findIndex((i) => i && i.link == null);
+    if (firstOpen !== -1) return firstOpen;
+
+    return 0;
+}
+
 function openPatchbayForNode(node, isInput, canvas) {
     if (!node) return;
     const slots = isInput ? (node.inputs || []) : (node.outputs || []);
-    if (slots.length === 0) return;
+    if (slots.length === 0) {
+        showDockingToast(`Node has no ${isInput ? "inputs" : "outputs"}`);
+        return;
+    }
 
+    cancelClosePatchbay();
     const inRack = findRackContainingNode(node);
     const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
-    const nodeW = node._collapsed_width || (node.size ? node.size[0] : 240);
-    const flyoutW = 210;
-    const rowH = 26;
-    const headerH = 32;
-    const flyoutH = headerH + slots.length * rowH + 8;
+    const nodeW = inRack ? Math.max(220, inRack.size[0] - 32) : (node._collapsed_width || (node.size ? node.size[0] : 240));
+    const flyoutW = 230;
+    const rowH = 28;
+    const headerH = 34;
+    const flyoutH = headerH + slots.length * rowH + 10;
 
     let fx, fy;
     if (inRack) {
         if (isInput) {
-            fx = inRack.pos[0] - flyoutW - 14;
+            fx = inRack.pos[0] - flyoutW - 16;
         } else {
-            fx = inRack.pos[0] + inRack.size[0] + 14;
+            fx = inRack.pos[0] + inRack.size[0] + 16;
         }
-        fy = node.pos[1] - titleH - 4;
+        fy = node.pos[1] - titleH - 6;
     } else {
         if (isInput) {
-            fx = node.pos[0] - flyoutW - 14;
+            fx = node.pos[0] - flyoutW - 16;
         } else {
-            fx = node.pos[0] + nodeW + 14;
+            fx = node.pos[0] + nodeW + 16;
         }
-        fy = node.pos[1] - titleH - 4;
+        fy = node.pos[1] - titleH - 6;
     }
 
     const items = slots.map((s, idx) => {
@@ -679,59 +814,388 @@ function openPatchbayForNode(node, isInput, canvas) {
         slots: items
     };
 
-    if (canvas) canvas.setDirty(true, true);
+    renderDOMPatchbay(_activePatchbay, canvas);
+    if (canvas && canvas.setDirty) canvas.setDirty(true, true);
+}
+
+function renderDOMPatchbay(patchbay, canvas) {
+    let el = document.getElementById("zombiehaus-patchbay-overlay");
+    if (!patchbay || !patchbay.node) {
+        if (el) el.style.display = "none";
+        return;
+    }
+
+    if (!el) {
+        el = document.createElement("div");
+        el.id = "zombiehaus-patchbay-overlay";
+        document.body.appendChild(el);
+    }
+
+    const { node, isInput, x, y, slots } = patchbay;
+    const [screenX, screenY] = graphToScreenCoords(canvas, x, y);
+
+    const clampedX = Math.max(10, Math.min(window.innerWidth - 280, screenX));
+    const clampedY = Math.max(10, Math.min(window.innerHeight - 380, screenY));
+
+    const borderGlow = isInput ? "#00f0ff" : "#cba6f7";
+    const headerTitle = isInput ? "⇥ INPUT PATCHBAY" : "↦ OUTPUT PATCHBAY";
+
+    el.style.display = "flex";
+    el.style.position = "fixed";
+    el.style.left = `${Math.round(clampedX)}px`;
+    el.style.top = `${Math.round(clampedY)}px`;
+    el.style.width = "260px";
+    el.style.maxHeight = "420px";
+    el.style.background = "rgba(18, 19, 28, 0.98)";
+    el.style.border = `1.5px solid ${borderGlow}`;
+    el.style.borderRadius = "10px";
+    el.style.boxShadow = `0 12px 32px rgba(0, 0, 0, 0.8), 0 0 16px ${isInput ? "rgba(0, 240, 255, 0.25)" : "rgba(203, 166, 247, 0.25)"}`;
+    el.style.zIndex = "100050";
+    el.style.fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    el.style.color = "#cdd6f4";
+    el.style.flexDirection = "column";
+    el.style.overflow = "hidden";
+    el.style.backdropFilter = "blur(12px)";
+    el.style.userSelect = "none";
+    el.style.pointerEvents = "auto";
+
+    el.onmouseenter = () => cancelClosePatchbay();
+    el.onmouseleave = () => scheduleClosePatchbay(canvas, 400);
+
+    const isConnecting = (canvas?.connecting_node != null) || (canvas?.linkConnector && canvas.linkConnector.isConnecting);
+
+    let html = `
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(26, 28, 42, 0.98); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 13px;">🔌</span>
+                <div>
+                    <div style="font-size: 10px; font-weight: 800; color: ${borderGlow}; letter-spacing: 0.5px;">${headerTitle}</div>
+                    <div style="font-size: 11px; font-weight: 600; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px;">${node.title || node.type}</div>
+                </div>
+            </div>
+            <button id="zh-pb-close-btn" style="background: transparent; border: none; color: #6c7086; font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 4px;">✕</button>
+        </div>
+        <div style="overflow-y: auto; max-height: 320px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px;">
+    `;
+
+    for (let i = 0; i < slots.length; i++) {
+        const item = slots[i];
+        const typeColor = getSlotTypeColor(item.type);
+        const isHovered = (patchbay.hoveredIndex === i);
+        const hasLink = item.hasLink;
+
+        html += `
+            <div class="zh-pb-row" data-idx="${i}" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; background: ${isHovered ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)'}; border: 1px solid ${isHovered ? borderGlow : 'rgba(255,255,255,0.06)'}; cursor: pointer; transition: all 0.15s ease;">
+                <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${hasLink ? typeColor : 'transparent'}; border: 1.5px solid ${typeColor}; box-shadow: ${hasLink ? `0 0 6px ${typeColor}` : 'none'}; flex-shrink: 0;"></span>
+                    <div style="min-width: 0;">
+                        <div style="font-size: 11px; font-weight: 600; color: #cdd6f4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.name}</div>
+                        <div style="font-size: 9px; color: ${typeColor}; font-weight: 700;">${String(item.type).toUpperCase()}</div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+        `;
+
+        if (!isInput) {
+            html += `
+                <button class="zh-pb-action-btn" data-action="drag" data-idx="${i}" style="background: rgba(203, 166, 247, 0.18); border: 1px solid #cba6f7; color: #cba6f7; border-radius: 4px; padding: 3px 8px; font-size: 10px; font-weight: 700; cursor: pointer;">🔌 Drag Wire</button>
+            `;
+            if (hasLink) {
+                html += `
+                    <button class="zh-pb-action-btn" data-action="disconnect-out" data-idx="${i}" title="Disconnect output" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.5); color: #f38ba8; border-radius: 4px; padding: 3px 6px; font-size: 10px; cursor: pointer;">✕</button>
+                `;
+            }
+        } else {
+            if (isConnecting) {
+                html += `
+                    <button class="zh-pb-action-btn" data-action="connect-in" data-idx="${i}" style="background: rgba(0, 240, 255, 0.25); border: 1px solid #00f0ff; color: #00f0ff; border-radius: 4px; padding: 3px 8px; font-size: 10px; font-weight: 700; cursor: pointer;">🎯 Connect</button>
+                `;
+            } else if (hasLink) {
+                html += `
+                    <button class="zh-pb-action-btn" data-action="disconnect-in" data-idx="${i}" title="Disconnect link" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.5); color: #f38ba8; border-radius: 4px; padding: 3px 6px; font-size: 10px; cursor: pointer;">✕ Disconnect</button>
+                `;
+            } else {
+                html += `
+                    <span style="font-size: 9px; color: #6c7086; font-style: italic;">Open</span>
+                `;
+            }
+        }
+
+        html += `
+                </div>
+            </div>
+        `;
+    }
+
+    html += `
+        </div>
+        <div style="padding: 6px 10px; background: rgba(15, 16, 24, 0.95); border-top: 1px solid rgba(255, 255, 255, 0.08); font-size: 9px; color: #89b4fa; text-align: center;">
+            💡 ${isInput ? "Drop a wire or click Connect to wire up module" : "Click 'Drag Wire' to pull a connection to any node"}
+        </div>
+    `;
+
+    el.innerHTML = html;
+
+    const closeBtn = el.querySelector("#zh-pb-close-btn");
+    if (closeBtn) {
+        closeBtn.onclick = (e) => {
+            e.stopPropagation();
+            closePatchbay(canvas);
+        };
+    }
+
+    const rows = el.querySelectorAll(".zh-pb-row");
+    rows.forEach((row) => {
+        const idx = parseInt(row.getAttribute("data-idx"), 10);
+        row.onmouseenter = () => {
+            patchbay.hoveredIndex = idx;
+            if (canvas && canvas.setDirty) canvas.setDirty(true, true);
+        };
+    });
+
+    const actionBtns = el.querySelectorAll(".zh-pb-action-btn");
+    actionBtns.forEach((btn) => {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            const action = btn.getAttribute("data-action");
+            const idx = parseInt(btn.getAttribute("data-idx"), 10);
+
+            if (action === "drag") {
+                startDraggingWireFromOutput(canvas, node, idx);
+                closePatchbay(canvas);
+            } else if (action === "disconnect-out") {
+                node.disconnectOutput?.(idx);
+                showDockingToast(`🔌 Disconnected output [${slots[idx]?.name}] on ${node.title}`);
+                if (canvas?.graph?.change) canvas.graph.change();
+                if (canvas?.setDirty) canvas.setDirty(true, true);
+                openPatchbayForNode(node, false, canvas);
+            } else if (action === "connect-in") {
+                let srcNode = canvas.connecting_node;
+                let srcSlot = canvas.connecting_slot;
+                if (!srcNode && canvas.linkConnector?.renderLinks?.length > 0) {
+                    const rl = canvas.linkConnector.renderLinks[0];
+                    srcNode = rl.node || rl.originNode || rl.fromSlot?.node;
+                    srcSlot = rl.fromSlotIndex ?? (srcNode && rl.fromSlot ? sourceNode.outputs?.indexOf(rl.fromSlot) : 0);
+                }
+                if (srcNode) {
+                    connectNodesWithWire(canvas, srcNode, srcSlot, node, idx);
+                    closePatchbay(canvas);
+                }
+            } else if (action === "disconnect-in") {
+                node.disconnectInput?.(idx);
+                showDockingToast(`🔌 Disconnected input [${slots[idx]?.name}] on ${node.title}`);
+                if (canvas?.graph?.change) canvas.graph.change();
+                if (canvas?.setDirty) canvas.setDirty(true, true);
+                openPatchbayForNode(node, true, canvas);
+            }
+        };
+    });
 }
 
 function drawCollapsedNodeJackPorts(node, ctx) {
     if (!node || !node.flags?.collapsed || !ctx) return;
     const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
-    const nodeW = node._collapsed_width || (node.size ? node.size[0] : 180);
+    const inRack = findRackContainingNode(node);
+    const nodeW = inRack ? Math.max(220, inRack.size[0] - 32) : (node._collapsed_width || (node.size ? node.size[0] : 180));
     const midY = -titleH * 0.5;
+    const plateH = Math.max(18, titleH - 10);
+    const plateY = -titleH + 5;
 
-    // Draw Input Port Jack on Left Edge
+    ctx.save();
+
+    // ── 0. 19" Rack Module Chassis Faceplate & Center Title ──────────────────
+    if (inRack) {
+        // Subtle 1U unit faceplate frame spanning between rails
+        ctx.fillStyle = "rgba(20, 22, 34, 0.95)";
+        if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(0, -titleH, nodeW, titleH, 4);
+            ctx.fill();
+        } else {
+            ctx.fillRect(0, -titleH, nodeW, titleH);
+        }
+
+        ctx.strokeStyle = "rgba(137, 180, 250, 0.25)";
+        ctx.lineWidth = 1;
+        if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(0, -titleH, nodeW, titleH, 4);
+            ctx.stroke();
+        } else {
+            ctx.strokeRect(0, -titleH, nodeW, titleH);
+        }
+
+        // Module Title Badge neatly centered between left and right jack plates
+        const title = (node.getTitle ? node.getTitle() : (node.title || node.type)) || "Node";
+        ctx.save();
+        ctx.font = "bold 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const maxTitleW = Math.max(40, nodeW - 140);
+        let displayTitle = title;
+        if (ctx.measureText(displayTitle).width > maxTitleW) {
+            while (displayTitle.length > 3 && ctx.measureText(displayTitle + "…").width > maxTitleW) {
+                displayTitle = displayTitle.slice(0, -1);
+            }
+            displayTitle += "…";
+        }
+        ctx.fillStyle = node.color || "#cdd6f4";
+        ctx.fillText(displayTitle, nodeW / 2, midY);
+        ctx.restore();
+    }
+
+    // ── 1. Left Input Jack Module ──────────────────────────────────────────
     if (node.inputs && node.inputs.length > 0) {
-        ctx.save();
         const hasConnectedInput = node.inputs.some((i) => i && i.link != null);
-        ctx.fillStyle = hasConnectedInput ? "rgba(0, 240, 255, 0.45)" : "rgba(22, 22, 34, 0.9)";
-        ctx.strokeStyle = hasConnectedInput ? "#00f0ff" : "rgba(137, 180, 250, 0.5)";
-        ctx.lineWidth = 1.4;
+        const inputCount = node.inputs.length;
+        const plateW = 52;
+
+        ctx.fillStyle = "rgba(18, 20, 32, 0.95)";
+        if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(4, plateY, plateW, plateH, 4);
+            ctx.fill();
+        } else {
+            ctx.fillRect(4, plateY, plateW, plateH);
+        }
+
+        ctx.strokeStyle = hasConnectedInput ? "#00f0ff" : "rgba(137, 180, 250, 0.4)";
+        ctx.lineWidth = 1.2;
+        if (hasConnectedInput) {
+            ctx.shadowColor = "#00f0ff";
+            ctx.shadowBlur = 6;
+        }
+        if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(4, plateY, plateW, plateH, 4);
+            ctx.stroke();
+        } else {
+            ctx.strokeRect(4, plateY, plateW, plateH);
+        }
+        ctx.shadowBlur = 0;
+
+        const jackX = 14;
+        const jackY = midY;
+        ctx.strokeStyle = "rgba(205, 214, 244, 0.85)";
+        ctx.lineWidth = 1.6;
         ctx.beginPath();
-        ctx.arc(8, midY, 4.5, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.arc(jackX, jackY, 4, 0, Math.PI * 2);
         ctx.stroke();
 
-        ctx.fillStyle = hasConnectedInput ? "#00f0ff" : "rgba(137, 180, 250, 0.7)";
+        ctx.fillStyle = hasConnectedInput ? "#00f0ff" : "#11111b";
+        if (hasConnectedInput) {
+            ctx.shadowColor = "#00f0ff";
+            ctx.shadowBlur = 5;
+        }
         ctx.beginPath();
-        ctx.arc(8, midY, 2, 0, Math.PI * 2);
+        ctx.arc(jackX, jackY, 2, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
+        ctx.shadowBlur = 0;
+
+        ctx.font = "bold 9px monospace, sans-serif";
+        ctx.fillStyle = hasConnectedInput ? "#00f0ff" : "#cdd6f4";
+        ctx.fillText(`⇥IN`, 22, midY + 3);
+
+        const maxDots = Math.min(3, inputCount);
+        for (let i = 0; i < maxDots; i++) {
+            const slot = node.inputs[i];
+            const dotX = 4 + plateW + 5 + i * 6;
+            const isConn = slot && slot.link != null;
+            const dotColor = getSlotTypeColor(slot?.type);
+            ctx.fillStyle = isConn ? dotColor : "rgba(255,255,255,0.15)";
+            ctx.strokeStyle = dotColor;
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.arc(dotX, midY, 1.8, 0, Math.PI * 2);
+            if (isConn) {
+                ctx.fill();
+            } else {
+                ctx.stroke();
+            }
+        }
     }
 
-    // Draw Output Port Jack on Right Edge
+    // ── 2. Right Output Jack Module ─────────────────────────────────────────
     if (node.outputs && node.outputs.length > 0) {
-        ctx.save();
         const hasConnectedOutput = node.outputs.some((o) => o && o.links && o.links.length > 0);
-        ctx.fillStyle = hasConnectedOutput ? "rgba(137, 220, 235, 0.45)" : "rgba(22, 22, 34, 0.9)";
-        ctx.strokeStyle = hasConnectedOutput ? "#89dceb" : "rgba(137, 180, 250, 0.5)";
-        ctx.lineWidth = 1.4;
+        const outputCount = node.outputs.length;
+        const plateW = 54;
+        const plateX = nodeW - plateW - 4;
+
+        ctx.fillStyle = "rgba(18, 20, 32, 0.95)";
+        if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(plateX, plateY, plateW, plateH, 4);
+            ctx.fill();
+        } else {
+            ctx.fillRect(plateX, plateY, plateW, plateH);
+        }
+
+        ctx.strokeStyle = hasConnectedOutput ? "#cba6f7" : "rgba(137, 180, 250, 0.4)";
+        ctx.lineWidth = 1.2;
+        if (hasConnectedOutput) {
+            ctx.shadowColor = "#cba6f7";
+            ctx.shadowBlur = 6;
+        }
+        if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(plateX, plateY, plateW, plateH, 4);
+            ctx.stroke();
+        } else {
+            ctx.strokeRect(plateX, plateY, plateW, plateH);
+        }
+        ctx.shadowBlur = 0;
+
+        ctx.font = "bold 9px monospace, sans-serif";
+        ctx.fillStyle = hasConnectedOutput ? "#cba6f7" : "#cdd6f4";
+        ctx.fillText(`OUT↦`, plateX + 5, midY + 3);
+
+        const jackX = plateX + plateW - 13;
+        const jackY = midY;
+        ctx.strokeStyle = "rgba(205, 214, 244, 0.85)";
+        ctx.lineWidth = 1.6;
         ctx.beginPath();
-        ctx.arc(nodeW - 8, midY, 4.5, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.arc(jackX, jackY, 4, 0, Math.PI * 2);
         ctx.stroke();
 
-        ctx.fillStyle = hasConnectedOutput ? "#89dceb" : "rgba(137, 180, 250, 0.7)";
+        ctx.fillStyle = hasConnectedOutput ? "#cba6f7" : "#11111b";
+        if (hasConnectedOutput) {
+            ctx.shadowColor = "#cba6f7";
+            ctx.shadowBlur = 5;
+        }
         ctx.beginPath();
-        ctx.arc(nodeW - 8, midY, 2, 0, Math.PI * 2);
+        ctx.arc(jackX, jackY, 2, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
+        ctx.shadowBlur = 0;
+
+        const maxDots = Math.min(3, outputCount);
+        for (let i = 0; i < maxDots; i++) {
+            const slot = node.outputs[i];
+            const dotX = plateX - 5 - i * 6;
+            const isConn = slot && slot.links && slot.links.length > 0;
+            const dotColor = getSlotTypeColor(slot?.type);
+            ctx.fillStyle = isConn ? dotColor : "rgba(255,255,255,0.15)";
+            ctx.strokeStyle = dotColor;
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.arc(dotX, midY, 1.8, 0, Math.PI * 2);
+            if (isConn) {
+                ctx.fill();
+            } else {
+                ctx.stroke();
+            }
+        }
     }
+
+    ctx.restore();
 }
 
 function drawPatchbayFlyout(patchbay, ctx, canvas) {
     if (!patchbay || !patchbay.node) return;
     const { node, isInput, x, y, w, h, hoveredIndex, slots } = patchbay;
+    const inRack = findRackContainingNode(node);
     const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
-    const nodeW = node._collapsed_width || (node.size ? node.size[0] : 240);
+    const nodeW = inRack ? Math.max(220, inRack.size[0] - 32) : (node._collapsed_width || (node.size ? node.size[0] : 240));
 
     ctx.save();
 
@@ -741,7 +1205,7 @@ function drawPatchbayFlyout(patchbay, ctx, canvas) {
     const targetAnchorX = isInput ? (x + w) : x;
     const targetAnchorY = y + 16;
 
-    ctx.strokeStyle = "rgba(0, 240, 255, 0.5)";
+    ctx.strokeStyle = isInput ? "rgba(0, 240, 255, 0.6)" : "rgba(203, 166, 247, 0.6)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(anchorX, anchorY);
@@ -767,7 +1231,7 @@ function drawPatchbayFlyout(patchbay, ctx, canvas) {
     ctx.shadowOffsetY = 0;
 
     // Flyout Border
-    ctx.strokeStyle = "rgba(0, 240, 255, 0.6)";
+    ctx.strokeStyle = isInput ? "rgba(0, 240, 255, 0.6)" : "rgba(203, 166, 247, 0.6)";
     ctx.lineWidth = 1.5;
     if (typeof ctx.roundRect === "function") {
         ctx.beginPath();
@@ -789,12 +1253,12 @@ function drawPatchbayFlyout(patchbay, ctx, canvas) {
 
     // Header Title
     ctx.font = "bold 11px monospace, -apple-system, sans-serif";
-    ctx.fillStyle = "#00f0ff";
+    ctx.fillStyle = isInput ? "#00f0ff" : "#cba6f7";
     const headerTitle = `${isInput ? "⇥ INPUTS" : "↦ OUTPUTS"} • ${node.title || node.type}`.toUpperCase();
     ctx.fillText(headerTitle.slice(0, 24), x + 10, y + 20);
 
     // Slot Rows
-    const rowH = 26;
+    const rowH = 28;
     for (let i = 0; i < slots.length; i++) {
         const item = slots[i];
         const rowY = y + headerH + i * rowH;
@@ -802,13 +1266,12 @@ function drawPatchbayFlyout(patchbay, ctx, canvas) {
         const typeColor = getSlotTypeColor(item.type);
 
         if (isHovered) {
-            ctx.fillStyle = "rgba(0, 240, 255, 0.18)";
+            ctx.fillStyle = isInput ? "rgba(0, 240, 255, 0.18)" : "rgba(203, 166, 247, 0.18)";
             ctx.fillRect(x + 2, rowY, w - 4, rowH);
-            ctx.strokeStyle = "rgba(0, 240, 255, 0.5)";
+            ctx.strokeStyle = isInput ? "rgba(0, 240, 255, 0.5)" : "rgba(203, 166, 247, 0.5)";
             ctx.strokeRect(x + 2, rowY, w - 4, rowH);
         }
 
-        // Jack socket ring
         const jackX = isInput ? (x + 16) : (x + w - 16);
         const jackY = rowY + rowH / 2;
 
@@ -823,19 +1286,17 @@ function drawPatchbayFlyout(patchbay, ctx, canvas) {
         ctx.arc(jackX, jackY, 2.5, 0, Math.PI * 2);
         ctx.fill();
 
-        // Label
         ctx.font = isHovered ? "bold 11px sans-serif" : "11px sans-serif";
         ctx.fillStyle = isHovered ? "#ffffff" : "#cdd6f4";
         const textX = isInput ? (x + 28) : (x + 10);
-        ctx.fillText(item.name.slice(0, 18), textX, rowY + 17);
+        ctx.fillText(item.name.slice(0, 18), textX, rowY + 18);
 
-        // Status badge (Connected / Open)
         if (item.hasLink) {
             ctx.font = "9px monospace";
             ctx.fillStyle = "rgba(166, 227, 161, 0.9)";
             const badge = "●";
             const badgeX = isInput ? (x + w - 18) : (x + 10);
-            ctx.fillText(badge, badgeX, rowY + 17);
+            ctx.fillText(badge, badgeX, rowY + 18);
         }
     }
 
@@ -853,132 +1314,132 @@ function drawEquipmentRackChassis(group, ctx, canvas) {
 
         ctx.save();
 
-    // 1. Chassis Outer Shadow
-    ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
-    ctx.shadowBlur = 18;
-    ctx.shadowOffsetY = 6;
+        // 1. Chassis Outer Shadow
+        ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
+        ctx.shadowBlur = 18;
+        ctx.shadowOffsetY = 6;
 
-    // 2. Chassis Background (Dark Matte Metallic)
-    ctx.fillStyle = "rgba(18, 19, 28, 0.96)";
-    if (typeof ctx.roundRect === "function") {
+        // 2. Chassis Background (Dark Matte Metallic)
+        ctx.fillStyle = "rgba(18, 19, 28, 0.96)";
+        if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, 10);
+            ctx.fill();
+        } else {
+            ctx.fillRect(x, y, w, h);
+        }
+
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+
+        // 3. Chassis Bevel Border
+        ctx.strokeStyle = "rgba(137, 180, 250, 0.35)";
+        ctx.lineWidth = 1.5;
+        if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, 10);
+            ctx.stroke();
+        } else {
+            ctx.strokeRect(x, y, w, h);
+        }
+
+        // 4. Left & Right 19" Steel Rack Rails (16px wide each)
+        const railW = 16;
+        ctx.fillStyle = "rgba(28, 30, 44, 0.98)";
+        ctx.fillRect(x + 1, y + 1, railW, h - 2);
+        ctx.fillRect(x + w - railW - 1, y + 1, railW, h - 2);
+
+        // Rail Divider Lines
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.roundRect(x, y, w, h, 10);
-        ctx.fill();
-    } else {
-        ctx.fillRect(x, y, w, h);
-    }
-
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-
-    // 3. Chassis Bevel Border
-    ctx.strokeStyle = "rgba(137, 180, 250, 0.35)";
-    ctx.lineWidth = 1.5;
-    if (typeof ctx.roundRect === "function") {
-        ctx.beginPath();
-        ctx.roundRect(x, y, w, h, 10);
+        ctx.moveTo(x + railW + 1, y + 1);
+        ctx.lineTo(x + railW + 1, y + h - 1);
+        ctx.moveTo(x + w - railW - 1, y + 1);
+        ctx.lineTo(x + w - railW - 1, y + h - 1);
         ctx.stroke();
-    } else {
-        ctx.strokeRect(x, y, w, h);
-    }
 
-    // 4. Left & Right 19" Steel Rack Rails (16px wide each)
-    const railW = 16;
-    ctx.fillStyle = "rgba(28, 30, 44, 0.98)";
-    ctx.fillRect(x + 1, y + 1, railW, h - 2);
-    ctx.fillRect(x + w - railW - 1, y + 1, railW, h - 2);
+        // Screw Rivets along left & right rails every 38px (1U slot spacing centered at y + 59)
+        const slotPitch = 38;
+        const startY = y + 59;
+        const endY = y + h - 18;
+        for (let sy = startY; sy <= endY; sy += slotPitch) {
+            // Left Rail Screw
+            const lx = x + railW / 2 + 1;
+            ctx.fillStyle = "rgba(205, 214, 244, 0.4)";
+            ctx.beginPath();
+            ctx.arc(lx, sy, 3.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = "#11111b";
+            ctx.beginPath();
+            ctx.arc(lx, sy, 1.8, 0, Math.PI * 2);
+            ctx.fill();
 
-    // Rail Divider Lines
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x + railW + 1, y + 1);
-    ctx.lineTo(x + railW + 1, y + h - 1);
-    ctx.moveTo(x + w - railW - 1, y + 1);
-    ctx.lineTo(x + w - railW - 1, y + h - 1);
-    ctx.stroke();
+            // Right Rail Screw
+            const rx = x + w - railW / 2 - 1;
+            ctx.fillStyle = "rgba(205, 214, 244, 0.4)";
+            ctx.beginPath();
+            ctx.arc(rx, sy, 3.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = "#11111b";
+            ctx.beginPath();
+            ctx.arc(rx, sy, 1.8, 0, Math.PI * 2);
+            ctx.fill();
 
-    // Screw Rivets along left & right rails every 38px (1U slot spacing)
-    const slotPitch = 38;
-    const startY = y + 44;
-    const endY = y + h - 18;
-    for (let sy = startY; sy <= endY; sy += slotPitch) {
-        // Left Rail Screw
-        const lx = x + railW / 2 + 1;
-        ctx.fillStyle = "rgba(205, 214, 244, 0.4)";
-        ctx.beginPath();
-        ctx.arc(lx, sy, 3.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#11111b";
-        ctx.beginPath();
-        ctx.arc(lx, sy, 1.8, 0, Math.PI * 2);
-        ctx.fill();
+            // Subtle 1U slot divider guideline across the interior
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.035)";
+            ctx.beginPath();
+            ctx.moveTo(x + railW + 4, sy + 19);
+            ctx.lineTo(x + w - railW - 4, sy + 19);
+            ctx.stroke();
+        }
 
-        // Right Rail Screw
-        const rx = x + w - railW / 2 - 1;
-        ctx.fillStyle = "rgba(205, 214, 244, 0.4)";
-        ctx.beginPath();
-        ctx.arc(rx, sy, 3.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#11111b";
-        ctx.beginPath();
-        ctx.arc(rx, sy, 1.8, 0, Math.PI * 2);
-        ctx.fill();
+        // 5. Header Bar (Tactile Faceplate)
+        const headerH = 34;
+        ctx.fillStyle = "rgba(26, 28, 42, 0.98)";
+        ctx.fillRect(x + railW + 1, y + 1, w - 2 * railW - 2, headerH);
 
-        // Subtle 1U slot divider guideline across the interior
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.035)";
+        ctx.strokeStyle = "rgba(137, 180, 250, 0.22)";
         ctx.beginPath();
-        ctx.moveTo(x + railW + 4, sy - 18);
-        ctx.lineTo(x + w - railW - 4, sy - 18);
+        ctx.moveTo(x + 1, y + headerH);
+        ctx.lineTo(x + w - 1, y + headerH);
         ctx.stroke();
-    }
 
-    // 5. Header Bar (Tactile Faceplate)
-    const headerH = 34;
-    ctx.fillStyle = "rgba(26, 28, 42, 0.98)";
-    ctx.fillRect(x + railW + 1, y + 1, w - 2 * railW - 2, headerH);
+        // 6. LED Power Dot (Teal / Neon)
+        const ledX = x + railW + 14;
+        const ledY = y + headerH / 2 + 1;
+        ctx.fillStyle = "#00f0ff";
+        ctx.shadowColor = "#00f0ff";
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(ledX, ledY, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
 
-    ctx.strokeStyle = "rgba(137, 180, 250, 0.22)";
-    ctx.beginPath();
-    ctx.moveTo(x + 1, y + headerH);
-    ctx.lineTo(x + w - 1, y + headerH);
-    ctx.stroke();
+        // 7. Rack Title Text
+        ctx.font = "bold 12px monospace, -apple-system, sans-serif";
+        ctx.fillStyle = "#cdd6f4";
+        ctx.fillText(group.title || "EQUIPMENT RACK", ledX + 12, ledY + 4);
 
-    // 6. LED Power Dot (Teal / Neon)
-    const ledX = x + railW + 14;
-    const ledY = y + headerH / 2 + 1;
-    ctx.fillStyle = "#00f0ff";
-    ctx.shadowColor = "#00f0ff";
-    ctx.shadowBlur = 8;
-    ctx.beginPath();
-    ctx.arc(ledX, ledY, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
+        // 8. Units count badge
+        const nodesInRack = (group._nodes || []).filter((n) => n && n.flags?.collapsed);
+        const uCount = nodesInRack.length;
+        const badgeText = uCount > 0 ? `[ ${uCount}U • ${uCount} MODULES ]` : "[ EMPTY RACK ]";
+        ctx.font = "10px monospace, sans-serif";
+        ctx.fillStyle = uCount > 0 ? "rgba(137, 220, 235, 0.85)" : "rgba(108, 112, 134, 0.8)";
+        const badgeW = ctx.measureText(badgeText).width;
+        ctx.fillText(badgeText, x + w - railW - badgeW - 12, ledY + 4);
 
-    // 7. Rack Title Text
-    ctx.font = "bold 12px monospace, -apple-system, sans-serif";
-    ctx.fillStyle = "#cdd6f4";
-    ctx.fillText(group.title || "EQUIPMENT RACK", ledX + 12, ledY + 4);
+        // 9. Watermark if empty
+        if (uCount === 0) {
+            ctx.font = "11px sans-serif";
+            ctx.fillStyle = "rgba(108, 112, 134, 0.4)";
+            const hint = "DROP MINIMIZED NODES HERE TO SLOT IN RACK";
+            const hintW = ctx.measureText(hint).width;
+            ctx.fillText(hint, x + (w - hintW) / 2, y + h / 2 + 6);
+        }
 
-    // 8. Units count badge
-    const nodesInRack = (group._nodes || []).filter((n) => n && n.flags?.collapsed);
-    const uCount = nodesInRack.length;
-    const badgeText = uCount > 0 ? `[ ${uCount}U • ${uCount} MODULES ]` : "[ EMPTY RACK ]";
-    ctx.font = "10px monospace, sans-serif";
-    ctx.fillStyle = uCount > 0 ? "rgba(137, 220, 235, 0.85)" : "rgba(108, 112, 134, 0.8)";
-    const badgeW = ctx.measureText(badgeText).width;
-    ctx.fillText(badgeText, x + w - railW - badgeW - 12, ledY + 4);
-
-    // 9. Watermark if empty
-    if (uCount === 0) {
-        ctx.font = "11px sans-serif";
-        ctx.fillStyle = "rgba(108, 112, 134, 0.4)";
-        const hint = "DROP MINIMIZED NODES HERE TO SLOT IN RACK";
-        const hintW = ctx.measureText(hint).width;
-        ctx.fillText(hint, x + (w - hintW) / 2, y + h / 2 + 6);
-    }
-
-    ctx.restore();
+        ctx.restore();
     } catch (err) {
         console.error("Zombiehaus: drawEquipmentRackChassis error:", err);
     }
@@ -1012,10 +1473,83 @@ function setupClassicCanvasDecorator() {
         }
     }
 
+    const NodeClasses = [
+        (typeof LiteGraph !== "undefined" && LiteGraph.LGraphNode),
+        (typeof window !== "undefined" && window.LGraphNode)
+    ].filter(Boolean);
+
+    for (const NC of NodeClasses) {
+        if (NC.prototype && !NC.prototype._zombiehaus_rack_hooked) {
+            NC.prototype._zombiehaus_rack_hooked = true;
+            const origMeasure = NC.prototype.measure;
+            if (origMeasure) {
+                NC.prototype.measure = function (out, ctx) {
+                    const res = origMeasure.apply(this, arguments);
+                    if (this.flags?.collapsed) {
+                        const rack = findRackContainingNode(this);
+                        if (rack) {
+                            const innerW = Math.max(220, rack.size[0] - 32);
+                            this._collapsed_width = innerW;
+                            this.size[0] = innerW;
+                            if (out && Array.isArray(out) && out.length >= 3) {
+                                out[2] = innerW;
+                            }
+                        }
+                    }
+                    return res;
+                };
+            }
+            const origCollapse = NC.prototype.collapse;
+            if (origCollapse) {
+                NC.prototype.collapse = function () {
+                    const res = origCollapse.apply(this, arguments);
+                    if (this.flags?.collapsed) {
+                        const rack = findRackContainingNode(this);
+                        if (rack) {
+                            const innerW = Math.max(220, rack.size[0] - 32);
+                            this._collapsed_width = innerW;
+                            this.size[0] = innerW;
+                        }
+                    }
+                    return res;
+                };
+            }
+        }
+    }
+
     const origDrawGroups = LGraphCanvas.prototype.drawGroups;
     LGraphCanvas.prototype.drawGroups = function (arg1, arg2) {
         sanitizeGraphGroups(this.graph);
         const { ctx, canvas } = resolveCanvasAndCtx(arg1, arg2);
+
+        // Dynamically fit all slotted collapsed nodes to rack width & rail positions
+        if (this.graph?._groups && this.graph?._nodes) {
+            for (const g of this.graph._groups) {
+                if (isEquipmentRackGroup(g) && g.size && g.pos) {
+                    const gx = g.pos[0];
+                    const gy = g.pos[1];
+                    const gw = g.size[0];
+                    const gh = g.size[1];
+                    const railX = gx + 16;
+                    const innerW = Math.max(220, gw - 32);
+
+                    for (const n of this.graph._nodes) {
+                        if (!n || !n.flags?.collapsed || !n.pos) continue;
+                        if (n._equipment_rack === g || (n.pos[0] >= gx - 15 && n.pos[0] <= gx + gw + 15 && n.pos[1] >= gy - 15 && n.pos[1] <= gy + gh + 15)) {
+                            const isDraggingNode = (_lastDragPrimary === n) || (this.selected_nodes && this.selected_nodes[n.id]);
+                            if (!isDraggingNode) {
+                                n.pos[0] = railX;
+                            }
+                            n._collapsed_width = innerW;
+                            n.size[0] = innerW;
+                            n._in_equipment_rack = true;
+                            n._equipment_rack = g;
+                        }
+                    }
+                }
+            }
+        }
+
         const res = origDrawGroups ? origDrawGroups.apply(this, arguments) : undefined;
         if (ctx && this.graph?._groups) {
             for (const g of this.graph._groups) {
@@ -1028,10 +1562,42 @@ function setupClassicCanvasDecorator() {
         return res;
     };
 
+    if (LGraphCanvas.prototype.drawNodeCollapsed && !LGraphCanvas.prototype._zombiehaus_drawCollapsed_hooked) {
+        LGraphCanvas.prototype._zombiehaus_drawCollapsed_hooked = true;
+        const origDrawNodeCollapsed = LGraphCanvas.prototype.drawNodeCollapsed;
+        LGraphCanvas.prototype.drawNodeCollapsed = function (node, ctx) {
+            const rack = findRackContainingNode(node);
+            if (rack) {
+                const innerW = Math.max(220, rack.size[0] - 32);
+                node._collapsed_width = innerW;
+                node.size[0] = innerW;
+            }
+            const res = origDrawNodeCollapsed.apply(this, arguments);
+            if (rack) {
+                const innerW = Math.max(220, rack.size[0] - 32);
+                node._collapsed_width = innerW;
+                node.size[0] = innerW;
+            }
+            return res;
+        };
+    }
+
     const origDrawNode = LGraphCanvas.prototype.drawNode;
     LGraphCanvas.prototype.drawNode = function (node, ctx) {
         if (!node || node.is_group || isEquipmentRackGroup(node) || !node.inputs) {
             return;
+        }
+        if (node.flags?.collapsed) {
+            const rack = findRackContainingNode(node);
+            if (rack) {
+                const innerW = Math.max(220, rack.size[0] - 32);
+                node._collapsed_width = innerW;
+                node.size[0] = innerW;
+                const isDraggingNode = (_lastDragPrimary === node) || (this.selected_nodes && this.selected_nodes[node.id]);
+                if (!isDraggingNode) {
+                    node.pos[0] = rack.pos[0] + 16;
+                }
+            }
         }
         if (_themeEnabled && node && !node.flags?.collapsed) {
             const th = getActiveTheme();
@@ -1049,6 +1615,15 @@ function setupClassicCanvasDecorator() {
         }
 
         const res = origDrawNode.apply(this, arguments);
+
+        if (node.flags?.collapsed) {
+            const rack = findRackContainingNode(node);
+            if (rack) {
+                const innerW = Math.max(220, rack.size[0] - 32);
+                node._collapsed_width = innerW;
+                node.size[0] = innerW;
+            }
+        }
 
         // Tactile Card Polish on Classic Canvas (after native slots & elements draw)
         if (_themeEnabled && node && !node.flags?.collapsed && ctx && node.size) {
@@ -1313,8 +1888,10 @@ function getNodeVisualBounds(node) {
 
     const x = node.pos[0];
     const y = node.pos[1] - titleH;
+    const inRack = isCollapsed ? findRackContainingNode(node) : null;
+    const rackW = inRack ? Math.max(220, inRack.size[0] - 32) : null;
     const w = isCollapsed
-        ? (node._collapsed_width || (typeof LiteGraph !== "undefined" && LiteGraph.NODE_COLLAPSED_WIDTH) || 80)
+        ? (rackW || node._collapsed_width || (typeof LiteGraph !== "undefined" && LiteGraph.NODE_COLLAPSED_WIDTH) || 80)
         : node.size[0];
     const h = isCollapsed ? titleH : (node.size[1] + titleH);
 
@@ -1655,51 +2232,69 @@ function setupNodeEdgeDocking() {
             _draggedNodeFromRack = null;
         }
 
-        // Check if user clicked a slot inside an active Mini Patchbay Flyout
+        // 1. Check if user clicked a slot inside an active Mini Patchbay Flyout (canvas hit)
         if (_activePatchbay && _activePatchbay.hoveredIndex >= 0) {
             const pb = _activePatchbay;
             const slotItem = pb.slots[pb.hoveredIndex];
             if (slotItem) {
                 if (!pb.isInput) {
-                    this.connecting_node = pb.node;
-                    this.connecting_slot = slotItem.index;
-                    this.connecting_output = pb.node.outputs[slotItem.index];
-                    this.connecting_input = null;
-                    this.connecting_pos = [this.graph_mouse[0], this.graph_mouse[1]];
-                    _activePatchbay = null;
-                    this.setDirty(true, true);
+                    startDraggingWireFromOutput(this, pb.node, slotItem.index);
+                    closePatchbay(this);
                     return true;
                 } else {
                     if (slotItem.hasLink) {
                         pb.node.disconnectInput(slotItem.index);
                         showDockingToast(`🔌 Disconnected "${slotItem.name}" on ${pb.node.title || pb.node.type}`);
                         slotItem.hasLink = false;
+                        if (this.graph?.change) this.graph.change();
                         this.setDirty(true, true);
+                        renderDOMPatchbay(pb, this);
                         return true;
                     } else {
-                        this.connecting_node = pb.node;
-                        this.connecting_slot = slotItem.index;
-                        this.connecting_input = pb.node.inputs[slotItem.index];
-                        this.connecting_output = null;
-                        this.connecting_pos = [this.graph_mouse[0], this.graph_mouse[1]];
-                        _activePatchbay = null;
-                        this.setDirty(true, true);
-                        return true;
+                        const isConn = (this.connecting_node != null) || (this.linkConnector && this.linkConnector.isConnecting);
+                        if (isConn) {
+                            let srcNode = this.connecting_node;
+                            let srcSlot = this.connecting_slot;
+                            if (!srcNode && this.linkConnector?.renderLinks?.length > 0) {
+                                const rl = this.linkConnector.renderLinks[0];
+                                srcNode = rl.node || rl.originNode || rl.fromSlot?.node;
+                                srcSlot = rl.fromSlotIndex ?? (srcNode && rl.fromSlot ? srcNode.outputs?.indexOf(rl.fromSlot) : 0);
+                            }
+                            if (srcNode) {
+                                connectNodesWithWire(this, srcNode, srcSlot, pb.node, slotItem.index);
+                                closePatchbay(this);
+                                return true;
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Clicking collapsed node left/right edge directly opens Patchbay
+        // 2. Direct click on collapsed node left [ ⇥ IN ] or right [ OUT ↦ ] jacks
         if (primary && primary.flags?.collapsed) {
-            const w = primary._collapsed_width || (primary.size ? primary.size[0] : 180);
+            const inRack = findRackContainingNode(primary);
+            const w = inRack ? Math.max(220, inRack.size[0] - 32) : (primary._collapsed_width || (primary.size ? primary.size[0] : 180));
             const clickLocalX = this.graph_mouse[0] - primary.pos[0];
-            if (clickLocalX >= -10 && clickLocalX <= 32 && primary.inputs && primary.inputs.length > 0) {
-                openPatchbayForNode(primary, true, this);
-                return true;
-            } else if (clickLocalX >= w - 32 && clickLocalX <= w + 10 && primary.outputs && primary.outputs.length > 0) {
-                openPatchbayForNode(primary, false, this);
-                return true;
+            const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+            const clickLocalY = this.graph_mouse[1] - primary.pos[1]; // range: -titleH to 0
+
+            if (clickLocalY >= -titleH - 8 && clickLocalY <= 8) {
+                // Clicked Left Input Jack Area
+                if (clickLocalX >= -10 && clickLocalX <= 64 && primary.inputs && primary.inputs.length > 0) {
+                    openPatchbayForNode(primary, true, this);
+                    return true;
+                }
+                // Clicked Right Output Jack Area
+                if (clickLocalX >= w - 64 && clickLocalX <= w + 14 && primary.outputs && primary.outputs.length > 0) {
+                    if (primary.outputs.length === 1) {
+                        startDraggingWireFromOutput(this, primary, 0);
+                        return true;
+                    } else {
+                        openPatchbayForNode(primary, false, this);
+                        return true;
+                    }
+                }
             }
         }
 
@@ -1718,7 +2313,6 @@ function setupNodeEdgeDocking() {
                         for (const item of cluster) {
                             _dragCluster.add(item);
                             _clusterOffsets.set(item, [item.pos[0] - primary.pos[0], item.pos[1] - primary.pos[1]]);
-                            // Select all cluster companions so LiteGraph's engine moves them together
                             if (this.selected_nodes) {
                                 this.selected_nodes[item.id] = item;
                             }
@@ -1740,7 +2334,8 @@ function setupNodeEdgeDocking() {
             const mx = this.graph_mouse[0];
             const my = this.graph_mouse[1];
             if (mx >= pb.x && mx <= pb.x + pb.w && my >= pb.y + 32 && my <= pb.y + pb.h) {
-                const idx = Math.floor((my - (pb.y + 32)) / 26);
+                cancelClosePatchbay();
+                const idx = Math.floor((my - (pb.y + 34)) / 28);
                 if (idx >= 0 && idx < pb.slots.length) {
                     if (pb.hoveredIndex !== idx) {
                         pb.hoveredIndex = idx;
@@ -1754,34 +2349,41 @@ function setupNodeEdgeDocking() {
                 }
                 const distNode = Math.hypot(mx - (pb.node.pos[0] + (pb.node.size ? pb.node.size[0] : 180) / 2), my - pb.node.pos[1]);
                 const distFlyout = Math.hypot(mx - (pb.x + pb.w / 2), my - (pb.y + pb.h / 2));
-                if (distNode > 280 && distFlyout > 280) {
-                    _activePatchbay = null;
-                    this.setDirty(true, true);
+                if (distNode > 260 && distFlyout > 260) {
+                    scheduleClosePatchbay(this, 350);
                 }
             }
         }
 
-        // When dragging a wire over a collapsed node, open matching patchbay
-        if (this.connecting_node) {
-            const isOutputDrag = !!this.connecting_output || (this.connecting_input == null && this.connecting_slot != null);
-            const targetMode = isOutputDrag ? true : false;
+        const isConnecting = (this.connecting_node != null) || (this.linkConnector && this.linkConnector.isConnecting);
+
+        // When dragging a wire over a collapsed node, auto-open matching Inputs patchbay
+        if (isConnecting) {
             const collapsedTarget = findCollapsedNodeUnderPoint(this.graph, this.graph_mouse[0], this.graph_mouse[1]);
+            let isOutputDrag = true;
+            if (this.linkConnector && this.linkConnector.isConnecting) {
+                isOutputDrag = (this.linkConnector.state.connectingTo === "input");
+            } else if (this.connecting_node) {
+                isOutputDrag = !!this.connecting_output || (this.connecting_input == null && this.connecting_slot != null);
+            }
+            const targetMode = isOutputDrag; // true = show input patchbay
             if (collapsedTarget && collapsedTarget !== this.connecting_node) {
                 if (!_activePatchbay || _activePatchbay.node !== collapsedTarget || _activePatchbay.isInput !== targetMode) {
                     openPatchbayForNode(collapsedTarget, targetMode, this);
                 }
             }
-        } else if (!this.node_capturing_input && !this.selected_group) {
+        } else if (!this.node_capturing_input && !this.selected_group && !this.isDragging) {
             // Hovering near collapsed node edges reveals patchbay
             const cNode = findCollapsedNodeUnderPoint(this.graph, this.graph_mouse[0], this.graph_mouse[1]);
             if (cNode) {
-                const w = cNode._collapsed_width || (cNode.size ? cNode.size[0] : 180);
+                const inRack = findRackContainingNode(cNode);
+                const w = inRack ? Math.max(220, inRack.size[0] - 32) : (cNode._collapsed_width || (cNode.size ? cNode.size[0] : 180));
                 const localX = this.graph_mouse[0] - cNode.pos[0];
-                if (localX >= -10 && localX <= 28 && cNode.inputs && cNode.inputs.length > 0) {
+                if (localX >= -10 && localX <= 60 && cNode.inputs && cNode.inputs.length > 0) {
                     if (!_activePatchbay || _activePatchbay.node !== cNode || !_activePatchbay.isInput) {
                         openPatchbayForNode(cNode, true, this);
                     }
-                } else if (localX >= w - 28 && localX <= w + 10 && cNode.outputs && cNode.outputs.length > 0) {
+                } else if (localX >= w - 60 && localX <= w + 10 && cNode.outputs && cNode.outputs.length > 0) {
                     if (!_activePatchbay || _activePatchbay.node !== cNode || _activePatchbay.isInput) {
                         openPatchbayForNode(cNode, false, this);
                     }
@@ -1822,18 +2424,18 @@ function setupNodeEdgeDocking() {
 
         // Equipment Rack drag-and-snap preview for collapsed nodes
         if (primary.flags?.collapsed) {
-            const hRack = findRackUnderPoint(primary.pos[0] + (primary.size[0] || 80) / 2, primary.pos[1] + 15);
+            const hRack = findRackUnderPoint(primary.pos[0] + (primary.size[0] || 80) / 2, primary.pos[1] - 15);
             if (hRack) {
                 const railX = hRack.pos[0] + 16;
                 const innerW = Math.max(220, hRack.size[0] - 32);
                 const currentRackNodes = (hRack._nodes || []).filter((n) => n && n.flags?.collapsed && n !== primary);
-                const slotIdx = Math.max(0, Math.min(currentRackNodes.length, Math.round((primary.pos[1] - (hRack.pos[1] + 44)) / 38)));
-                const targetY = hRack.pos[1] + 44 + slotIdx * 38;
+                const slotIdx = Math.max(0, Math.min(currentRackNodes.length, Math.round((primary.pos[1] - (hRack.pos[1] + 74)) / 38)));
+                const targetY = hRack.pos[1] + 74 + slotIdx * 38;
                 _activeSnapGuides = [{
                     type: "rack_slot",
                     x1: railX,
                     x2: railX + innerW,
-                    y: targetY,
+                    y: targetY - 30,
                     rack: hRack
                 }];
                 this.setDirty(true, true);
@@ -1906,13 +2508,11 @@ function setupNodeEdgeDocking() {
             const oBounds = getNodeVisualBounds(other);
             if (!oBounds) continue;
 
-            // Calculate cross-axis distances using true visual boundaries
             const hDist = Math.max(0, Math.max(pBounds.x, oBounds.x) - Math.min(pBounds.right, oBounds.right));
             const vDist = Math.max(0, Math.max(pBounds.y, oBounds.y) - Math.min(pBounds.bottom, oBounds.bottom));
 
-            // ── 1. Vertical Snapping (Top & Bottom Docking + Y Alignments) ─────────
+            // Vertical Snapping
             if (hDist <= _snapThreshold * 2) {
-                // A. Dock Top: Primary Bottom flush to Other Top (- gap)
                 const dY_top = (oBounds.y - gap) - pBounds.bottom;
                 if (Math.abs(dY_top) < minDiffY) {
                     minDiffY = Math.abs(dY_top);
@@ -1925,7 +2525,6 @@ function setupNodeEdgeDocking() {
                     };
                 }
 
-                // B. Dock Bottom: Primary Top flush to Other Bottom (+ gap)
                 const dY_bottom = (oBounds.bottom + gap) - pBounds.y;
                 if (Math.abs(dY_bottom) < minDiffY) {
                     minDiffY = Math.abs(dY_bottom);
@@ -1938,7 +2537,6 @@ function setupNodeEdgeDocking() {
                     };
                 }
 
-                // C. Align Top: Primary Top to Other Top
                 const dY_alignTop = oBounds.y - pBounds.y;
                 if (Math.abs(dY_alignTop) < minDiffY) {
                     minDiffY = Math.abs(dY_alignTop);
@@ -1951,7 +2549,6 @@ function setupNodeEdgeDocking() {
                     };
                 }
 
-                // D. Align Center-Y: Primary Center-Y to Other Center-Y
                 const dY_alignCenter = (oBounds.y + oBounds.h / 2) - (pBounds.y + pBounds.h / 2);
                 if (Math.abs(dY_alignCenter) < minDiffY) {
                     minDiffY = Math.abs(dY_alignCenter);
@@ -1964,7 +2561,6 @@ function setupNodeEdgeDocking() {
                     };
                 }
 
-                // E. Align Bottom: Primary Bottom to Other Bottom
                 const dY_alignBottom = oBounds.bottom - pBounds.bottom;
                 if (Math.abs(dY_alignBottom) < minDiffY) {
                     minDiffY = Math.abs(dY_alignBottom);
@@ -1978,10 +2574,8 @@ function setupNodeEdgeDocking() {
                 }
             }
 
-            // ── 2. Horizontal Snapping (Side to Side Docking + X Alignments) ────────
-            // Eligible if in vertical proximity (overlapping or close to same row)
+            // Horizontal Snapping
             if (vDist <= _snapThreshold * 2) {
-                // A. Dock Left: Primary Right flush to Other Left (- gap)
                 const dX_left = (oBounds.x - gap) - pBounds.right;
                 if (Math.abs(dX_left) < minDiffX) {
                     minDiffX = Math.abs(dX_left);
@@ -1994,7 +2588,6 @@ function setupNodeEdgeDocking() {
                     };
                 }
 
-                // B. Dock Right: Primary Left flush to Other Right (+ gap)
                 const dX_right = (oBounds.right + gap) - pBounds.x;
                 if (Math.abs(dX_right) < minDiffX) {
                     minDiffX = Math.abs(dX_right);
@@ -2007,7 +2600,6 @@ function setupNodeEdgeDocking() {
                     };
                 }
 
-                // C. Align Left: Primary Left to Other Left
                 const dX_alignLeft = oBounds.x - pBounds.x;
                 if (Math.abs(dX_alignLeft) < minDiffX) {
                     minDiffX = Math.abs(dX_alignLeft);
@@ -2020,7 +2612,6 @@ function setupNodeEdgeDocking() {
                     };
                 }
 
-                // D. Align Center-X: Primary Center-X to Other Center-X
                 const dX_alignCenter = (oBounds.x + oBounds.w / 2) - (pBounds.x + pBounds.w / 2);
                 if (Math.abs(dX_alignCenter) < minDiffX) {
                     minDiffX = Math.abs(dX_alignCenter);
@@ -2033,7 +2624,6 @@ function setupNodeEdgeDocking() {
                     };
                 }
 
-                // E. Align Right: Primary Right to Other Right
                 const dX_alignRight = oBounds.right - pBounds.right;
                 if (Math.abs(dX_alignRight) < minDiffX) {
                     minDiffX = Math.abs(dX_alignRight);
@@ -2048,7 +2638,6 @@ function setupNodeEdgeDocking() {
             }
         }
 
-        // Apply magnetic lock if within threshold
         const newGuides = [];
         if (bestSnapX !== null && Math.abs(bestSnapX) <= _snapThreshold) {
             primary.pos[0] += bestSnapX;
@@ -2061,7 +2650,6 @@ function setupNodeEdgeDocking() {
             if (snapGuideY) newGuides.push(snapGuideY);
         }
 
-        // Synchronize cluster companions rigidly to snapped primary position
         if (_dockingMode === "sticky" && !e.altKey && _dragCluster.size > 1 && _clusterOffsets) {
             for (const companion of _dragCluster) {
                 if (companion !== primary) {
@@ -2089,7 +2677,7 @@ function setupNodeEdgeDocking() {
         _draggedNodeFromRack = null;
 
         if (draggedPrimary && draggedPrimary.flags?.collapsed) {
-            const targetRack = findRackUnderPoint(draggedPrimary.pos[0] + (draggedPrimary.size[0] || 80) / 2, draggedPrimary.pos[1] + 15);
+            const targetRack = findRackUnderPoint(draggedPrimary.pos[0] + (draggedPrimary.size[0] || 80) / 2, draggedPrimary.pos[1] - 15);
             if (targetRack) {
                 slotNodesIntoRack(targetRack, [draggedPrimary], this);
                 if (fromRack && fromRack !== targetRack) {
@@ -2097,6 +2685,8 @@ function setupNodeEdgeDocking() {
                 }
             } else if (fromRack) {
                 draggedPrimary._in_equipment_rack = false;
+                delete draggedPrimary._equipment_rack;
+                draggedPrimary._collapsed_width = null;
                 compactRackNodes(fromRack, this);
                 showDockingToast(`🗄️ Detached "${draggedPrimary.title || draggedPrimary.type}" from Rack`);
             }
@@ -2108,32 +2698,45 @@ function setupNodeEdgeDocking() {
         _dragCluster.clear();
         _clusterOffsets = new Map();
 
-        // Dropping wire onto active Mini Patchbay Flyout slot
-        if (this.connecting_node && _activePatchbay) {
-            const pb = _activePatchbay;
-            const targetSlotItem = (pb.hoveredIndex >= 0) ? pb.slots[pb.hoveredIndex] : pb.slots[0];
-            if (targetSlotItem) {
-                if (pb.isInput) {
-                    const sourceNode = this.connecting_node;
-                    const sourceSlot = this.connecting_slot;
-                    if (sourceNode && sourceNode.connect) {
-                        sourceNode.connect(sourceSlot, pb.node, targetSlotItem.index);
-                        showDockingToast(`🔌 Connected to "${pb.node.title || pb.node.type}" [${targetSlotItem.name}]`);
-                    }
-                } else {
-                    const destNode = this.connecting_node;
-                    const destSlot = this.connecting_slot;
-                    if (pb.node && pb.node.connect) {
-                        pb.node.connect(targetSlotItem.index, destNode, destSlot);
-                        showDockingToast(`🔌 Connected from "${pb.node.title || pb.node.type}" [${targetSlotItem.name}]`);
-                    }
+        const isConnecting = (this.connecting_node != null) || (this.linkConnector && this.linkConnector.isConnecting);
+
+        // Dropping wire onto active Mini Patchbay Flyout slot or collapsed node
+        if (isConnecting) {
+            let sourceNode = this.connecting_node;
+            let sourceSlot = this.connecting_slot;
+            let isOutputDrag = true;
+
+            if (this.linkConnector && this.linkConnector.isConnecting) {
+                isOutputDrag = (this.linkConnector.state.connectingTo === "input");
+                if (this.linkConnector.renderLinks && this.linkConnector.renderLinks.length > 0) {
+                    const rl = this.linkConnector.renderLinks[0];
+                    sourceNode = rl.node || rl.originNode || rl.fromSlot?.node;
+                    sourceSlot = rl.fromSlotIndex ?? (sourceNode && rl.fromSlot ? sourceNode.outputs?.indexOf(rl.fromSlot) : 0);
                 }
-                this.connecting_node = null;
-                this.connecting_slot = -1;
-                this.connecting_output = null;
-                this.connecting_input = null;
-                _activePatchbay = null;
-                this.setDirty(true, true);
+            }
+
+            // A. Dropped directly over patchbay slot
+            if (_activePatchbay) {
+                const pb = _activePatchbay;
+                const targetSlotItem = (pb.hoveredIndex >= 0) ? pb.slots[pb.hoveredIndex] : null;
+                if (targetSlotItem && sourceNode) {
+                    if (pb.isInput) {
+                        connectNodesWithWire(this, sourceNode, sourceSlot, pb.node, targetSlotItem.index);
+                    } else {
+                        connectNodesWithWire(this, pb.node, targetSlotItem.index, sourceNode, sourceSlot);
+                    }
+                    closePatchbay(this);
+                    return;
+                }
+            }
+
+            // B. Dropped directly over a collapsed node (smart auto-connection)
+            const droppedNode = findCollapsedNodeUnderPoint(this.graph, this.graph_mouse[0], this.graph_mouse[1]);
+            if (droppedNode && sourceNode && droppedNode !== sourceNode && isOutputDrag) {
+                const srcOutputSlot = sourceNode.outputs?.[sourceSlot];
+                const bestInputIdx = findBestInputSlotForOutput(droppedNode, srcOutputSlot?.type, srcOutputSlot?.name);
+                connectNodesWithWire(this, sourceNode, sourceSlot, droppedNode, bestInputIdx);
+                closePatchbay(this);
                 return;
             }
         }
@@ -2143,73 +2746,93 @@ function setupNodeEdgeDocking() {
         return res;
     };
 
-    // 3. Draw Front Canvas for Magnetic Guides
+    // 3. Draw Front Canvas for Magnetic Guides & Patchbay
     const origDrawFrontCanvas = LGraphCanvas.prototype.drawFrontCanvas;
-    LGraphCanvas.prototype.drawFrontCanvas = function (ctx) {
+    LGraphCanvas.prototype.drawFrontCanvas = function () {
         const res = origDrawFrontCanvas ? origDrawFrontCanvas.apply(this, arguments) : undefined;
+        const ctx = this.ctx || this.frontcanvas?.getContext?.('2d') || this.canvas?.getContext?.('2d');
+        if (!ctx) return res;
 
-        if (_dockingMode !== "off" && _activeSnapGuides.length > 0 && ctx) {
-            const th = getActiveTheme();
-            const dockColors = getDockingHighlightColors(th);
-            const glowColor = dockColors.glowColor;
-            const laserColor = dockColors.laserColor;
+        ctx.save();
+        if (this.ds && typeof this.ds.toCanvasContext === "function") {
+            this.ds.toCanvasContext(ctx);
+        } else if (typeof this.setGraphTransform === "function") {
+            this.setGraphTransform(ctx);
+        }
 
-            ctx.save();
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = laserColor;
-            ctx.shadowColor = glowColor;
-            ctx.shadowBlur = 6;
+        try {
+            if (_dockingMode !== "off" && _activeSnapGuides.length > 0) {
+                const th = getActiveTheme();
+                const dockColors = getDockingHighlightColors(th);
+                const glowColor = dockColors.glowColor;
+                const laserColor = dockColors.laserColor;
 
-            for (const g of _activeSnapGuides) {
-                if (g.type === "rack_slot") {
-                    ctx.save();
-                    ctx.strokeStyle = "#00f0ff";
-                    ctx.fillStyle = "rgba(0, 240, 255, 0.12)";
-                    ctx.shadowColor = "rgba(0, 240, 255, 0.85)";
-                    ctx.shadowBlur = 10;
-                    ctx.lineWidth = 2;
-                    if (typeof ctx.roundRect === "function") {
-                        ctx.beginPath();
-                        ctx.roundRect(g.x1, g.y, g.x2 - g.x1, 32, 6);
-                        ctx.fill();
-                        ctx.stroke();
-                    } else {
-                        ctx.fillRect(g.x1, g.y, g.x2 - g.x1, 32);
-                        ctx.strokeRect(g.x1, g.y, g.x2 - g.x1, 32);
+                ctx.save();
+                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = laserColor;
+                ctx.shadowColor = glowColor;
+                ctx.shadowBlur = 6;
+
+                for (const g of _activeSnapGuides) {
+                    if (g.type === "rack_slot") {
+                        ctx.save();
+                        ctx.strokeStyle = "#00f0ff";
+                        ctx.fillStyle = "rgba(0, 240, 255, 0.12)";
+                        ctx.shadowColor = "rgba(0, 240, 255, 0.85)";
+                        ctx.shadowBlur = 10;
+                        ctx.lineWidth = 2;
+                        if (typeof ctx.roundRect === "function") {
+                            ctx.beginPath();
+                            ctx.roundRect(g.x1, g.y, g.x2 - g.x1, 32, 6);
+                            ctx.fill();
+                            ctx.stroke();
+                        } else {
+                            ctx.fillRect(g.x1, g.y, g.x2 - g.x1, 32);
+                            ctx.strokeRect(g.x1, g.y, g.x2 - g.x1, 32);
+                        }
+                        ctx.restore();
+                        continue;
                     }
-                    ctx.restore();
-                    continue;
-                }
-                if (g.x !== undefined) {
-                    ctx.beginPath();
-                    ctx.moveTo(g.x, g.y1);
-                    ctx.lineTo(g.x, g.y2);
-                    ctx.stroke();
+                    if (g.x !== undefined) {
+                        ctx.beginPath();
+                        ctx.moveTo(g.x, g.y1);
+                        ctx.lineTo(g.x, g.y2);
+                        ctx.stroke();
 
-                    ctx.fillStyle = laserColor;
-                    ctx.beginPath();
-                    ctx.arc(g.x, g.y1, 2.5, 0, Math.PI * 2);
-                    ctx.arc(g.x, g.y2, 2.5, 0, Math.PI * 2);
-                    ctx.fill();
-                } else if (g.y !== undefined) {
-                    ctx.beginPath();
-                    ctx.moveTo(g.x1, g.y);
-                    ctx.lineTo(g.x2, g.y);
-                    ctx.stroke();
+                        ctx.fillStyle = laserColor;
+                        ctx.beginPath();
+                        ctx.arc(g.x, g.y1, 2.5, 0, Math.PI * 2);
+                        ctx.arc(g.x, g.y2, 2.5, 0, Math.PI * 2);
+                        ctx.fill();
+                    } else if (g.y !== undefined) {
+                        ctx.beginPath();
+                        ctx.moveTo(g.x1, g.y);
+                        ctx.lineTo(g.x2, g.y);
+                        ctx.stroke();
 
-                    ctx.fillStyle = laserColor;
-                    ctx.beginPath();
-                    ctx.arc(g.x1, g.y, 2.5, 0, Math.PI * 2);
-                    ctx.arc(g.x2, g.y, 2.5, 0, Math.PI * 2);
-                    ctx.fill();
+                        ctx.fillStyle = laserColor;
+                        ctx.beginPath();
+                        ctx.arc(g.x1, g.y, 2.5, 0, Math.PI * 2);
+                        ctx.arc(g.x2, g.y, 2.5, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
                 }
+                ctx.restore();
             }
+
+            // Draw Mini Patchbay Flyout on front canvas
+            if (_activePatchbay) {
+                drawPatchbayFlyout(_activePatchbay, ctx, this);
+            }
+        } catch (err) {
+            console.error("Zombiehaus: drawFrontCanvas error:", err);
+        } finally {
             ctx.restore();
         }
 
-        // Draw Mini Patchbay Flyout on front canvas
-        if (_activePatchbay && ctx) {
-            drawPatchbayFlyout(_activePatchbay, ctx, this);
+        // Also update DOM Patchbay position if active
+        if (_activePatchbay) {
+            renderDOMPatchbay(_activePatchbay, this);
         }
 
         return res;

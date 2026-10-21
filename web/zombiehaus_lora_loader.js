@@ -790,10 +790,10 @@ app.registerExtension({
                 onNodeCreated?.apply(this, arguments);
                 const node = this;
 
-                // Ensure node is resizable with corner drag arrows and clamp runaway heights
+                // Ensure node is resizable with corner drag arrows and has a healthy initial size
                 node.resizable = true;
-                if (!node.size || node.size[0] < 420 || node.size[1] > 1800 || node.size[1] < 400) {
-                    node.size = [460, 560];
+                if (!node.size || node.size[0] < 460 || node.size[1] > 1800 || node.size[1] < 500) {
+                    node.size = [480, 680];
                 }
 
                 // --- WIDGETS ---
@@ -1025,26 +1025,45 @@ app.registerExtension({
                 const mainWidgetContainer = createElement("div", { className: "zombiehaus-lora-main-container" }, headerContainer, listContainer);
                 const domWidget = node.addDOMWidget("advanced_list", "html", mainWidgetContainer, { serialize: false });
 
+                function getWidgetStartY() {
+                    if (domWidget && typeof domWidget.last_y === "number" && domWidget.last_y > 80) {
+                        return domWidget.last_y;
+                    }
+                    const slots = Math.max(node.inputs?.length || 0, node.outputs?.length || 0);
+                    let y = 30 + Math.max(slots * 20, 40);
+                    if (Array.isArray(node.widgets)) {
+                        for (const w of node.widgets) {
+                            if (w === domWidget) break;
+                            if (w.type === "hidden" || w.hidden) continue;
+                            y += 28;
+                        }
+                    }
+                    return y;
+                }
+
                 const updateWidgetSize = () => {
                     if (!node.size) return;
-                    if (node.size[1] > 1800) {
-                        node.size[1] = 560;
+                    if (node.size[1] > 1800 || node.size[1] < 450) {
+                        node.size[1] = 680;
                     }
-                    const h = Math.max(180, Math.min(1600, node.size[1] - 220));
-                    mainWidgetContainer.style.height = `${h}px`;
+                    const startY = getWidgetStartY();
+                    // Leave 26px clearance at the bottom and 14px on the right so LiteGraph's corner resize handle is always unobstructed
+                    const availableHeight = Math.max(120, node.size[1] - startY - 26);
+                    mainWidgetContainer.style.height = `${availableHeight}px`;
+                    mainWidgetContainer.style.maxHeight = `${availableHeight}px`;
                 };
 
                 // Static minimum size: must never calculate height dynamically from node.size in computeSize,
                 // as that causes an infinite expansion feedback loop with LiteGraph's node sizing.
                 domWidget.computeSize = function (width) {
-                    return [width || 460, 260];
+                    return [width || 460, 220];
                 };
 
                 const origOnResize = node.onResize;
                 node.onResize = function (size) {
                     const r = origOnResize ? origOnResize.apply(this, arguments) : undefined;
-                    if (node.size && node.size[1] > 1800) {
-                        node.size[1] = 560;
+                    if (node.size && (node.size[1] > 1800 || node.size[1] < 450)) {
+                        node.size[1] = 680;
                     }
                     updateWidgetSize();
                     return r;
@@ -1486,8 +1505,8 @@ app.registerExtension({
                 node.onConfigure = function (info) {
                     originalOnConfigure?.apply(this, arguments);
                     node.resizable = true;
-                    if (this.size && this.size[1] > 1800) {
-                        this.size = [460, 560];
+                    if (!this.size || this.size[0] < 460 || this.size[1] > 1800 || this.size[1] < 500) {
+                        this.size = [Math.max(this.size?.[0] || 480, 460), 680];
                     }
                     updateWidgetSize();
                     const lfw = this.widgets ? this.widgets.find((w) => w.name === "lora_filter") : null;
@@ -1531,15 +1550,16 @@ if (!loraStylesEl) {
 }
 loraStylesEl.innerHTML = `
             .zombiehaus-lora-main-container {
-                display: flex;
-                flex-direction: column;
-                width: calc(100% - 6px);
-                height: 100%;
-                min-height: 0;
-                overflow: hidden;
-                margin-bottom: 14px;
-                padding-bottom: 4px;
-                box-sizing: border-box;
+                display: flex !important;
+                flex-direction: column !important;
+                width: calc(100% - 14px) !important;
+                max-height: 100% !important;
+                min-height: 0 !important;
+                overflow: hidden !important;
+                margin-right: 14px !important;
+                margin-bottom: 26px !important;
+                padding-bottom: 4px !important;
+                box-sizing: border-box !important;
             }
             .zombiehaus-lora-list-dynamic {
                 width: 100%;

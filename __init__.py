@@ -41,7 +41,7 @@ from .modules.chroma_shift_node import ZombiehausChromaShift
 from .modules.prompt_mixer_node import ZombiehausPromptMixer
 from .modules.seed_controller_node import ZombiehausSeedController
 from .modules.controlnet_preprocessor_node import ZombiehausImagePreprocessor
-from .modules.smart_resizer_node import ZombiehausSmartResizer
+from .modules.smart_resizer_node import ZombiehausSmartResizer, ZombiehausImageScaleDownBy
 from .modules.faceswap_node import ZombiehausFaceSwap
 from .modules.glamour_controller_node import ZombiehausGlamourController
 from .modules.studio_director_node import ZombiehausStudioDirector
@@ -1847,6 +1847,8 @@ NODE_CLASS_MAPPINGS = {
     "ZombiehausSeedController": ZombiehausSeedController,
     "ZombiehausImagePreprocessor": ZombiehausImagePreprocessor,
     "ZombiehausSmartResizer": ZombiehausSmartResizer,
+    "ZombiehausImageScaleDownBy": ZombiehausImageScaleDownBy,
+    "easy imageScaleDownBy": ZombiehausImageScaleDownBy,
     "ZombiehausFaceSwap": ZombiehausFaceSwap,
     "ZombiehausGlamourController": ZombiehausGlamourController,
     "ZombiehausStudioDirector": ZombiehausStudioDirector,
@@ -1905,6 +1907,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZombiehausSeedController": "Zombiehaus Master Seed",
     "ZombiehausImagePreprocessor": "Zombiehaus Image Preprocessor",
     "ZombiehausSmartResizer": "Zombiehaus Smart Resizer",
+    "ZombiehausImageScaleDownBy": "Zombiehaus Image Scale Down By",
+    "easy imageScaleDownBy": "Image Scale Down By (Zombiehaus)",
     "ZombiehausFaceSwap": "Zombiehaus Face Swapper",
     "ZombiehausGlamourController": "Zombiehaus Glamour & Body Sculptor",
     "ZombiehausStudioDirector": "Zombiehaus Virtual Studio Director",

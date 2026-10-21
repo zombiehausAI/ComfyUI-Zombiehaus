@@ -169,12 +169,52 @@ class ZombiehausSmartResizer:
         final_tensor = torch.stack(out_tensors, dim=0)
         return (final_tensor, out_w, out_h, ar_str)
 
+
+class ZombiehausImageScaleDownBy:
+    """
+    Downscales image batch by a factor using high-quality Lanczos antialiasing.
+    Direct drop-in replacement for easy imageScaleDownBy.
+    """
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),
+                "scale_by": (
+                    "FLOAT",
+                    {"default": 0.5, "min": 0.01, "max": 1.0, "step": 0.01},
+                ),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("images",)
+    FUNCTION = "image_scale_down_by"
+    CATEGORY = "Zombiehaus/Image"
+
+    def image_scale_down_by(self, images: torch.Tensor, scale_by: float):
+        b_size, in_h, in_w, in_c = images.shape
+        new_width = max(1, int(round(in_w * scale_by)))
+        new_height = max(1, int(round(in_h * scale_by)))
+
+        results = []
+        for i in range(b_size):
+            img_np = (images[i].cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+            pil_img = Image.fromarray(img_np)
+            pil_img = pil_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            out_np = np.array(pil_img).astype(np.float32) / 255.0
+            results.append(torch.from_numpy(out_np))
+
+        return (torch.stack(results, dim=0),)
+
+
 NODE_CLASS_MAPPINGS = {
     "ZombiehausSmartResizer": ZombiehausSmartResizer,
-    "ZombiehausSmartResizer": ZombiehausSmartResizer
+    "ZombiehausImageScaleDownBy": ZombiehausImageScaleDownBy,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ZombiehausSmartResizer": "Zombiehaus Smart Resizer",
-    "ZombiehausSmartResizer": "Zombiehaus Smart Resizer"
+    "ZombiehausImageScaleDownBy": "Zombiehaus Image Scale Down By",
 }
+

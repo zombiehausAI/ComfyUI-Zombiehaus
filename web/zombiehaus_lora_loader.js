@@ -790,6 +790,12 @@ app.registerExtension({
                 onNodeCreated?.apply(this, arguments);
                 const node = this;
 
+                // Ensure node is resizable with corner drag arrows
+                node.resizable = true;
+                if (!node.size || node.size[0] < 420 || node.size[1] < 400) {
+                    node.size = [460, 520];
+                }
+
                 // --- WIDGETS ---
                 const loraStackWidget = node.widgets.find((w) => w.name === "lora_stack");
                 loraStackWidget.type = "hidden"; // This widget is for data transfer only
@@ -1017,7 +1023,26 @@ app.registerExtension({
 
                 const listContainer = createElement("div", { className: "zombiehaus-lora-list-dynamic" });
                 const mainWidgetContainer = createElement("div", { className: "zombiehaus-lora-main-container" }, headerContainer, listContainer);
-                node.addDOMWidget("advanced_list", "html", mainWidgetContainer, { serialize: false });
+                const domWidget = node.addDOMWidget("advanced_list", "html", mainWidgetContainer, { serialize: false });
+
+                const updateWidgetSize = () => {
+                    const h = node.size ? Math.max(200, node.size[1] - 210) : 320;
+                    mainWidgetContainer.style.height = `${h}px`;
+                };
+
+                domWidget.computeSize = function (width) {
+                    const w = width || (node.size ? node.size[0] : 460);
+                    const h = node.size ? Math.max(200, node.size[1] - 210) : 320;
+                    return [w, h];
+                };
+
+                const origOnResize = node.onResize;
+                node.onResize = function (size) {
+                    origOnResize?.apply(this, arguments);
+                    updateWidgetSize();
+                };
+
+                updateWidgetSize();
 
                 // --- STATE MANAGEMENT ---
                 function getStack() {
@@ -1102,20 +1127,24 @@ app.registerExtension({
                             draggable: true,
                             dataset: { index } // Store index for D&D
                         });
+                        row.style.cssText = "display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; align-items: center !important; width: 100% !important; gap: 4px !important; box-sizing: border-box !important;";
 
                         const dragHandle = createElement("div", { 
                             className: "zombiehaus-lora-drag-handle", 
                             textContent: "⠿",
                             title: "Drag to reorder"
                         });
+                        dragHandle.style.cssText = "flex: 0 0 auto !important; cursor: grab; padding: 0 2px !important; line-height: 1 !important;";
 
                         const validationIcon = createElement("div", { className: "zombiehaus-lora-validation-icon" });
+                        validationIcon.style.cssText = "flex: 0 0 18px !important; width: 18px !important; min-width: 18px !important; text-align: center !important; display: inline-flex !important; align-items: center !important; justify-content: center !important;";
 
                         const { element: toggle } = createToggleSwitch(lora.enabled, (newState) => {
                             const currentStack = getStack();
                             currentStack[index].enabled = newState;
                             updateStack(currentStack);
                         });
+                        toggle.style.cssText = "flex: 0 0 auto !important;";
 
                         const isRandom = !!lora.random;
                         const isRandomStrength = !!lora.random_strength;
@@ -1128,6 +1157,7 @@ app.registerExtension({
                                 ? "Random Pool: Randomly picked during generation. Click to make Fixed (Always Loaded)."
                                 : "Fixed: Always loaded on every run. Click to add to Random Pool (🎲)."
                         });
+                        randomButton.style.cssText = "flex: 0 0 24px !important; width: 24px !important; min-width: 24px !important; max-width: 24px !important; height: 22px !important; padding: 0 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important;";
                         randomButton.addEventListener("click", () => {
                             const currentStack = getStack();
                             currentStack[index].random = !currentStack[index].random;
@@ -1144,6 +1174,7 @@ app.registerExtension({
                                     ? "Random Weight Range: Active (rolls between Min and Max). Click for Fixed Weight (=)."
                                     : "Fixed Weight in Pool (=). Click to enable Random Weight Range (~)."
                             });
+                            rangeButton.style.cssText = "flex: 0 0 20px !important; width: 20px !important; min-width: 20px !important; max-width: 20px !important; height: 22px !important; padding: 0 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important;";
                             rangeButton.addEventListener("click", () => {
                                 const currentStack = getStack();
                                 currentStack[index].random_strength = !currentStack[index].random_strength;
@@ -1160,9 +1191,11 @@ app.registerExtension({
                             currentStack[index].name = newValue;
                             updateStack(currentStack); // Re-render to update closures
                         }, globalFilter);
+                        dropdown.style.cssText = "flex: 1 1 0 !important; min-width: 0 !important; width: auto !important; box-sizing: border-box !important;";
 
                         const stepValue = 0.05;
                         const strengthContainer = createElement("div", { className: "zombiehaus-lora-strength-container" });
+                        strengthContainer.style.cssText = "flex: 0 0 auto !important; display: inline-flex !important; align-items: center !important; gap: 2px !important;";
 
                         if (isRandom && isRandomStrength) {
                             const minVal = lora.min_strength !== undefined ? parseFloat(lora.min_strength) : 0.5;
@@ -1205,6 +1238,7 @@ app.registerExtension({
                                 ? `Dynamic Dropoff Active (${lora.start_percent ?? 0}➔${lora.end_percent ?? 0.5}, End: ${lora.end_strength ?? 0}). Click to configure timing.`
                                 : "Dynamic Dropoff Inactive. Click to configure timing dropoff."
                         });
+                        dynamicButton.style.cssText = "flex: 0 0 22px !important; width: 22px !important; min-width: 22px !important; max-width: 22px !important; height: 22px !important; padding: 0 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important;";
                         dynamicButton.addEventListener("click", () => {
                             const currentStack = getStack();
                             currentStack[index]._drawer_open = !currentStack[index]._drawer_open;
@@ -1212,6 +1246,7 @@ app.registerExtension({
                         });
 
                         const removeButton = createElement("button", { textContent: "✖", className: "zombiehaus-lora-remove-button" });
+                        removeButton.style.cssText = "flex: 0 0 20px !important; width: 20px !important; min-width: 20px !important; max-width: 20px !important; height: 22px !important; padding: 0 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important;";
                         removeButton.addEventListener("click", () => {
                             const currentStack = getStack();
                             currentStack.splice(index, 1);
@@ -1444,6 +1479,8 @@ app.registerExtension({
                 const originalOnConfigure = node.onConfigure;
                 node.onConfigure = function (info) {
                     originalOnConfigure?.apply(this, arguments);
+                    node.resizable = true;
+                    updateWidgetSize();
                     const lfw = this.widgets ? this.widgets.find((w) => w.name === "lora_filter") : null;
                     if (lfw) {
                         if (typeof lfw.value !== "string") {
@@ -1478,17 +1515,22 @@ app.registerExtension({
 });
 
 // --- STYLES ---
-if (!document.getElementById("zombiehaus-lora-loader-styles")) {
-    const style =createElement("style", {
-        id: "zombiehaus-lora-loader-styles",
-        innerHTML: `
+let loraStylesEl = document.getElementById("zombiehaus-lora-loader-styles");
+if (!loraStylesEl) {
+    loraStylesEl = createElement("style", { id: "zombiehaus-lora-loader-styles" });
+    document.head.appendChild(loraStylesEl);
+}
+loraStylesEl.innerHTML = `
             .zombiehaus-lora-main-container {
                 display: flex;
                 flex-direction: column;
-                width: 100%;
+                width: calc(100% - 6px);
                 height: 100%;
                 min-height: 0;
                 overflow: hidden;
+                margin-bottom: 14px;
+                padding-bottom: 4px;
+                box-sizing: border-box;
             }
             .zombiehaus-lora-list-dynamic {
                 width: 100%;
@@ -1548,28 +1590,43 @@ if (!document.getElementById("zombiehaus-lora-loader-styles")) {
                 font-weight: 500;
             }
             .zombiehaus-lora-row {
-                display: flex;
-                align-items: center;
-                gap: 4px;
-                padding: 2px;
-                border-radius: 2px;
-                font-size: 0.85em;
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+                gap: 4px !important;
+                padding: 2px !important;
+                border-radius: 2px !important;
+                font-size: 0.85em !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            .zombiehaus-lora-row > * {
+                margin: 0 !important;
             }
             .zombiehaus-lora-row .zombiehaus-lora-search-container {
-                flex: 1;
-                min-width: 0;
+                flex: 1 1 0 !important;
+                min-width: 0 !important;
+                width: auto !important;
             }
             .zombiehaus-lora-mode-button {
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
                 background: transparent;
                 border: 1px solid transparent;
                 border-radius: 3px;
                 cursor: pointer;
                 font-size: 1.05em;
-                padding: 1px 3px;
-                line-height: 1;
+                padding: 1px 3px !important;
+                line-height: 1 !important;
                 opacity: 0.6;
                 transition: all 0.15s ease;
                 user-select: none;
+                flex: 0 0 auto !important;
+                width: auto !important;
+                height: 22px !important;
+                box-sizing: border-box !important;
             }
             .zombiehaus-lora-mode-button:hover {
                 opacity: 1;
@@ -2096,7 +2153,4 @@ if (!document.getElementById("zombiehaus-lora-loader-styles")) {
             .zombiehaus-lora-header .zombiehaus-lora-toggle-switch {
                 transform: scale(0.8);
             }
-        `
-    });
-    document.head.appendChild(style);
-}
+`;

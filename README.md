@@ -63,7 +63,7 @@ ComfyUI-Zombiehaus by zombiehaus provides custom nodes organized into six catego
 
 **🛠️ Utilities & Prompting**
 - Master Seed - Centralized master seed generator and synchronizer (randomize, fixed, increment, decrement)
-- Smart Resizer - Aspect ratio optimization and smart cropping/padding for diffusion models
+- [Smart Resizer & Image Scale Down By](docs/smart-resizer.md) - Aspect ratio optimization, smart cropping/padding, and high-quality Lanczos downscaling (drop-in replacement for `easy imageScaleDownBy`)
 - Show Text - Simple text display for prompts, LoRA logs, and debugging
 - Text Editor - Interactive text editor with live syntax highlighting, intelligent autocomplete (__lists__, $vars, %sys%, <loras>), tag weight stepping (Ctrl+Up/Down), negative presets, direct CLIP conditioning, pipe passthrough, and category-filtered save/load
 - Model Scryer - Deep neural model introspection (WeightScryer integration), automatic trigger and tag discovery, and interactive on-canvas clipboard board ([Documentation](docs/ModelScryer.md))

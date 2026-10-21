@@ -790,10 +790,10 @@ app.registerExtension({
                 onNodeCreated?.apply(this, arguments);
                 const node = this;
 
-                // Ensure node is resizable with corner drag arrows
+                // Ensure node is resizable with corner drag arrows and clamp runaway heights
                 node.resizable = true;
-                if (!node.size || node.size[0] < 420 || node.size[1] < 400) {
-                    node.size = [460, 520];
+                if (!node.size || node.size[0] < 420 || node.size[1] > 1800 || node.size[1] < 400) {
+                    node.size = [460, 560];
                 }
 
                 // --- WIDGETS ---
@@ -1026,20 +1026,28 @@ app.registerExtension({
                 const domWidget = node.addDOMWidget("advanced_list", "html", mainWidgetContainer, { serialize: false });
 
                 const updateWidgetSize = () => {
-                    const h = node.size ? Math.max(200, node.size[1] - 210) : 320;
+                    if (!node.size) return;
+                    if (node.size[1] > 1800) {
+                        node.size[1] = 560;
+                    }
+                    const h = Math.max(180, Math.min(1600, node.size[1] - 220));
                     mainWidgetContainer.style.height = `${h}px`;
                 };
 
+                // Static minimum size: must never calculate height dynamically from node.size in computeSize,
+                // as that causes an infinite expansion feedback loop with LiteGraph's node sizing.
                 domWidget.computeSize = function (width) {
-                    const w = width || (node.size ? node.size[0] : 460);
-                    const h = node.size ? Math.max(200, node.size[1] - 210) : 320;
-                    return [w, h];
+                    return [width || 460, 260];
                 };
 
                 const origOnResize = node.onResize;
                 node.onResize = function (size) {
-                    origOnResize?.apply(this, arguments);
+                    const r = origOnResize ? origOnResize.apply(this, arguments) : undefined;
+                    if (node.size && node.size[1] > 1800) {
+                        node.size[1] = 560;
+                    }
                     updateWidgetSize();
+                    return r;
                 };
 
                 updateWidgetSize();
@@ -1440,8 +1448,6 @@ app.registerExtension({
                     if (globalFilter) {
                         statusSpan.title += `\nDropdowns are pre-filtered by: "${globalFilter}"`;
                     }
-
-                    node.computeSize();
                 }
 
                 // --- INITIALIZATION ---
@@ -1480,6 +1486,9 @@ app.registerExtension({
                 node.onConfigure = function (info) {
                     originalOnConfigure?.apply(this, arguments);
                     node.resizable = true;
+                    if (this.size && this.size[1] > 1800) {
+                        this.size = [460, 560];
+                    }
                     updateWidgetSize();
                     const lfw = this.widgets ? this.widgets.find((w) => w.name === "lora_filter") : null;
                     if (lfw) {

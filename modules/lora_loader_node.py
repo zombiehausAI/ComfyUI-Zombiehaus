@@ -148,7 +148,7 @@ class ZombiehausLoraLoader:
         return []
 
     @staticmethod
-    def _create_hook_keyframes(start_percent=0.0, end_percent=1.0, start_strength=1.0, end_strength=0.0, decay_profile="cosine", steps=8):
+    def _create_hook_keyframes(start_percent=0.0, end_percent=1.0, start_strength=1.0, end_strength=0.0, decay_profile="cosine", steps=4):
         """Builds a HookKeyframeGroup for time-scheduled LoRA dropoff."""
         try:
             import comfy.hooks
@@ -173,7 +173,7 @@ class ZombiehausLoraLoader:
             if end_percent < 1.0:
                 kfg.add(comfy.hooks.HookKeyframe(strength=end_ratio, start_percent=end_percent))
         else:
-            num_pts = max(2, steps)
+            num_pts = max(2, min(steps, 4))
             for i in range(1, num_pts):
                 fraction = i / (num_pts - 1)
                 pct = start_percent + (end_percent - start_percent) * fraction
@@ -464,6 +464,11 @@ class ZombiehausLoraLoader:
                     end_str = float(item.get("end_strength", 0.0))
                     decay_prof = str(item.get("decay_profile", "cosine")).lower()
 
+                    # If timing is flat across the whole range, skip dynamic hooks to retain native full speed
+                    if start_pct <= 0.0 and end_pct >= 1.0 and abs(end_str - strength) < 1e-4:
+                        is_dynamic = False
+
+                if is_dynamic:
                     applied_via_hook = False
                     try:
                         import comfy.hooks
@@ -474,6 +479,8 @@ class ZombiehausLoraLoader:
                             m_model, m_clip, hook_group = comfy.hooks.load_hook_lora_for_models(
                                 model, clip, lora_sd, strength_model=strength, strength_clip=strength
                             )
+                            if hasattr(m_model, "set_hook_mode"):
+                                m_model.set_hook_mode(comfy.hooks.EnumHookMode.MaxSpeed)
                             kfg = self._create_hook_keyframes(start_pct, end_pct, strength, end_str, decay_prof)
                             if kfg:
                                 for h in hook_group.hooks:
@@ -545,6 +552,11 @@ class ZombiehausLoraLoader:
                     end_str = float(p_item.get("end_strength", 0.0))
                     decay_prof = str(p_item.get("decay_profile", "cosine")).lower()
 
+                    # If timing is flat across the whole range, skip dynamic hooks to retain native full speed
+                    if start_pct <= 0.0 and end_pct >= 1.0 and abs(end_str - m_strength) < 1e-4:
+                        is_dynamic = False
+
+                if is_dynamic:
                     applied_via_hook = False
                     try:
                         import comfy.hooks
@@ -555,6 +567,8 @@ class ZombiehausLoraLoader:
                             m_model, m_clip, hook_group = comfy.hooks.load_hook_lora_for_models(
                                 model, clip, lora_sd, strength_model=m_strength, strength_clip=c_strength
                             )
+                            if hasattr(m_model, "set_hook_mode"):
+                                m_model.set_hook_mode(comfy.hooks.EnumHookMode.MaxSpeed)
                             kfg = self._create_hook_keyframes(start_pct, end_pct, m_strength, end_str, decay_prof)
                             if kfg:
                                 for h in hook_group.hooks:
@@ -592,12 +606,17 @@ class ZombiehausLoraLoader:
             except Exception:
                 pass
 
-        # Attach accumulated hooks to positive conditioning
-        if accumulated_hooks and positive is not None and isinstance(positive, (list, tuple)):
+        # Attach accumulated hooks to BOTH positive and negative conditioning.
+        # If hooks are only on positive conditioning, ComfyUI unpatches and re-patches
+        # the entire model weights between positive and negative CFG passes on EVERY step (causing 100s+ per it slowdowns)!
+        if accumulated_hooks:
             try:
                 import comfy.hooks
                 for hg in accumulated_hooks:
-                    positive = comfy.hooks.set_hooks_for_conditioning(positive, hg)
+                    if positive is not None and isinstance(positive, (list, tuple)):
+                        positive = comfy.hooks.set_hooks_for_conditioning(positive, hg)
+                    if negative is not None and isinstance(negative, (list, tuple)):
+                        negative = comfy.hooks.set_hooks_for_conditioning(negative, hg)
             except Exception:
                 pass
 

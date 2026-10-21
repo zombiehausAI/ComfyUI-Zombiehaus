@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 
 /**
  * Zombiehaus Universal Card Node Theme & Custom Theme Studio
@@ -501,6 +502,12 @@ function setupClassicCanvasDecorator() {
         const options = origGetCanvasMenuOptions ? origGetCanvasMenuOptions.apply(this, arguments) : [];
         options.push(null);
         options.push({
+            content: "🧹 Clear GPU Memory",
+            callback: () => {
+                clearGpuMemory();
+            }
+        });
+        options.push({
             content: "🎨 Zombiehaus Theme Studio...",
             callback: () => {
                 openThemeStudioModal();
@@ -544,6 +551,13 @@ function setupClassicCanvasDecorator() {
         const isClusterLocked = isCluster && Array.from(cluster).some((n) => n.flags?.pinned || n.locked);
 
         options.push(null); // Separator
+
+        options.push({
+            content: "🧹 Clear GPU Memory",
+            callback: () => {
+                clearGpuMemory();
+            }
+        });
 
         if (isCluster) {
             options.push({
@@ -704,6 +718,46 @@ function showDockingToast(msg) {
         toast.style.transform = "translateY(10px)";
         setTimeout(() => toast.remove(), 350);
     }, 2400);
+}
+
+async function clearGpuMemory() {
+    showDockingToast("🧹 Purging GPU VRAM & cache...");
+    try {
+        const payload = JSON.stringify({ unload_models: true, free_memory: true });
+        const comfyApi = (typeof api !== "undefined" && api) || app.api || window.api;
+        let res;
+        if (comfyApi?.fetchApi) {
+            try {
+                res = await comfyApi.fetchApi("/free", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: payload
+                });
+            } catch (_) {
+                res = await comfyApi.fetchApi("/api/free", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: payload
+                });
+            }
+        } else {
+            res = await fetch("/free", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: payload
+            });
+        }
+        if (res && !res.ok && res.status !== 200) {
+            throw new Error(`Server returned HTTP ${res.status}`);
+        }
+        showDockingToast("✨ GPU VRAM & model cache cleared!");
+        if (app.canvas) {
+            app.canvas.setDirty(true, true);
+        }
+    } catch (err) {
+        console.error("[Zombiehaus] Error clearing GPU memory:", err);
+        showDockingToast("⚠️ Failed to clear GPU memory: " + (err.message || err));
+    }
 }
 
 function setDockingMode(mode) {

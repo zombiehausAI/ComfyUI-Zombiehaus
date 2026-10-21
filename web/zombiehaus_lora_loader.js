@@ -1056,15 +1056,6 @@ app.registerExtension({
 
                     listContainer.style.width = "100%";
                     listContainer.style.height = "100%";
-
-                    if (typeof node.arrange === "function" && !node._arranging) {
-                        node._arranging = true;
-                        try {
-                            node.arrange();
-                        } finally {
-                            node._arranging = false;
-                        }
-                    }
                 };
                 node._zombiehausUpdateWidgetSize = updateWidgetSize;
 

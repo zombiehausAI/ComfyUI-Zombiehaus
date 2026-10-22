@@ -12,7 +12,8 @@ You can launch Zombiehaus Studio through any of the following convenient entry p
 2. **Top Menu Bar**: Click **Zombiehaus ➔ Open Zombiehaus Studio** in the native application menu bar.
 3. **Canvas Context Menu**: Right-click anywhere on the empty ComfyUI canvas and select **`🧟 Open Zombiehaus Studio`**.
 4. **Direct Browser URL**: Navigate to `http://127.0.0.1:8188/zombiehaus/studio` in any browser or second monitor.
-5. **On-Node Button**: Click the `[ 🧟 Open Studio Workstation ]` button widget on any creative Zombiehaus node.
+5. **Standalone PWA (Desktop & Mobile App)**: In Chrome, Edge, Brave, or Safari, click the **Install App** icon in the URL bar (or *Add to Home Screen / Install Zombiehaus Studio*) to run it as a borderless, native desktop window with custom icon.
+6. **On-Node Button**: Click the `[ 🧟 Open Studio Workstation ]` button widget on any creative Zombiehaus node.
 
 ---
 

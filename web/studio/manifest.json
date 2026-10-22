@@ -1,0 +1,29 @@
+{
+  "name": "Zombiehaus Studio",
+  "short_name": "Zombiehaus",
+  "description": "Unified Creative AI Workstation for Screenplay, Image, Video, and Songwriting",
+  "start_url": "/zombiehaus/studio",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0f17",
+  "theme_color": "#0b0f17",
+  "icons": [
+    {
+      "src": "/extensions/ComfyUI-Zombiehaus/studio/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/extensions/ComfyUI-Zombiehaus/studio/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/extensions/ComfyUI-Zombiehaus/studio/icons/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

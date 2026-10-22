@@ -2165,5 +2165,14 @@ function setupListCurator() {
 }
 
 // Start application
-window.addEventListener("DOMContentLoaded", initStudio);
+window.addEventListener("DOMContentLoaded", () => {
+    initStudio();
+
+    // Register PWA Service Worker
+    if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("/extensions/ComfyUI-Zombiehaus/studio/sw.js")
+            .then(reg => console.log("[Zombiehaus PWA] Service Worker registered:", reg.scope))
+            .catch(err => console.debug("[Zombiehaus PWA] Service Worker registration skipped:", err));
+    }
+});
 

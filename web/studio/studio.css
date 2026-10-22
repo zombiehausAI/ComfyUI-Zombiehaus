@@ -67,6 +67,15 @@ body.zh-studio-body {
     font-size: 24px;
 }
 
+.zh-brand-img {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    object-fit: cover;
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
 .zh-brand-text {
     display: flex;
     flex-direction: column;

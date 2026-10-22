@@ -51,6 +51,7 @@ from .modules.hires_fix_node import ZombiehausHiresFix
 from .modules.export_card_node import ZombiehausExportCard
 from .modules.wardrobe_inpaint_node import ZombiehausWardrobeInpaint
 from .modules.person_inpaint_node import ZombiehausPersonInpaint
+from .modules.persona_interact_node import ZombiehausPersonaInteract
 from .modules.model_scryer_node import (
     ZombiehausModelScryer,
     inspect_safetensors_file,
@@ -1859,6 +1860,7 @@ NODE_CLASS_MAPPINGS = {
     "ZombiehausExportCard": ZombiehausExportCard,
     "ZombiehausWardrobeInpaint": ZombiehausWardrobeInpaint,
     "ZombiehausPersonInpaint": ZombiehausPersonInpaint,
+    "ZombiehausPersonaInteract": ZombiehausPersonaInteract,
     "ZombiehausModelScryer": ZombiehausModelScryer,
 }
 
@@ -1920,6 +1922,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZombiehausExportCard": "Zombiehaus Social Export Card",
     "ZombiehausWardrobeInpaint": "Zombiehaus Wardrobe Inpaint",
     "ZombiehausPersonInpaint": "Zombiehaus Person Inpaint & Interaction Director",
+    "ZombiehausPersonaInteract": "Zombiehaus Persona Interact & Duo Director",
     "ZombiehausModelScryer": "Zombiehaus Model Scryer (WeightScryer)",
 }
 

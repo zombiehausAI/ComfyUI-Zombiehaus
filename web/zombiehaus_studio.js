@@ -21,172 +21,118 @@ function openStudioWindow(mode = "screenplay") {
     window.open(url, "ZombiehausStudio", `width=${w},height=${h},top=${top},left=${left},menubar=no,toolbar=no,location=no,status=no`);
 }
 
+// ── ComfyUI Extension Registration ───────────────────────────────────────────
 app.registerExtension({
     name: "zombiehaus.Studio",
+
+    // Action Bar button (placed next to Run/Queue in modern ComfyUI v1)
+    actionBarButtons: [
+        {
+            icon: "pi pi-bolt",
+            label: "Zombiehaus Studio",
+            tooltip: "Open Zombiehaus Studio: Screenplay, Image, Video, and Suno-grade Music Studio",
+            onClick: () => openStudioWindow("screenplay")
+        }
+    ],
+
+    // Command palette & Top Menu item
+    commands: [
+        {
+            id: "Zombiehaus.OpenStudio",
+            label: "Open Zombiehaus Studio",
+            icon: "pi pi-bolt",
+            function: () => openStudioWindow("screenplay")
+        }
+    ],
+
+    menuCommands: [
+        {
+            path: ["Zombiehaus"],
+            commands: ["Zombiehaus.OpenStudio"]
+        }
+    ],
 
     async setup() {
         ensureStudioStylesheet();
 
-        // ── Add Top Menu Bar Studio Button ────────────────────────────────────
-        const addTopBarButton = () => {
-            if (document.getElementById("zh-top-bar-studio-btn")) return;
-
-            const menu = document.querySelector(".comfy-menu") || document.querySelector(".comfyui-menu");
+        // 1. Injected Floating Launcher Pill (Always accessible across any ComfyUI theme/version)
+        const injectFloatingLauncher = () => {
+            if (document.getElementById("zh-floating-studio-launcher")) return;
             const btn = document.createElement("button");
-            btn.id = "zh-top-bar-studio-btn";
+            btn.id = "zh-floating-studio-launcher";
             btn.className = "zh-top-menu-btn";
-            btn.innerHTML = `<span>🧟</span><span>Studio</span>`;
-            btn.title = "Open Zombiehaus Creative Studio Workstation";
-            btn.addEventListener("click", () => openStudioWindow("screenplay"));
-
-            if (menu) {
-                menu.prepend(btn);
-            } else {
-                // Floating top bar launcher pill fallback
-                let launcher = document.getElementById("zh-floating-studio-launcher");
-                if (!launcher) {
-                    launcher = document.createElement("div");
-                    launcher.id = "zh-floating-studio-launcher";
-                    launcher.className = "zh-floating-launcher";
-                    launcher.appendChild(btn);
-                    document.body.appendChild(launcher);
-                }
-            }
+            btn.style.position = "fixed";
+            btn.style.top = "10px";
+            btn.style.right = "140px";
+            btn.style.zIndex = "99999";
+            btn.style.background = "linear-gradient(135deg, #0284c7 0%, #a855f7 100%)";
+            btn.style.color = "#ffffff";
+            btn.style.fontWeight = "800";
+            btn.style.fontSize = "12px";
+            btn.style.padding = "6px 14px";
+            btn.style.borderRadius = "20px";
+            btn.style.border = "1px solid rgba(255, 255, 255, 0.4)";
+            btn.style.boxShadow = "0 4px 20px rgba(0, 0, 0, 0.6)";
+            btn.style.cursor = "pointer";
+            btn.style.display = "flex";
+            btn.style.alignItems = "center";
+            btn.style.gap = "6px";
+            btn.innerHTML = `<span>🧟</span><span>Zombiehaus Studio</span>`;
+            btn.title = "Open Zombiehaus Studio Workstation (Screenplay, Image, Video, Suno Music)";
+            btn.onclick = () => openStudioWindow("screenplay");
+            document.body.appendChild(btn);
         };
 
-        addTopBarButton();
-        setTimeout(addTopBarButton, 1000);
+        injectFloatingLauncher();
+        setTimeout(injectFloatingLauncher, 1000);
+        setTimeout(injectFloatingLauncher, 3000);
+
+        // 2. Add to Canvas Right-Click Context Menu
+        if (typeof LGraphCanvas !== "undefined" && LGraphCanvas.prototype) {
+            const origGetCanvasMenuOptions = LGraphCanvas.prototype.getCanvasMenuOptions;
+            LGraphCanvas.prototype.getCanvasMenuOptions = function () {
+                const options = origGetCanvasMenuOptions ? origGetCanvasMenuOptions.apply(this, arguments) : [];
+                options.unshift({
+                    content: "🧟 Open Zombiehaus Studio",
+                    callback: () => openStudioWindow("screenplay")
+                }, null);
+                return options;
+            };
+        }
     },
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (nodeData.name === "ZombiehausStudio" || nodeData.name === "ZombiehausScriptStudio") {
+        // Add Studio button widget to all creative Zombiehaus nodes
+        const isStudioNode = nodeData.name === "ZombiehausStudio" || nodeData.name === "ZombiehausScriptStudio";
+        const isCreativeNode = isStudioNode || nodeData.name === "ZombiehausSongWriter" || nodeData.name === "ZombiehausTextEditor";
+
+        if (isCreativeNode) {
             ensureStudioStylesheet();
 
             const onNodeCreated = nodeType.prototype.onNodeCreated;
             nodeType.prototype.onNodeCreated = function () {
                 const r = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
                 const node = this;
-                const isScriptMode = nodeData.name === "ZombiehausScriptStudio";
 
-                // ── 1. Suppress 2500px Canvas Tower ──────────────────────────
-                // Hide raw LiteGraph widgets from canvas rendering while keeping values for graph execution
-                if (node.widgets) {
-                    for (const w of node.widgets) {
-                        w.computeSize = () => [0, -4];
-                    }
-                }
+                // Add button widget directly on the node
+                const modeTarget = nodeData.name === "ZombiehausSongWriter" ? "music" : 
+                                  nodeData.name === "ZombiehausScriptStudio" ? "screenplay" : "prompt";
 
-                // Sleek, compact card dimensions on canvas
-                node.setSize([440, 240]);
+                node.addWidget("button", "🧟 Open Studio Workstation", null, () => {
+                    openStudioWindow(modeTarget);
+                }, { serialize: false });
 
-                const getWidget = (name) => node.widgets?.find(w => w.name === name);
-
-                // ── 2. Build Compact Studio Node Card ────────────────────────
-                const card = document.createElement("div");
-                card.className = "zh-canvas-studio-card";
-
-                // Header
-                const header = document.createElement("div");
-                header.className = "zh-card-header";
-                header.innerHTML = `
-                    <div class="zh-card-title">
-                        <span class="zh-pulse-dot"></span>
-                        <span class="zh-title-text">${isScriptMode ? "SCRIPT STUDIO" : "ZOMBIEHAUS STUDIO"}</span>
-                    </div>
-                    <span class="zh-card-badge">${isScriptMode ? "SCREENPLAY" : "PROMPT"}</span>
-                `;
-                card.appendChild(header);
-
-                // Profile Selector Row
-                const profileRow = document.createElement("div");
-                profileRow.className = "zh-card-profile-row";
-
-                const pLabel = document.createElement("span");
-                pLabel.className = "zh-card-label";
-                pLabel.textContent = "Profile:";
-
-                const pSelect = document.createElement("select");
-                pSelect.className = "zh-card-select";
-
-                const refreshProfiles = async () => {
-                    try {
-                        const resp = await api.fetchApi("/zombiehaus/studio/profiles");
-                        const data = await resp.json();
-                        if (data.success && data.profiles) {
-                            pSelect.innerHTML = "";
-                            const currentVal = getWidget("profile")?.value || "Chroma 1-HD Photoreal";
-                            for (const p of data.profiles) {
-                                const opt = document.createElement("option");
-                                opt.value = p.name;
-                                opt.textContent = p.name;
-                                if (p.name === currentVal) opt.selected = true;
-                                pSelect.appendChild(opt);
+                if (isStudioNode) {
+                    // Suppress 2500px LiteGraph canvas tower for studio mega nodes
+                    if (node.widgets) {
+                        for (const w of node.widgets) {
+                            if (w.name !== "button") {
+                                w.computeSize = () => [0, -4];
                             }
                         }
-                    } catch (_) {}
-                };
-                refreshProfiles();
-
-                pSelect.addEventListener("change", (e) => {
-                    const pw = getWidget("profile");
-                    if (pw) {
-                        pw.value = e.target.value;
-                        if (pw.callback) pw.callback(pw.value);
-                        node.setDirtyCanvas(true, true);
                     }
-                });
-
-                profileRow.appendChild(pLabel);
-                profileRow.appendChild(pSelect);
-                card.appendChild(profileRow);
-
-                // Big Glowing "Open Studio Workstation" Launcher
-                const launchBtn = document.createElement("button");
-                launchBtn.className = "zh-card-launch-btn";
-                launchBtn.innerHTML = `<span>🗖</span><span>OPEN STUDIO WORKSTATION</span>`;
-                launchBtn.title = "Launch full 3-column creative suite in a dedicated window";
-                launchBtn.addEventListener("click", () => {
-                    openStudioWindow(isScriptMode ? "screenplay" : "prompt");
-                });
-                card.appendChild(launchBtn);
-
-                // Quick Status Badges Strip
-                const statusStrip = document.createElement("div");
-                statusStrip.className = "zh-card-status-strip";
-
-                const updateBadges = () => {
-                    const arch = (getWidget("architecture")?.value || "CHROMA").toUpperCase();
-                    const w = getWidget("width")?.value || 1024;
-                    const h = getWidget("height")?.value || 1024;
-                    const hires = getWidget("enable_hires_fix")?.value ? "HIRES" : null;
-                    const detail = getWidget("enable_detailer")?.value ? "DETAIL" : null;
-                    const dewax = getWidget("enable_dewax")?.value ? "DEWAX" : null;
-
-                    statusStrip.innerHTML = `
-                        <span class="zh-chip zh-chip-arch">${arch}</span>
-                        <span class="zh-chip">${w}×${h}</span>
-                        ${hires ? `<span class="zh-chip zh-chip-active">HIRES</span>` : ""}
-                        ${detail ? `<span class="zh-chip zh-chip-active">DETAIL</span>` : ""}
-                        ${dewax ? `<span class="zh-chip zh-chip-active">DEWAX</span>` : ""}
-                    `;
-                };
-                updateBadges();
-                card.appendChild(statusStrip);
-
-                // Quick Generate Button
-                const queueBtn = document.createElement("button");
-                queueBtn.className = "zh-card-queue-btn";
-                queueBtn.innerHTML = `<span>⚡</span><span>Queue Generation</span>`;
-                queueBtn.addEventListener("click", () => {
-                    app.queuePrompt(0);
-                });
-                card.appendChild(queueBtn);
-
-                // Attach custom DOM widget
-                node.addDOMWidget("zombiehaus_studio_ui", "custom", card, {
-                    serialize: false,
-                    hideOnZoom: false
-                });
+                    node.setSize([440, 240]);
+                }
 
                 return r;
             };

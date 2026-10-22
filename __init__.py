@@ -208,6 +208,16 @@ async def serve_studio_page(request):
         return web.FileResponse(html_path)
     return web.Response(text="Zombiehaus Studio index.html not found", status=404)
 
+@server.PromptServer.instance.routes.post("/zombiehaus/studio/open")
+async def open_studio_in_browser(request):
+    """Open the Zombiehaus Studio in the system's default browser."""
+    try:
+        import webbrowser
+        webbrowser.open("http://127.0.0.1:8188/zombiehaus/studio")
+        return web.json_response({"success": True})
+    except Exception as e:
+        return web.json_response({"success": False, "message": str(e)})
+
 @server.PromptServer.instance.routes.get("/zombiehaus/studio/models")
 async def get_studio_models_api(request):
     """Return all installed checkpoints, diffusion models, vaes, clips, loras, upscalers, samplers, and schedulers."""

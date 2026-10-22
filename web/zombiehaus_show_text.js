@@ -271,8 +271,8 @@ app.registerExtension({
             };
         }
 
-        // ── ZombiehausPersonInpaint & ZombiehausPersonaInteract (Live Prompt Hint Sync) ──
-        if (nodeData.name === "ZombiehausPersonInpaint" || nodeData.name === "ZombiehausPersonaInteract") {
+        // ── ZombiehausPersonInpaint, ZombiehausPersonaInteract & ZombiehausDualPersonaDirector ──
+        if (nodeData.name === "ZombiehausPersonInpaint" || nodeData.name === "ZombiehausPersonaInteract" || nodeData.name === "ZombiehausDualPersonaDirector") {
             function syncPromptHint(node, presetVal) {
                 const hint = getPromptHintForPreset(presetVal);
                 if (!hint || !node.outputs) return;

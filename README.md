@@ -43,6 +43,8 @@ ComfyUI-Zombiehaus by zombiehaus provides custom nodes organized into six catego
 - Wardrobe Inpaint - Semantic clothing segmentation (SegFormer ATR) and clean latent inpainting for virtual try-on and outfit replacement
 - [Zombiehaus Person Inpaint & Interaction Director](docs/ZombiehausPersonInpaint.md) - Add a second person to existing images with targeted YOLO anatomical staging, contact overlap dilation, and complete interaction freedom
 - [Zombiehaus Persona Interact & Duo Director](docs/ZombiehausPersonaInteract.md) - Holistic canvas generation and automated Persona 1 identity preservation for natural multi-person interactions without inpaint seams
+- [Zombiehaus Dual Persona Director (Regional LoRA)](docs/ZombiehausDualPersonaDirector.md) - Generate two distinct characters from two separate LoRAs with full-body anatomical realism, independent physiques, and seamless physical contact
+- [Zombiehaus Scene Script Director (N-Persona)](docs/ZombiehausSceneScriptDirector.md) - Screenplay script-driven director for 2 to N personas with independent LoRAs, auto-column or 2D box staging, and unified physical interaction
 - [Detailer Slot & All-in-One Detailer](docs/allinone-detailer.md) - Modular YOLO detection + inpaint passes with dynamic drag-and-drop slot reordering, auto-naming, and pipe support
 - Model Upscale - All-in-one neural upscaler (e.g. 4x-UltraSharp) with optional downscale and pre-downscale upscale saving
 - Upscaler - Tiled upscaling with seam fixing and post-processing

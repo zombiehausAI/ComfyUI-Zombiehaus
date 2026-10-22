@@ -52,6 +52,8 @@ from .modules.export_card_node import ZombiehausExportCard
 from .modules.wardrobe_inpaint_node import ZombiehausWardrobeInpaint
 from .modules.person_inpaint_node import ZombiehausPersonInpaint
 from .modules.persona_interact_node import ZombiehausPersonaInteract
+from .modules.dual_persona_director_node import ZombiehausDualPersonaDirector
+from .modules.scene_script_director_node import ZombiehausSceneScriptDirector
 from .modules.model_scryer_node import (
     ZombiehausModelScryer,
     inspect_safetensors_file,
@@ -1861,6 +1863,8 @@ NODE_CLASS_MAPPINGS = {
     "ZombiehausWardrobeInpaint": ZombiehausWardrobeInpaint,
     "ZombiehausPersonInpaint": ZombiehausPersonInpaint,
     "ZombiehausPersonaInteract": ZombiehausPersonaInteract,
+    "ZombiehausDualPersonaDirector": ZombiehausDualPersonaDirector,
+    "ZombiehausSceneScriptDirector": ZombiehausSceneScriptDirector,
     "ZombiehausModelScryer": ZombiehausModelScryer,
 }
 
@@ -1923,6 +1927,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZombiehausWardrobeInpaint": "Zombiehaus Wardrobe Inpaint",
     "ZombiehausPersonInpaint": "Zombiehaus Person Inpaint & Interaction Director",
     "ZombiehausPersonaInteract": "Zombiehaus Persona Interact & Duo Director",
+    "ZombiehausDualPersonaDirector": "Zombiehaus Dual Persona Director (Regional LoRA)",
+    "ZombiehausSceneScriptDirector": "Zombiehaus Scene Script Director (N-Persona)",
     "ZombiehausModelScryer": "Zombiehaus Model Scryer (WeightScryer)",
 }
 

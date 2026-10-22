@@ -134,8 +134,19 @@ def _compute_fidelity_mapping(fidelity_pct, curve="Smooth S-Curve", min_denoise=
 
 class ZombiehausLoadImage:
     """
-    Dedicated image loader node for Zombiehaus workflows with instant upload support.
+    Dedicated image loader node for Zombiehaus workflows with instant upload support
+    and optional pre-scaling (Fit, Crop, Pad, or Custom dimensions).
     """
+    SCALE_MODES = [
+        "None (Original)",
+        "Fit (Preserve Aspect)",
+        "Exact (Width x Height)",
+        "Crop to Fit",
+        "Pad to Fit",
+    ]
+
+    RESAMPLE_FILTERS = ["lanczos", "bicubic", "bilinear", "nearest"]
+
     @classmethod
     def INPUT_TYPES(cls):
         input_dir = folder_paths.get_input_directory()
@@ -149,6 +160,10 @@ class ZombiehausLoadImage:
         return {
             "required": {
                 "image": (files if files else ["none"], {"image_upload": True}),
+                "scaling": (cls.SCALE_MODES, {"default": "None (Original)"}),
+                "target_width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 16}),
+                "target_height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 16}),
+                "resampling": (cls.RESAMPLE_FILTERS, {"default": "lanczos"}),
             }
         }
 
@@ -157,16 +172,87 @@ class ZombiehausLoadImage:
     RETURN_NAMES = ("image", "mask", "width", "height", "filename")
     FUNCTION = "load_image"
 
-    def load_image(self, image):
+    def load_image(self, image, scaling="None (Original)", target_width=1024, target_height=1024, resampling="lanczos", **kwargs):
+        target_w = max(64, int(target_width))
+        target_h = max(64, int(target_height))
+
         if not image or image == "none":
-            # Return blank placeholder tensor
-            blank = torch.zeros((1, 1024, 1024, 3), dtype=torch.float32)
-            mask = torch.zeros((1, 1024, 1024), dtype=torch.float32)
-            return (blank, mask, 1024, 1024, "none")
+            out_w = target_w if scaling != "None (Original)" else 1024
+            out_h = target_h if scaling != "None (Original)" else 1024
+            blank = torch.zeros((1, out_h, out_w, 3), dtype=torch.float32)
+            mask = torch.zeros((1, out_h, out_w), dtype=torch.float32)
+            return (blank, mask, out_w, out_h, "none")
 
         image_path = folder_paths.get_annotated_filepath(image)
         i = Image.open(image_path)
         i = ImageOps.exif_transpose(i)
+
+        # Apply optional scaling before tensor conversion
+        if scaling != "None (Original)":
+            resample_map = {
+                "lanczos": Image.Resampling.LANCZOS,
+                "bicubic": Image.Resampling.BICUBIC,
+                "bilinear": Image.Resampling.BILINEAR,
+                "nearest": Image.Resampling.NEAREST,
+            }
+            resample_filter = resample_map.get(str(resampling).lower(), Image.Resampling.LANCZOS)
+            orig_w, orig_h = i.size
+
+            if scaling == "Exact (Width x Height)":
+                i = i.resize((target_w, target_h), resample_filter)
+
+            elif scaling == "Fit (Preserve Aspect)":
+                # Scale within target_w x target_h, preserving aspect ratio and aligning to multiple of 16
+                ar = orig_w / float(orig_h)
+                target_ar = target_w / float(target_h)
+                if ar > target_ar:
+                    new_w = target_w
+                    new_h = max(16, int(round(target_w / ar)))
+                else:
+                    new_h = target_h
+                    new_w = max(16, int(round(target_h * ar)))
+
+                # Ensure dimensions are divisible by 16 for DiT / Flux / SD compatibility
+                new_w = max(16, (new_w // 16) * 16)
+                new_h = max(16, (new_h // 16) * 16)
+                i = i.resize((new_w, new_h), resample_filter)
+
+            elif scaling == "Crop to Fit":
+                # Scale to cover target_w x target_h, then center crop
+                ar = orig_w / float(orig_h)
+                target_ar = target_w / float(target_h)
+                if ar > target_ar:
+                    scale_h = target_h
+                    scale_w = int(round(target_h * ar))
+                else:
+                    scale_w = target_w
+                    scale_h = int(round(target_w / ar))
+
+                scaled = i.resize((scale_w, scale_h), resample_filter)
+                crop_x = max(0, (scale_w - target_w) // 2)
+                crop_y = max(0, (scale_h - target_h) // 2)
+                i = scaled.crop((crop_x, crop_y, crop_x + target_w, crop_y + target_h))
+
+            elif scaling == "Pad to Fit":
+                # Scale to fit inside target_w x target_h, then pad with black / transparent
+                ar = orig_w / float(orig_h)
+                target_ar = target_w / float(target_h)
+                if ar > target_ar:
+                    scale_w = target_w
+                    scale_h = max(1, int(round(target_w / ar)))
+                else:
+                    scale_h = target_h
+                    scale_w = max(1, int(round(target_h * ar)))
+
+                scaled = i.resize((scale_w, scale_h), resample_filter)
+                mode = "RGBA" if "A" in i.getbands() else "RGB"
+                bg_color = (0, 0, 0, 0) if mode == "RGBA" else (0, 0, 0)
+                canvas = Image.new(mode, (target_w, target_h), bg_color)
+                offset_x = (target_w - scale_w) // 2
+                offset_y = (target_h - scale_h) // 2
+                canvas.paste(scaled, (offset_x, offset_y))
+                i = canvas
+
         image_rgb = i.convert("RGB")
         img_np = np.array(image_rgb).astype(np.float32) / 255.0
         img_tensor = torch.from_numpy(img_np)[None,]

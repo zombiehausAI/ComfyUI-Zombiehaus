@@ -276,11 +276,21 @@ class ZombiehausPersonaInteract:
                              steps, cfg, sampler_name, scheduler, seed,
                              detector_model="face_yolov8n.pt", face_blend_feather=22,
                              optional_positive=None, optional_negative=None):
-        # 1. Unpack pipe components
-        model = pipe.get("model")
-        vae = pipe.get("vae")
-        positive = optional_positive if optional_positive is not None else pipe.get("positive")
-        negative = optional_negative if optional_negative is not None else pipe.get("negative")
+        # 1. Unpack pipe components (supports both tuple and dict PIPE formats)
+        if isinstance(pipe, dict):
+            model = pipe.get("model")
+            clip = pipe.get("clip")
+            vae = pipe.get("vae")
+            positive = optional_positive if optional_positive is not None else pipe.get("positive")
+            negative = optional_negative if optional_negative is not None else pipe.get("negative")
+        elif isinstance(pipe, (tuple, list)):
+            model = pipe[0] if len(pipe) > 0 else None
+            clip = pipe[1] if len(pipe) > 1 else None
+            vae = pipe[2] if len(pipe) > 2 else None
+            positive = optional_positive if optional_positive is not None else (pipe[3] if len(pipe) > 3 else None)
+            negative = optional_negative if optional_negative is not None else (pipe[4] if len(pipe) > 4 else None)
+        else:
+            raise ValueError(f"[ZombiehausPersonaInteract] Unsupported pipe format: {type(pipe)}")
 
         if model is None or vae is None or positive is None:
             raise ValueError("[ZombiehausPersonaInteract] Pipe is missing model, vae, or positive conditioning.")

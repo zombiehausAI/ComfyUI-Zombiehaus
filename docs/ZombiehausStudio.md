@@ -8,16 +8,15 @@ The **Zombiehaus Studio** is a standalone, full-screen creative suite served dir
 
 You can launch Zombiehaus Studio through any of the following convenient entry points:
 
-1. **Top Action Bar Button**: Click the **`🧟 Zombiehaus Studio`** button on ComfyUI's top navigation bar right next to the "Queue" / "Run" button (exactly like Plenio Player).
-2. **Persistent Floating Launcher**: A glowing pill (`🧟 Zombiehaus Studio`) fixed at the top-right of your screen, always accessible across all UI themes.
+1. **Top Action Bar Button**: Click the **`⚡ Zombiehaus Studio`** button on ComfyUI's top navigation bar right next to the Queue / Execution controls.
+2. **Top Menu Bar**: Click **Zombiehaus ➔ Open Zombiehaus Studio** in the native application menu bar.
 3. **Canvas Context Menu**: Right-click anywhere on the empty ComfyUI canvas and select **`🧟 Open Zombiehaus Studio`**.
-4. **Desktop Launcher**: Double-click [`Zombiehaus Studio.bat`](file:///d:/repos/ComfyUI-Zombiehaus/Zombiehaus%20Studio.bat) in the repository root.
-5. **Direct Browser URL**: Navigate to `http://127.0.0.1:8188/zombiehaus/studio` in any browser or second monitor.
-6. **On-Node Button**: Click the `[ 🧟 Open Studio Workstation ]` button widget on any creative Zombiehaus node.
+4. **Direct Browser URL**: Navigate to `http://127.0.0.1:8188/zombiehaus/studio` in any browser or second monitor.
+5. **On-Node Button**: Click the `[ 🧟 Open Studio Workstation ]` button widget on any creative Zombiehaus node.
 
 ---
 
-## The 4 Creative Modes
+## The 5 Creative Modes
 
 Zombiehaus Studio features a seamless mode switcher in the top header bar:
 
@@ -53,6 +52,30 @@ Built for radio-ready, high-fidelity vocal songs and complete musical accompanim
 - **`✨ Write Hit Lyrics (AI Ollama)`**: Generates complete, radio-ready lyrics formatted with musical structure tags tailored to your chosen genre and vibe.
 - **Interactive Waveform Player**: Instant playback with dynamic audio waveform canvas visualization.
 
+### 5. 📚 List & Wildcard Curator Mode
+Integrated directly into the workstation for managing wildcard files and variable dictionaries:
+- **Browse & Load**: Instant switching across all wildcard files stored in `saved_prompts/wildcards/`.
+- **Live Search & Filter**: Real-time line search with live match counters.
+- **Inline Editing & Creation**: Add, edit, or create new wildcard lists directly in the browser.
+- **Disk Persistence**: Save and delete operations persist directly via ComfyUI endpoints.
+
+---
+
+## Workstation Features
+
+### 🔍 UI Scaling & Font Size
+- Choose from 90%, 100%, 110%, 120%, or 130% scaling in the top bar.
+- Changes are applied instantly and saved to `localStorage` across browser reloads.
+
+### ⌨️ Precise Numeric Manual Inputs
+- Every slider is paired with an interactive numeric input box.
+- Drag the slider or click the number to type exact values (e.g. `3.25`, `0.05`, `28`).
+
+### 🎨 Syntax Highlighting & Variable Autocomplete
+- **Real-Time Token Coloring**: Highlights section headers (`[SCENE]`), variables (`$women.Amanda`), wildcards (`__colors__`), LoRAs (`<lora:...>`), dynamic weights (`(word:1.2)`), choices (`{a|b}`), and comments.
+- **Dynamic Autocomplete**: Type `$` to trigger variable suggestions; type `__` to trigger wildcard lists.
+- **Toolbar Pickers**: Click `$ Variables` or `__ Wildcards` above any editor for quick 1-click insertion.
+
 ---
 
 ## Model Profiles
@@ -75,6 +98,40 @@ Zombiehaus Studio operates via ComfyUI's REST and WebSocket API (`/prompt`, `/ws
 - `ZombiehausTextEditor` / `ZombiehausSceneScriptDirector`
 - `ZombiehausKSampler`
 - `ZombiehausSaveImage` / `ZombiehausSaveVideo` / `ZombiehausSaveAudio`
+
+---
+
+## Complete Node Parity in the Unified UI
+
+Zombiehaus Studio provides complete feature parity with the standalone canvas nodes:
+
+### 📂 Prompt Presets & Text Utilities
+- **Category Filter & Preset Dropdown**: Filter and load prompt presets saved in `saved_prompts/prompts/`, `saved_prompts/songs/`, or custom categories.
+- **💾 Save Preset**: Save the current positive and negative prompt with a category.
+- **Text Refinement Tools**:
+  - `🧹 Dedupe`: Removes duplicate comma-separated keyword tags.
+  - `✍️ Prosify`: Converts comma-separated tags into fluent cinematic prose.
+  - `🏷️ Tagify`: Converts descriptive sentences into clean comma-separated keyword tags.
+  - `⇄ Swap`: Swaps the contents of the positive and negative prompt editors.
+  - `🧼 Clean`: Strips parentheses, attention weights (`(word:1.2)`), and bracket syntax.
+
+### 🎨 Visual Style & Color Harmonizer (from `ZombiehausStylePicker`)
+- **15 Signature Art Movements**: Vogue Fashion Editorial, Cyberpunk Synthwave, Dark Fantasy Oil, 90s Retro Anime, Shinkai Cinematic, Watercolor & Ink Wash, Ukiyo-e Woodblock, Art Nouveau Mucha, Comic Book Noir, Pixar 3D Stylized, Claymation Stop-Motion, Sci-Fi Concept Art, National Geographic, and Surrealist Dreamscape.
+- **7 Harmonized Color Palettes**: Natural Balance, Warm Golden Amber, Cool Cyber Cyan, Monochrome High Contrast, Pastel Dreamy, Moody Desaturated, and Vibrant Saturated.
+- **Strength Slider**: Adjust style weighting between `0.0` and `2.0`.
+- **Inject Style Button**: Injects the styled and weighted tokens directly into the active prompt editor.
+
+### 🎛️ Interactive Negative Pedalboard Guards
+- **Toggleable Pedal Chips**: Instant toggles for `✦ Quality`, `🚫 Anatomy`, `🎨 Anti-3D`, `💧 Watermark`, and `🔞 NSFW`.
+- **Two-Way Text Sync**: Chips glow when their guard string is present in the negative prompt textarea; clicking adds or strips the guard phrase cleanly.
+- **Mute Negative Toggle**: Temporarily bypasses negative prompt conditioning during generation without erasing your text.
+
+### ✨ Character Glamour & Anatomy Sculptor (from `ZombiehausGlamourController`)
+Collapsible control panel in Column 1 (Engine Rack) for character transformation:
+- **Facial & Identity**: Age Shift slider (`-5.0` to `+5.0`), Smile Intensity (`0.0` to `1.0`), Skin Glow (`0.0` to `1.0`), and Ethnicity selection.
+- **Cosmetics**: Hair color and eye color selection.
+- **Body & Silhouette Sculpting**: Breasts scale (`-5.0` to `+5.0`), Waist cinch (`-5.0` to `+5.0`), Hips & butt (`-5.0` to `+5.0`), and Muscle tone (`0.0` to `5.0`).
+- **Pipeline Injection**: When enabled, automatically formats and injects weighted anatomical directives into the prompt pipeline.
 - `DiffRhythmRun` / `MMAudioSampler`
 
 No cumbersome monolithic "mega nodes" are needed on the LiteGraph canvas, leaving your ComfyUI workspace clean and lightweight.

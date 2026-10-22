@@ -19,12 +19,24 @@ const el = {
     btnPrompt: document.getElementById("mode-btn-prompt"),
     btnVideo: document.getElementById("mode-btn-video"),
     btnMusic: document.getElementById("mode-btn-music"),
+    btnLists: document.getElementById("mode-btn-lists"),
 
     // Views
     viewScreenplay: document.getElementById("view-screenplay"),
     viewPrompt: document.getElementById("view-prompt"),
     viewVideo: document.getElementById("view-video"),
     viewMusic: document.getElementById("view-music"),
+    viewLists: document.getElementById("view-lists"),
+
+    // Scale & Curator controls
+    uiScaleSelect: document.getElementById("ui-scale-select"),
+    curatorFileSelect: document.getElementById("curator-file-select"),
+    btnCuratorNew: document.getElementById("btn-curator-new"),
+    btnCuratorSave: document.getElementById("btn-curator-save"),
+    btnCuratorDelete: document.getElementById("btn-curator-delete"),
+    curatorFilterInput: document.getElementById("curator-filter-input"),
+    curatorCountBadge: document.getElementById("curator-count-badge"),
+    curatorTextEditor: document.getElementById("curator-text-editor"),
 
     // Engine racks
     enginePanelTitle: document.getElementById("engine-panel-title"),
@@ -58,12 +70,8 @@ const el = {
     clipType: document.getElementById("engine-clip-type"),
     clipName: document.getElementById("engine-clip-name"),
     vae: document.getElementById("engine-vae"),
-    lora1Name: document.getElementById("engine-lora1-name"),
-    lora1Strength: document.getElementById("engine-lora1-strength"),
-    valLora1: document.getElementById("val-lora1-strength"),
-    lora2Name: document.getElementById("engine-lora2-name"),
-    lora2Strength: document.getElementById("engine-lora2-strength"),
-    valLora2: document.getElementById("val-lora2-strength"),
+    loraStackContainer: document.getElementById("lora-stack-container"),
+    btnAddLora: document.getElementById("btn-add-lora"),
     chromaShift: document.getElementById("engine-chroma-shift"),
     valChromaShift: document.getElementById("val-chroma-shift"),
     guidance: document.getElementById("engine-guidance"),
@@ -105,10 +113,63 @@ const el = {
 
     // Creative editors (Image / Screenplay)
     scriptEditor: document.getElementById("script-editor"),
+    scriptBackdrop: document.getElementById("script-backdrop"),
     positiveEditor: document.getElementById("positive-editor"),
+    positiveBackdrop: document.getElementById("positive-backdrop"),
     negativeEditor: document.getElementById("negative-editor"),
+    negativeBackdrop: document.getElementById("negative-backdrop"),
     promptStyle: document.getElementById("prompt-style-select"),
     btnOllama: document.getElementById("btn-ollama-enhance"),
+    btnInsertVarScript: document.getElementById("btn-insert-var-script"),
+    btnInsertWcScript: document.getElementById("btn-insert-wc-script"),
+    btnInsertVarPos: document.getElementById("btn-insert-var-pos"),
+    btnInsertWcPos: document.getElementById("btn-insert-wc-pos"),
+    btnInsertWcNeg: document.getElementById("btn-insert-wc-neg"),
+    autocompletePopup: document.getElementById("zh-autocomplete-popup"),
+
+    // Prompt Presets & Utility Tools
+    presetCategorySelect: document.getElementById("preset-category-select"),
+    presetPromptSelect: document.getElementById("preset-prompt-select"),
+    btnSavePromptPreset: document.getElementById("btn-save-prompt-preset"),
+    btnRefreshPrompts: document.getElementById("btn-refresh-prompts"),
+    btnPromptDedupe: document.getElementById("btn-prompt-dedupe"),
+    btnPromptProsify: document.getElementById("btn-prompt-prosify"),
+    btnPromptTagify: document.getElementById("btn-prompt-tagify"),
+    btnPromptSwap: document.getElementById("btn-prompt-swap"),
+    btnPromptStripWeights: document.getElementById("btn-prompt-strip-weights"),
+
+    // Style Harmonizer
+    styleMovementSelect: document.getElementById("style-movement-select"),
+    colorPaletteSelect: document.getElementById("color-palette-select"),
+    styleStrengthSlider: document.getElementById("style-strength-slider"),
+    valStyleStrength: document.getElementById("val-style-strength"),
+    btnApplyStyle: document.getElementById("btn-apply-style"),
+
+    // Negative Pedalboard & Mute
+    muteNegativeCheckbox: document.getElementById("mute-negative-checkbox"),
+
+    // Glamour Controller
+    glamourToggleHeader: document.getElementById("glamour-toggle-header"),
+    glamourArrow: document.getElementById("glamour-arrow"),
+    glamourCardBody: document.getElementById("glamour-card-body"),
+    glamourEnable: document.getElementById("glamour-enable"),
+    glamourAge: document.getElementById("glamour-age"),
+    valGlamourAge: document.getElementById("val-glamour-age"),
+    glamourSmile: document.getElementById("glamour-smile"),
+    valGlamourSmile: document.getElementById("val-glamour-smile"),
+    glamourSkin: document.getElementById("glamour-skin"),
+    valGlamourSkin: document.getElementById("val-glamour-skin"),
+    glamourEthnicity: document.getElementById("glamour-ethnicity"),
+    glamourHair: document.getElementById("glamour-hair"),
+    glamourEyes: document.getElementById("glamour-eyes"),
+    glamourBreasts: document.getElementById("glamour-breasts"),
+    valGlamourBreasts: document.getElementById("val-glamour-breasts"),
+    glamourWaist: document.getElementById("glamour-waist"),
+    valGlamourWaist: document.getElementById("val-glamour-waist"),
+    glamourHips: document.getElementById("glamour-hips"),
+    valGlamourHips: document.getElementById("val-glamour-hips"),
+    glamourMuscle: document.getElementById("glamour-muscle"),
+    valGlamourMuscle: document.getElementById("val-glamour-muscle"),
 
     // Render & stages (Image / Screenplay)
     badgeRes: document.getElementById("badge-res"),
@@ -129,9 +190,8 @@ const el = {
     hiresScale: document.getElementById("stage-hires-scale"),
     hiresDenoise: document.getElementById("stage-hires-denoise"),
     enableDetailer: document.getElementById("stage-enable-detailer"),
-    detailFace: document.getElementById("detail-face"),
-    detailEyes: document.getElementById("detail-eyes"),
-    detailHands: document.getElementById("detail-hands"),
+    detailerStackContainer: document.getElementById("detailer-stack-container"),
+    btnAddDetailer: document.getElementById("btn-add-detailer"),
     enableDewax: document.getElementById("stage-enable-dewax"),
     dewaxGrain: document.getElementById("stage-dewax-grain"),
     valDewaxGrain: document.getElementById("val-dewax-grain"),
@@ -161,35 +221,272 @@ const el = {
 
 // ── 1. Initialization & API Loading ──────────────────────────────────────────
 
+let availableLoraList = ["None"];
+
+const defaultDetectorOptions = [
+    { value: "bbox/face_yolov8m.pt", label: "Face (YOLOv8m Face)" },
+    { value: "bbox/eyes_yolov8m.pt", label: "Eyes (YOLOv8m Eyes)" },
+    { value: "bbox/hand_yolov8s.pt", label: "Hands (YOLOv8s Hand)" },
+    { value: "segm/person_yolov8m-seg.pt", label: "Full Body (YOLOv8m Seg)" },
+    { value: "bbox/clothing_yolov8m.pt", label: "Clothing (YOLOv8m Garment)" }
+];
+
 async function initStudio() {
+    setupUiScale();
     setupSliders();
+    setupDynamicStacks();
     setupModeSwitcher();
     setupAspectRatios();
     setupEditorHelpers();
+    setupPromptPresets();
+    setupStyleHarmonizer();
+    setupNegativePedalboard();
+    setupGlamourController();
+    setupSyntaxHighlighting();
+    setupAutocomplete();
+    setupListCurator();
     setupMusicStudio();
     setupVideoStudio();
     setupHotkeys();
 
     await loadModelAssets();
     await loadProfiles();
+    await loadCuratorWildcards();
+    await loadPromptPresets();
     connectWebSocket();
+}
+
+// ── Dynamic LoRA & Detailer Stack Handlers ────────────────────────────────────
+
+function addLoraItem(name = "None", strength = 1.0) {
+    if (!el.loraStackContainer) return;
+
+    const item = document.createElement("div");
+    item.className = "zh-stack-item zh-lora-item";
+
+    const row1 = document.createElement("div");
+    row1.className = "zh-stack-item-row";
+
+    const select = document.createElement("select");
+    select.className = "zh-select zh-lora-select flex-1";
+    for (const loraName of availableLoraList) {
+        const opt = document.createElement("option");
+        opt.value = loraName;
+        opt.textContent = loraName;
+        if (lorNameMatch(loraName, name)) opt.selected = true;
+        select.appendChild(opt);
+    }
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "zh-btn-delete-item";
+    delBtn.innerHTML = "✕";
+    delBtn.title = "Remove LoRA";
+    delBtn.addEventListener("click", () => item.remove());
+
+    row1.appendChild(select);
+    row1.appendChild(delBtn);
+
+    const row2 = document.createElement("div");
+    row2.className = "zh-stack-item-row";
+
+    const valSpan = document.createElement("span");
+    valSpan.className = "zh-slider-val zh-lora-val";
+    valSpan.textContent = Number(strength).toFixed(2);
+
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "-2.0";
+    slider.max = "2.0";
+    slider.step = "0.05";
+    slider.value = strength;
+    slider.className = "zh-slider zh-lora-slider flex-1";
+    slider.addEventListener("input", () => {
+        valSpan.textContent = Number(slider.value).toFixed(2);
+    });
+
+    row2.appendChild(slider);
+    row2.appendChild(valSpan);
+
+    item.appendChild(row1);
+    item.appendChild(row2);
+    el.loraStackContainer.appendChild(item);
+}
+
+function lorNameMatch(a, b) {
+    if (!a || !b) return false;
+    return a.toLowerCase() === b.toLowerCase();
+}
+
+function getLoraStackData() {
+    const items = [];
+    if (!el.loraStackContainer) return items;
+    el.loraStackContainer.querySelectorAll(".zh-lora-item").forEach(item => {
+        const select = item.querySelector(".zh-lora-select");
+        const slider = item.querySelector(".zh-lora-slider");
+        const val = select ? select.value : "None";
+        if (val && val !== "None") {
+            const str = parseFloat(slider?.value || "1.0");
+            items.push({
+                name: val,
+                strength: str,
+                model_strength: str,
+                clip_strength: str,
+                enabled: true
+            });
+        }
+    });
+    return items;
+}
+
+function addDetailerItem(model = "bbox/face_yolov8m.pt", denoise = 0.45, steps = 20) {
+    if (!el.detailerStackContainer) return;
+
+    const item = document.createElement("div");
+    item.className = "zh-stack-item zh-detailer-item";
+
+    const row1 = document.createElement("div");
+    row1.className = "zh-stack-item-row";
+
+    const select = document.createElement("select");
+    select.className = "zh-select zh-detailer-select flex-1";
+    for (const optDef of defaultDetectorOptions) {
+        const opt = document.createElement("option");
+        opt.value = optDef.value;
+        opt.textContent = optDef.label;
+        if (optDef.value === model) opt.selected = true;
+        select.appendChild(opt);
+    }
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "zh-btn-delete-item";
+    delBtn.innerHTML = "✕";
+    delBtn.title = "Remove Detailer pass";
+    delBtn.addEventListener("click", () => item.remove());
+
+    row1.appendChild(select);
+    row1.appendChild(delBtn);
+
+    const row2 = document.createElement("div");
+    row2.className = "zh-stack-item-row";
+
+    const denoiseCol = document.createElement("div");
+    denoiseCol.className = "flex-1";
+
+    const labelRow = document.createElement("div");
+    labelRow.className = "zh-label-row";
+    const lbl = document.createElement("label");
+    lbl.style.fontSize = "10px";
+    lbl.textContent = "Denoise";
+    const valSpan = document.createElement("span");
+    valSpan.className = "zh-slider-val zh-denoise-val";
+    valSpan.textContent = Number(denoise).toFixed(2);
+    labelRow.appendChild(lbl);
+    labelRow.appendChild(valSpan);
+
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "0.1";
+    slider.max = "0.9";
+    slider.step = "0.05";
+    slider.value = denoise;
+    slider.className = "zh-slider zh-detailer-denoise";
+    slider.addEventListener("input", () => {
+        valSpan.textContent = Number(slider.value).toFixed(2);
+    });
+    denoiseCol.appendChild(labelRow);
+    denoiseCol.appendChild(slider);
+
+    const stepsCol = document.createElement("div");
+    stepsCol.style.width = "70px";
+    const stepsLbl = document.createElement("label");
+    stepsLbl.style.fontSize = "10px";
+    stepsLbl.textContent = "Steps";
+    const stepsInput = document.createElement("input");
+    stepsInput.type = "number";
+    stepsInput.min = "5";
+    stepsInput.max = "80";
+    stepsInput.value = steps;
+    stepsInput.className = "zh-input zh-detailer-steps";
+    stepsInput.style.cssText = "height: 26px; padding: 2px 6px; font-size: 11px;";
+    stepsCol.appendChild(stepsLbl);
+    stepsCol.appendChild(stepsInput);
+
+    row2.appendChild(denoiseCol);
+    row2.appendChild(stepsCol);
+
+    item.appendChild(row1);
+    item.appendChild(row2);
+    el.detailerStackContainer.appendChild(item);
+}
+
+function getDetailerStackData() {
+    const items = [];
+    if (!el.detailerStackContainer) return items;
+    el.detailerStackContainer.querySelectorAll(".zh-detailer-item").forEach(item => {
+        const select = item.querySelector(".zh-detailer-select");
+        const slider = item.querySelector(".zh-detailer-denoise");
+        const stepsInput = item.querySelector(".zh-detailer-steps");
+        items.push({
+            model: select ? select.value : "bbox/face_yolov8m.pt",
+            denoise: parseFloat(slider?.value || "0.45"),
+            steps: parseInt(stepsInput?.value || "20", 10),
+            enabled: true
+        });
+    });
+    return items;
+}
+
+function setupDynamicStacks() {
+    el.btnAddLora?.addEventListener("click", () => addLoraItem());
+    el.btnAddDetailer?.addEventListener("click", () => addDetailerItem());
 }
 
 function setupSliders() {
     const bindSlider = (slider, display, suffix = "", decimals = 2) => {
         if (!slider || !display) return;
-        slider.addEventListener("input", () => {
-            display.textContent = Number(slider.value).toFixed(decimals) + suffix;
-        });
+        const isInput = display.tagName === "INPUT";
+        const updateDisplay = () => {
+            const val = Number(slider.value).toFixed(decimals);
+            if (isInput) display.value = val;
+            else display.textContent = val + suffix;
+        };
+        slider.addEventListener("input", updateDisplay);
+        if (isInput) {
+            display.addEventListener("input", () => {
+                const num = parseFloat(display.value);
+                if (!isNaN(num)) {
+                    slider.value = num;
+                    slider.dispatchEvent(new Event("change"));
+                }
+            });
+            display.addEventListener("change", () => {
+                const num = parseFloat(display.value);
+                if (!isNaN(num)) {
+                    slider.value = num;
+                    slider.dispatchEvent(new Event("change"));
+                    display.value = Number(slider.value).toFixed(decimals);
+                }
+            });
+        }
     };
 
-    bindSlider(el.lora1Strength, el.valLora1, "", 2);
-    bindSlider(el.lora2Strength, el.valLora2, "", 2);
     bindSlider(el.chromaShift, el.valChromaShift, "", 1);
     bindSlider(el.guidance, el.valGuidance, "", 1);
     bindSlider(el.steps, el.valSteps, "", 0);
     bindSlider(el.cfg, el.valCfg, "", 1);
     bindSlider(el.dewaxGrain, el.valDewaxGrain, "", 2);
+
+    // Style & Glamour sliders
+    bindSlider(el.styleStrengthSlider, el.valStyleStrength, "", 1);
+    bindSlider(el.glamourAge, el.valGlamourAge, "", 1);
+    bindSlider(el.glamourSmile, el.valGlamourSmile, "", 2);
+    bindSlider(el.glamourSkin, el.valGlamourSkin, "", 2);
+    bindSlider(el.glamourBreasts, el.valGlamourBreasts, "", 1);
+    bindSlider(el.glamourWaist, el.valGlamourWaist, "", 1);
+    bindSlider(el.glamourHips, el.valGlamourHips, "", 1);
+    bindSlider(el.glamourMuscle, el.valGlamourMuscle, "", 1);
 
     // Video sliders
     bindSlider(el.videoMotion, el.valVideoMotion, "", 2);
@@ -204,12 +501,8 @@ function setupSliders() {
     bindSlider(el.videoSteps, el.valVideoSteps, "", 0);
 
     // Music sliders
-    if (el.musicBpm && el.valMusicBpm) {
-        el.musicBpm.addEventListener("input", () => {
-            el.valMusicBpm.textContent = el.musicBpm.value;
-            updateMusicStyleSignature();
-        });
-    }
+    bindSlider(el.musicBpm, el.valMusicBpm, "", 0);
+    el.musicBpm?.addEventListener("input", updateMusicStyleSignature);
     if (el.musicDuration && el.valMusicDuration) {
         el.musicDuration.addEventListener("input", () => {
             const sec = parseInt(el.musicDuration.value, 10);
@@ -245,8 +538,8 @@ function setupModeSwitcher() {
         currentMode = mode;
 
         // Mode button active states
-        [el.btnScreenplay, el.btnPrompt, el.btnVideo, el.btnMusic].forEach(b => b?.classList.remove("active"));
-        [el.viewScreenplay, el.viewPrompt, el.viewVideo, el.viewMusic].forEach(v => v?.classList.remove("active"));
+        [el.btnScreenplay, el.btnPrompt, el.btnVideo, el.btnMusic, el.btnLists].forEach(b => b?.classList.remove("active"));
+        [el.viewScreenplay, el.viewPrompt, el.viewVideo, el.viewMusic, el.viewLists].forEach(v => v?.classList.remove("active"));
 
         // Engine rack active states
         if (el.engineRackImage) el.engineRackImage.style.display = "none";
@@ -294,6 +587,16 @@ function setupModeSwitcher() {
             if (el.renderPanelTitle) el.renderPanelTitle.textContent = "⚡ Audio Master";
             if (el.genBtnLabel) el.genBtnLabel.textContent = "PRODUCE HIT SONG";
             if (el.badgeArch) el.badgeArch.textContent = "ACE-STEP 24B";
+        } else if (mode === "lists") {
+            el.btnLists?.classList.add("active");
+            el.viewLists?.classList.add("active");
+            if (el.engineRackImage) el.engineRackImage.style.display = "block";
+            if (el.renderSettingsImage) el.renderSettingsImage.style.display = "block";
+            if (el.enginePanelTitle) el.enginePanelTitle.textContent = "📚 Lists & Wildcards";
+            if (el.renderPanelTitle) el.renderPanelTitle.textContent = "⚡ Curator Tools";
+            if (el.genBtnLabel) el.genBtnLabel.textContent = "SAVE LIST";
+            if (el.badgeArch) el.badgeArch.textContent = "CURATOR";
+            loadCuratorWildcards();
         }
     };
 
@@ -301,6 +604,7 @@ function setupModeSwitcher() {
     el.btnPrompt?.addEventListener("click", () => setMode("prompt"));
     el.btnVideo?.addEventListener("click", () => setMode("video"));
     el.btnMusic?.addEventListener("click", () => setMode("music"));
+    el.btnLists?.addEventListener("click", () => setMode("lists"));
 }
 
 function setupAspectRatios() {
@@ -393,6 +697,354 @@ function setupEditorHelpers() {
             el.btnOllama.disabled = false;
         }
     });
+}
+
+// ── Prompt Presets, Style Harmonizer, Pedalboard & Glamour ────────────────────
+
+let allSavedPrompts = [];
+
+async function loadPromptPresets() {
+    try {
+        const resp = await fetch("/zombiehaus/list_prompts");
+        const res = await resp.json();
+        if (res.success && res.data) {
+            allSavedPrompts = res.data;
+            populatePresetCategories();
+            filterAndPopulatePresets();
+        }
+    } catch (e) {
+        console.error("Failed to load prompt presets:", e);
+    }
+}
+
+function populatePresetCategories() {
+    if (!el.presetCategorySelect) return;
+    const cats = new Set(["all"]);
+    for (const p of allSavedPrompts) {
+        if (p.category) cats.add(p.category);
+    }
+    const curVal = el.presetCategorySelect.value || "all";
+    el.presetCategorySelect.innerHTML = "";
+    for (const c of cats) {
+        const opt = document.createElement("option");
+        opt.value = c;
+        opt.textContent = c === "all" ? "All Categories" : c;
+        if (c === curVal) opt.selected = true;
+        el.presetCategorySelect.appendChild(opt);
+    }
+}
+
+function filterAndPopulatePresets() {
+    if (!el.presetPromptSelect) return;
+    const selCat = el.presetCategorySelect?.value || "all";
+    const filtered = allSavedPrompts.filter(p => selCat === "all" || p.category === selCat);
+    el.presetPromptSelect.innerHTML = '<option value="">-- select prompt --</option>';
+    for (const p of filtered) {
+        const opt = document.createElement("option");
+        opt.value = p.filename;
+        opt.textContent = p.filename.replace(/\.json$/i, "");
+        el.presetPromptSelect.appendChild(opt);
+    }
+}
+
+function setupPromptPresets() {
+    el.presetCategorySelect?.addEventListener("change", () => {
+        filterAndPopulatePresets();
+    });
+
+    el.presetPromptSelect?.addEventListener("change", async (e) => {
+        const filename = e.target.value;
+        if (!filename) return;
+
+        try {
+            const resp = await fetch("/zombiehaus/load_prompt", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename })
+            });
+            const res = await resp.json();
+            if (res.success && res.data) {
+                if (el.positiveEditor) {
+                    el.positiveEditor.value = res.data.positive || "";
+                    el.positiveEditor.dispatchEvent(new Event("input"));
+                }
+                if (el.negativeEditor) {
+                    el.negativeEditor.value = res.data.negative || "";
+                    el.negativeEditor.dispatchEvent(new Event("input"));
+                }
+                syncPedalboardActiveStates();
+            }
+        } catch (err) {
+            console.error("Failed to load prompt preset:", err);
+        }
+    });
+
+    el.btnSavePromptPreset?.addEventListener("click", async () => {
+        const name = prompt("Enter a name for this prompt preset:");
+        if (!name || !name.trim()) return;
+
+        const category = prompt("Enter a category (e.g. characters, styles, prompts):", "prompts") || "prompts";
+        const positive = el.positiveEditor?.value || "";
+        const negative = el.negativeEditor?.value || "";
+
+        try {
+            const resp = await fetch("/zombiehaus/save_prompt", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    filename: name.trim(),
+                    category: category.trim(),
+                    positive,
+                    negative
+                })
+            });
+            const res = await resp.json();
+            if (res.success) {
+                alert(`Saved preset "${name.trim()}"!`);
+                await loadPromptPresets();
+                if (el.presetPromptSelect) el.presetPromptSelect.value = `${name.trim()}.json`;
+            } else {
+                alert("Save failed: " + (res.message || "Unknown error"));
+            }
+        } catch (err) {
+            console.error("Error saving prompt preset:", err);
+        }
+    });
+
+    el.btnRefreshPrompts?.addEventListener("click", async () => {
+        await loadPromptPresets();
+    });
+
+    // Dedupe Prompt Tags
+    el.btnPromptDedupe?.addEventListener("click", () => {
+        if (!el.positiveEditor) return;
+        const raw = el.positiveEditor.value;
+        const tokens = raw.split(",").map(t => t.trim()).filter(t => t.length > 0);
+        const seen = new Set();
+        const deduped = [];
+        for (const t of tokens) {
+            const lower = t.toLowerCase();
+            if (!seen.has(lower)) {
+                seen.add(lower);
+                deduped.push(t);
+            }
+        }
+        el.positiveEditor.value = deduped.join(", ");
+        el.positiveEditor.dispatchEvent(new Event("input"));
+    });
+
+    // Prosify Prompt (Natural Prose)
+    el.btnPromptProsify?.addEventListener("click", () => {
+        if (!el.positiveEditor) return;
+        const raw = el.positiveEditor.value.trim();
+        if (!raw) return;
+        const tags = raw.split(",").map(t => t.trim().replace(/^[\(\[\{]+|[\)\]\}]+$/g, "")).filter(t => t.length > 0);
+        if (tags.length === 0) return;
+        const prose = `A stunning cinematic depiction featuring ${tags.slice(0, 3).join(" and ")}, set amidst ${tags.slice(3, 7).join(", ")}, with exquisite atmosphere, flawless lighting, and rich authentic detail.`;
+        el.positiveEditor.value = prose;
+        el.positiveEditor.dispatchEvent(new Event("input"));
+    });
+
+    // Tagify Prompt
+    el.btnPromptTagify?.addEventListener("click", () => {
+        if (!el.positiveEditor) return;
+        const raw = el.positiveEditor.value.trim();
+        if (!raw) return;
+        const words = raw.replace(/[.;!?\n\r]+/g, ",").split(",").map(w => w.trim()).filter(w => w.length > 0);
+        el.positiveEditor.value = words.join(", ");
+        el.positiveEditor.dispatchEvent(new Event("input"));
+    });
+
+    // Swap Positive & Negative Prompts
+    el.btnPromptSwap?.addEventListener("click", () => {
+        if (!el.positiveEditor || !el.negativeEditor) return;
+        const pos = el.positiveEditor.value;
+        const neg = el.negativeEditor.value;
+        el.positiveEditor.value = neg;
+        el.negativeEditor.value = pos;
+        el.positiveEditor.dispatchEvent(new Event("input"));
+        el.negativeEditor.dispatchEvent(new Event("input"));
+        syncPedalboardActiveStates();
+    });
+
+    // Clean / Strip Weights
+    el.btnPromptStripWeights?.addEventListener("click", () => {
+        if (!el.positiveEditor) return;
+        let text = el.positiveEditor.value;
+        text = text.replace(/\(([^:)]+):[0-9.]+\)/g, "$1");
+        text = text.replace(/[()\[\]{}]/g, "");
+        el.positiveEditor.value = text.trim();
+        el.positiveEditor.dispatchEvent(new Event("input"));
+    });
+}
+
+// ── Style & Color Harmonizer (from ZombiehausStylePicker) ─────────────────────
+
+const stylePresetTokens = {
+    "vogue_fashion_editorial": "vogue editorial fashion photography, high fashion avant-garde styling, studio elegance, clean lines, professional retouching",
+    "cyberpunk_synthwave": "cyberpunk synthwave aesthetic, neon holographic glow, futuristic reflections, electric cyan and magenta, high-tech dystopian atmosphere",
+    "dark_fantasy_oil": "dark fantasy oil painting, heavy textured impasto brushstrokes, rich oil pigments, dramatic baroque lighting, gothic masterpiece",
+    "90s_retro_anime": "1990s retro anime aesthetic, hand-drawn animation cel, subtle analog tape grain, vintage color palette, nostalgic anime still",
+    "shinkai_cinematic": "makoto shinkai cinematic style, breathtaking detailed skies, brilliant god rays, vibrant hyper-detailed lighting, anime film masterpiece",
+    "watercolor_ink_wash": "watercolor and ink wash painting, fluid translucent color bleeds, organic pigment pooling, textured cold-press cotton paper",
+    "ukiyo_e_woodblock": "traditional japanese ukiyo-e woodcut print, distinct black outline contours, decorative flat color blocks, hokusai inspired, washi texture",
+    "art_nouveau_mucha": "art nouveau illustration, elegant flowing sinuous curves, intricate floral botanical filigree, alphonse mucha inspired, golden decorative motifs",
+    "comic_book_noir": "graphic novel comic art, heavy ink cross-hatching, dramatic chiaroscuro noir, gritty comic book paneling, bold lineart",
+    "pixar_3d_stylized": "3d stylized animation render, soft tactile subsurface scattering, whimsical charming proportions, octane render quality",
+    "claymation_stop_motion": "stop-motion claymation, authentic plasticine clay surface texture, subtle handmade sculpting marks, miniature stage lighting",
+    "sci_fi_concept_art": "epic sci-fi concept art, matte painting fidelity, monumental scale, intricate industrial architecture, syd mead inspired",
+    "national_geographic": "national geographic documentary photography, tack-sharp telephoto optics, authentic wildlife realism, pristine natural color grading",
+    "surrealist_dreamscape": "surrealist dreamscape painting, salvador dali inspired, impossible physics, ethereal floating elements, uncanny beauty"
+};
+
+const colorPaletteTokens = {
+    "warm_golden_amber": "warm golden amber color grading, rich honey tones, warm luminous shadows",
+    "cool_cyber_cyan": "cool cyan and teal color harmony, electric blue accents, deep oceanic darks",
+    "monochrome_high_contrast": "dramatic black and white high contrast, deep ink blacks, crisp silver highlights",
+    "pastel_dreamy": "soft pastel color palette, delicate lavender and peach, gentle muted saturation",
+    "moody_desaturated": "moody desaturated tones, somber charcoal and slate, subdued atmospheric color grading",
+    "vibrant_hyper_saturated": "vibrant saturated color palette, vivid pop art hues, dynamic color intensity"
+};
+
+function setupStyleHarmonizer() {
+    el.btnApplyStyle?.addEventListener("click", () => {
+        if (!el.positiveEditor) return;
+        const styleKey = el.styleMovementSelect?.value || "none_photorealistic";
+        const paletteKey = el.colorPaletteSelect?.value || "natural_balance";
+        const strength = parseFloat(el.styleStrengthSlider?.value || "1.0");
+
+        const pieces = [];
+        if (stylePresetTokens[styleKey]) {
+            const rawStyle = stylePresetTokens[styleKey];
+            pieces.push(strength !== 1.0 ? `(${rawStyle}: ${strength.toFixed(2)})` : rawStyle);
+        }
+        if (colorPaletteTokens[paletteKey]) {
+            const rawPal = colorPaletteTokens[paletteKey];
+            pieces.push(strength !== 1.0 ? `(${rawPal}: ${strength.toFixed(2)})` : rawPal);
+        }
+
+        if (pieces.length === 0) return;
+        const injected = pieces.join(", ");
+        const cur = el.positiveEditor.value.trim();
+        el.positiveEditor.value = cur ? `${cur}, ${injected}` : injected;
+        el.positiveEditor.dispatchEvent(new Event("input"));
+    });
+}
+
+// ── Negative Pedalboard Guards ───────────────────────────────────────────────
+
+const pedalboardSnippets = {
+    quality: "blurry, low quality, artifact, low resolution, bad hands, deformed",
+    anatomy: "bad anatomy, deformed, mutated, extra limbs, missing fingers, floating limbs, disconnected limbs, poorly drawn hands",
+    cgi: "3d render, cgi, cartoon, illustration, drawing, painting, artificial, doll, plastic",
+    watermark: "watermark, text, signature, logo, border, copyright, banner",
+    nsfw: "nsfw, nude, explicit, suggestive, uncensored"
+};
+
+function syncPedalboardActiveStates() {
+    if (!el.negativeEditor) return;
+    const curNeg = el.negativeEditor.value.toLowerCase();
+    document.querySelectorAll(".zh-pedal-chip").forEach(chip => {
+        const pedalKey = chip.getAttribute("data-pedal");
+        const snippet = pedalboardSnippets[pedalKey];
+        if (snippet && curNeg.includes(snippet.substring(0, 15).toLowerCase())) {
+            chip.classList.add("active");
+        } else {
+            chip.classList.remove("active");
+        }
+    });
+}
+
+function setupNegativePedalboard() {
+    document.querySelectorAll(".zh-pedal-chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+            if (!el.negativeEditor) return;
+            const pedalKey = chip.getAttribute("data-pedal");
+            const snippet = pedalboardSnippets[pedalKey];
+            if (!snippet) return;
+
+            let cur = el.negativeEditor.value;
+            const isActive = chip.classList.contains("active");
+
+            if (isActive) {
+                // Remove snippet
+                cur = cur.replace(snippet, "").replace(/,\s*,/g, ",").replace(/^,\s*|,\s*$/g, "").trim();
+                chip.classList.remove("active");
+            } else {
+                // Add snippet
+                cur = cur.trim() ? `${cur.trim()}, ${snippet}` : snippet;
+                chip.classList.add("active");
+            }
+
+            el.negativeEditor.value = cur;
+            el.negativeEditor.dispatchEvent(new Event("input"));
+        });
+    });
+
+    el.negativeEditor?.addEventListener("input", syncPedalboardActiveStates);
+}
+
+// ── Glamour & Character Sculpting Controller ─────────────────────────────────
+
+function setupGlamourController() {
+    el.glamourToggleHeader?.addEventListener("click", () => {
+        if (!el.glamourCardBody) return;
+        const isHidden = el.glamourCardBody.style.display === "none";
+        el.glamourCardBody.style.display = isHidden ? "block" : "none";
+        if (el.glamourArrow) {
+            if (isHidden) el.glamourArrow.classList.add("open");
+            else el.glamourArrow.classList.remove("open");
+        }
+    });
+}
+
+function getGlamourPromptTokens() {
+    if (!el.glamourEnable?.checked) return "";
+    const tokens = [];
+
+    // Age shift
+    const age = parseFloat(el.glamourAge?.value || "0.0");
+    if (age > 0.5) tokens.push(`(mature distinguished: ${(1.0 + age * 0.1).toFixed(2)})`);
+    else if (age < -0.5) tokens.push(`(youthful young fresh: ${(1.0 + Math.abs(age) * 0.1).toFixed(2)})`);
+
+    // Smile & Skin
+    const smile = parseFloat(el.glamourSmile?.value || "0.0");
+    if (smile > 0.1) tokens.push(`(warm captivating smile: ${(1.0 + smile * 0.5).toFixed(2)})`);
+
+    const skin = parseFloat(el.glamourSkin?.value || "0.0");
+    if (skin > 0.1) tokens.push(`(luminous radiant skin glow, flawless pores: ${(1.0 + skin * 0.4).toFixed(2)})`);
+
+    // Ethnicity
+    const ethnicity = el.glamourEthnicity?.value;
+    if (ethnicity && ethnicity !== "keep_original") {
+        tokens.push(`${ethnicity.replace("_", " ")} heritage facial features`);
+    }
+
+    // Hair & Eyes
+    const hair = el.glamourHair?.value;
+    if (hair && hair !== "keep_original") {
+        tokens.push(`${hair.replace("_", " ")} hair`);
+    }
+    const eyes = el.glamourEyes?.value;
+    if (eyes && eyes !== "keep_original") {
+        tokens.push(`${eyes.replace("_", " ")} eyes`);
+    }
+
+    // Body Sculpting
+    const breasts = parseFloat(el.glamourBreasts?.value || "0.0");
+    if (breasts > 0.5) tokens.push(`(full voluminous bust: ${(1.0 + breasts * 0.08).toFixed(2)})`);
+    else if (breasts < -0.5) tokens.push(`(slender petite chest: ${(1.0 + Math.abs(breasts) * 0.08).toFixed(2)})`);
+
+    const waist = parseFloat(el.glamourWaist?.value || "0.0");
+    if (waist > 0.5) tokens.push(`(narrow cinched waist, hourglass silhouette: ${(1.0 + waist * 0.08).toFixed(2)})`);
+
+    const hips = parseFloat(el.glamourHips?.value || "0.0");
+    if (hips > 0.5) tokens.push(`(curvy feminine hips: ${(1.0 + hips * 0.08).toFixed(2)})`);
+
+    const muscle = parseFloat(el.glamourMuscle?.value || "0.0");
+    if (muscle > 0.5) tokens.push(`(athletic toned muscles, fitness physique: ${(1.0 + muscle * 0.1).toFixed(2)})`);
+
+    return tokens.join(", ");
 }
 
 // ── 2. Music Studio Setup ────────────────────────────────────────────────────
@@ -535,11 +1187,19 @@ async function loadModelAssets() {
         populateSelect(el.unet, data.unets, "None");
         populateSelect(el.vae, data.vaes, "None");
         populateSelect(el.clipName, data.clips, "disabled");
-        populateSelect(el.lora1Name, data.loras, "None");
-        populateSelect(el.lora2Name, data.loras, "None");
         populateSelect(el.upscaleModel, data.upscalers, "None");
         populateSelect(el.sampler, data.samplers, "euler_ancestral");
         populateSelect(el.scheduler, data.schedulers, "simple");
+
+        if (data.loras) {
+            availableLoraList = data.loras;
+            if (el.loraStackContainer && el.loraStackContainer.children.length === 0) {
+                addLoraItem("None", 1.0);
+            }
+        }
+        if (el.detailerStackContainer && el.detailerStackContainer.children.length === 0) {
+            addDetailerItem("bbox/face_yolov8m.pt", 0.45, 20);
+        }
 
         if (el.videoModel) {
             populateSelect(el.videoModel, data.unets, "None");
@@ -639,6 +1299,21 @@ function applyProfileData(data) {
     if (el.badgeArch && data.architecture) {
         el.badgeArch.textContent = data.architecture.toUpperCase();
     }
+
+    if (Array.isArray(data.loras) && el.loraStackContainer) {
+        el.loraStackContainer.innerHTML = "";
+        for (const l of data.loras) {
+            addLoraItem(l.name, l.strength !== undefined ? l.strength : 1.0);
+        }
+        if (data.loras.length === 0) addLoraItem("None", 1.0);
+    }
+    if (Array.isArray(data.detailers) && el.detailerStackContainer) {
+        el.detailerStackContainer.innerHTML = "";
+        for (const d of data.detailers) {
+            addDetailerItem(d.model, d.denoise !== undefined ? d.denoise : 0.45, d.steps !== undefined ? d.steps : 20);
+        }
+        if (data.detailers.length === 0) addDetailerItem("bbox/face_yolov8m.pt", 0.45, 20);
+    }
 }
 
 function gatherCurrentProfileData() {
@@ -654,7 +1329,9 @@ function gatherCurrentProfileData() {
         steps: parseInt(el.steps?.value || "30", 10),
         cfg: parseFloat(el.cfg?.value || "3.5"),
         sampler_name: el.sampler?.value || "euler_ancestral",
-        scheduler: el.scheduler?.value || "simple"
+        scheduler: el.scheduler?.value || "simple",
+        loras: getLoraStackData(),
+        detailers: getDetailerStackData()
     };
 }
 
@@ -846,128 +1523,136 @@ async function triggerGenerate() {
 
     let promptGraph = {};
 
-    if (currentMode === "screenplay") {
-        promptGraph = {
-            "1": {
-                "class_type": "ZombiehausModelLoader",
-                "inputs": {
-                    "unet_name": el.unet?.value || "None",
-                    "weight_dtype": el.dtype?.value || "default",
-                    "checkpoint_name": el.checkpoint?.value || "None",
-                    "clip1_name": el.clipName?.value || "disabled",
-                    "clip1_type": el.clipType?.value || "flux2",
-                    "vae_name": el.vae?.value || "None"
-                }
-            },
-            "2": {
-                "class_type": "ZombiehausLoraLoader",
-                "inputs": {
-                    "pipe": ["1", 0],
-                    "lora_1_name": el.lora1Name?.value || "None",
-                    "lora_1_strength": parseFloat(el.lora1Strength?.value || "1.0"),
-                    "lora_2_name": el.lora2Name?.value || "None",
-                    "lora_2_strength": parseFloat(el.lora2Strength?.value || "1.0")
-                }
-            },
-            "3": {
-                "class_type": "ZombiehausLatentPreset",
-                "inputs": {
-                    "pipe": ["2", 0],
-                    "preset": "Manual",
-                    "custom_width": parseInt(el.width?.value || "1024", 10),
-                    "custom_height": parseInt(el.height?.value || "1024", 10),
-                    "batch_size": parseInt(el.batch?.value || "1", 10),
-                    "architecture": el.architecture?.value === "sdxl" || el.architecture?.value === "pony" || el.architecture?.value === "sd15" ? "SDXL / Pony (4-channel)" : "Chroma / Flux (16-channel)"
-                }
-            },
-            "4": {
+    if (currentMode === "screenplay" || currentMode === "prompt") {
+        const activeLoras = getLoraStackData();
+        const loraStackJson = JSON.stringify(activeLoras);
+
+        promptGraph["1"] = {
+            "class_type": "ZombiehausModelLoader",
+            "inputs": {
+                "unet_name": el.unet?.value || "None",
+                "weight_dtype": el.dtype?.value || "default",
+                "checkpoint_name": el.checkpoint?.value || "None",
+                "clip1_name": el.clipName?.value || "disabled",
+                "clip1_type": el.clipType?.value || "flux2",
+                "vae_name": el.vae?.value || "None"
+            }
+        };
+
+        promptGraph["2"] = {
+            "class_type": "ZombiehausLoraLoader",
+            "inputs": {
+                "pipe": ["1", 0],
+                "lora_stack": loraStackJson,
+                "base_model_name": "None",
+                "enable_dynamic_lora": true
+            }
+        };
+
+        promptGraph["3"] = {
+            "class_type": "ZombiehausLatentPreset",
+            "inputs": {
+                "pipe": ["2", 0],
+                "preset": "Manual",
+                "custom_width": parseInt(el.width?.value || "1024", 10),
+                "custom_height": parseInt(el.height?.value || "1024", 10),
+                "batch_size": parseInt(el.batch?.value || "1", 10),
+                "architecture": el.architecture?.value === "sdxl" || el.architecture?.value === "pony" || el.architecture?.value === "sd15" ? "SDXL / Pony (4-channel)" : "Chroma / Flux (16-channel)"
+            }
+        };
+
+        let posText = el.positiveEditor?.value || "";
+        let negText = el.muteNegativeCheckbox?.checked ? "" : (el.negativeEditor?.value || "");
+
+        // Inject glamour sculpting if enabled
+        const glamourTokens = getGlamourPromptTokens();
+        if (glamourTokens) {
+            posText = posText.trim() ? `${posText.trim()}, ${glamourTokens}` : glamourTokens;
+        }
+
+        if (currentMode === "screenplay") {
+            let scriptText = el.scriptEditor?.value || "";
+            if (glamourTokens) {
+                scriptText = `${scriptText.trim()}\n\n// Glamour & Anatomy Directives\n${glamourTokens}`;
+            }
+            promptGraph["4"] = {
                 "class_type": "ZombiehausSceneScriptDirector",
                 "inputs": {
                     "pipe": ["3", 0],
-                    "script_text": el.scriptEditor?.value || ""
+                    "script_text": scriptText
                 }
-            },
-            "5": {
-                "class_type": "ZombiehausKSampler",
-                "inputs": {
-                    "pipe": ["4", 0],
-                    "seed": actualSeed,
-                    "steps": parseInt(el.steps?.value || "30", 10),
-                    "cfg": parseFloat(el.cfg?.value || "3.5"),
-                    "sampler_name": el.sampler?.value || "euler_ancestral",
-                    "scheduler": el.scheduler?.value || "simple",
-                    "denoise": 1.0
-                }
-            },
-            "6": {
-                "class_type": "ZombiehausSaveImage",
-                "inputs": {
-                    "pipe": ["5", 0],
-                    "filename_prefix": "Zombiehaus_Director"
-                }
-            }
-        };
-    } else if (currentMode === "prompt") {
-        promptGraph = {
-            "1": {
-                "class_type": "ZombiehausModelLoader",
-                "inputs": {
-                    "unet_name": el.unet?.value || "None",
-                    "weight_dtype": el.dtype?.value || "default",
-                    "checkpoint_name": el.checkpoint?.value || "None",
-                    "clip1_name": el.clipName?.value || "disabled",
-                    "clip1_type": el.clipType?.value || "flux2",
-                    "vae_name": el.vae?.value || "None"
-                }
-            },
-            "2": {
-                "class_type": "ZombiehausLoraLoader",
-                "inputs": {
-                    "pipe": ["1", 0],
-                    "lora_1_name": el.lora1Name?.value || "None",
-                    "lora_1_strength": parseFloat(el.lora1Strength?.value || "1.0"),
-                    "lora_2_name": el.lora2Name?.value || "None",
-                    "lora_2_strength": parseFloat(el.lora2Strength?.value || "1.0")
-                }
-            },
-            "3": {
-                "class_type": "ZombiehausLatentPreset",
-                "inputs": {
-                    "pipe": ["2", 0],
-                    "preset": "Manual",
-                    "custom_width": parseInt(el.width?.value || "1024", 10),
-                    "custom_height": parseInt(el.height?.value || "1024", 10),
-                    "batch_size": parseInt(el.batch?.value || "1", 10),
-                    "architecture": el.architecture?.value === "sdxl" || el.architecture?.value === "pony" || el.architecture?.value === "sd15" ? "SDXL / Pony (4-channel)" : "Chroma / Flux (16-channel)"
-                }
-            },
-            "4": {
+            };
+        } else {
+            promptGraph["4"] = {
                 "class_type": "ZombiehausTextEditor",
                 "inputs": {
                     "pipe": ["3", 0],
-                    "positive": el.positiveEditor?.value || "",
-                    "negative": el.negativeEditor?.value || "",
+                    "positive": posText,
+                    "negative": negText,
                     "prompt_style": el.promptStyle?.value || "Natural Prose (FLUX / SD3)"
                 }
-            },
-            "5": {
-                "class_type": "ZombiehausKSampler",
-                "inputs": {
-                    "pipe": ["4", 0],
-                    "seed": actualSeed,
-                    "steps": parseInt(el.steps?.value || "30", 10),
-                    "cfg": parseFloat(el.cfg?.value || "3.5"),
-                    "sampler_name": el.sampler?.value || "euler_ancestral",
-                    "scheduler": el.scheduler?.value || "simple",
-                    "denoise": 1.0
-                }
-            },
-            "6": {
-                "class_type": "ZombiehausSaveImage",
-                "inputs": {
+            };
+        }
+
+        promptGraph["5"] = {
+            "class_type": "ZombiehausKSampler",
+            "inputs": {
+                "pipe": ["4", 0],
+                "seed": actualSeed,
+                "steps": parseInt(el.steps?.value || "30", 10),
+                "cfg": parseFloat(el.cfg?.value || "3.5"),
+                "sampler_name": el.sampler?.value || "euler_ancestral",
+                "scheduler": el.scheduler?.value || "simple",
+                "denoise": 1.0
+            }
+        };
+
+        let finalPipe = ["5", 0];
+
+        // Multi-Pass Detailer Refiners
+        if (el.enableDetailer?.checked) {
+            const detailers = getDetailerStackData();
+            if (detailers.length > 0) {
+                const detailerInputs = {
                     "pipe": ["5", 0],
-                    "filename_prefix": "Zombiehaus_Studio"
-                }
+                    "confidence": 0.3
+                };
+                detailers.forEach((det, idx) => {
+                    const slotKey = `slot_${idx + 1}`;
+                    const slotId = `slot_node_${idx + 1}`;
+                    promptGraph[slotId] = {
+                        "class_type": "ZombiehausDetailerSlot",
+                        "inputs": {
+                            "model": det.model,
+                            "steps": det.steps,
+                            "cfg": 7.0,
+                            "denoise": det.denoise,
+                            "padding": 32,
+                            "mask_blur": 4,
+                            "blend_feather": 16,
+                            "context_pad": 32,
+                            "sampler": el.sampler?.value || "euler_ancestral",
+                            "scheduler": el.scheduler?.value || "karras",
+                            "enabled": true,
+                            "pipe": ["5", 0]
+                        }
+                    };
+                    detailerInputs[slotKey] = [slotId, 0];
+                });
+
+                promptGraph["6_detailer"] = {
+                    "class_type": "ZombiehausAllInOneDetailer",
+                    "inputs": detailerInputs
+                };
+                finalPipe = ["6_detailer", 1];
+            }
+        }
+
+        promptGraph["final_save"] = {
+            "class_type": "ZombiehausSaveImage",
+            "inputs": {
+                "pipe": finalPipe,
+                "filename_prefix": currentMode === "screenplay" ? "Zombiehaus_Director" : "Zombiehaus_Studio"
             }
         };
     } else if (currentMode === "video") {
@@ -1134,5 +1819,351 @@ async function triggerInterrupt() {
     }
 }
 
+// ── UI Scale Management ──────────────────────────────────────────────────────
+
+function setupUiScale() {
+    const saved = localStorage.getItem("zh_studio_scale") || "1.0";
+    if (el.uiScaleSelect) {
+        el.uiScaleSelect.value = saved;
+        document.documentElement.style.setProperty("--ui-scale", saved);
+        if (document.body) document.body.style.zoom = saved;
+
+        el.uiScaleSelect.addEventListener("change", (e) => {
+            const val = e.target.value;
+            localStorage.setItem("zh_studio_scale", val);
+            document.documentElement.style.setProperty("--ui-scale", val);
+            if (document.body) document.body.style.zoom = val;
+        });
+    }
+}
+
+// ── Syntax Highlighting Engine ───────────────────────────────────────────────
+
+function escapeHtml(str) {
+    if (!str) return "";
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function tokenizeAndHighlight(text) {
+    if (!text) return "";
+
+    const intervals = [];
+    const addMatches = (regex, type) => {
+        let m;
+        regex.lastIndex = 0;
+        while ((m = regex.exec(text)) !== null) {
+            const start = m.index;
+            const end = start + m[0].length;
+            if (start === end) {
+                regex.lastIndex++;
+                continue;
+            }
+            const collides = intervals.some(iv => (start < iv.end && end > iv.start));
+            if (!collides) {
+                intervals.push({ start, end, type });
+            }
+        }
+    };
+
+    // 1. Directives & Sections: [SCENE], [PERSONA ...], [INTERACTION], [intro], etc.
+    addMatches(/(?:^|[\r\n])\s*\[[^\]\r\n]+\]/g, "tok-section");
+    // 2. Comments: // ... or # ... or /* ... */
+    addMatches(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*|#[^\r\n]*/g, "tok-comment");
+    // 3. LoRA tags: <lora:...>
+    addMatches(/<lora:[^>\r\n]+>/gi, "tok-lora");
+    // 4. Variables: $women.Amanda, $variable.key
+    addMatches(/\$[a-zA-Z0-9_\.]+/g, "tok-variable");
+    // 5. Wildcards: __wildcard__
+    addMatches(/__[a-zA-Z0-9_\.\-]+__/g, "tok-wildcard");
+    // 6. Attention / weights: (word:1.2) or (word)
+    addMatches(/\([^()]+(?::[0-9.]+)?\)/g, "tok-weight");
+    // 7. Dynamic choices: {a|b|c}
+    addMatches(/\{[^{}]+\}/g, "tok-choice");
+
+    intervals.sort((a, b) => a.start - b.start);
+
+    let html = "";
+    let lastIdx = 0;
+
+    for (const iv of intervals) {
+        if (iv.start > lastIdx) {
+            html += escapeHtml(text.slice(lastIdx, iv.start));
+        }
+        const tokText = text.slice(iv.start, iv.end);
+        html += `<span class="${iv.type}">${escapeHtml(tokText)}</span>`;
+        lastIdx = iv.end;
+    }
+
+    if (lastIdx < text.length) {
+        html += escapeHtml(text.slice(lastIdx));
+    }
+
+    if (text.endsWith("\n")) {
+        html += "\n";
+    }
+
+    return html;
+}
+
+function setupSyntaxHighlighting() {
+    const bindEditor = (textarea, backdrop) => {
+        if (!textarea || !backdrop) return;
+        const render = () => {
+            backdrop.innerHTML = tokenizeAndHighlight(textarea.value || "");
+        };
+        textarea.addEventListener("input", render);
+        textarea.addEventListener("scroll", () => {
+            backdrop.scrollTop = textarea.scrollTop;
+            backdrop.scrollLeft = textarea.scrollLeft;
+        }, { passive: true });
+
+        render();
+    };
+
+    bindEditor(el.scriptEditor, el.scriptBackdrop);
+    bindEditor(el.positiveEditor, el.positiveBackdrop);
+    bindEditor(el.negativeEditor, el.negativeBackdrop);
+}
+
+// ── Variable & Wildcard Autocomplete System ─────────────────────────────────
+
+let availableWildcards = [];
+let availableVariables = [
+    { name: "$women.Amanda", desc: "Amanda (Blue eyes, Brunette, Medium)" },
+    { name: "$women.KelseyKernstine", desc: "Kelsey Kernstine (Hazel eyes, Jet black hair)" },
+    { name: "$women.Altasweet", desc: "Altasweet" },
+    { name: "$women.Kayce", desc: "Kayce" },
+    { name: "$men.John", desc: "John (Tailored Tuxedo, Confident)" },
+    { name: "$colors", desc: "Colors Wildcard" },
+    { name: "$outfits", desc: "Outfits Wildcard" },
+    { name: "$poses", desc: "Camera Poses Wildcard" },
+    { name: "$places", desc: "Atmospheric Locations Wildcard" }
+];
+
+function insertTextAtCursor(textarea, textToInsert) {
+    if (!textarea) return;
+    const start = textarea.selectionStart || textarea.value.length;
+    const end = textarea.selectionEnd || textarea.value.length;
+    const cur = textarea.value;
+    textarea.value = cur.substring(0, start) + textToInsert + cur.substring(end);
+    textarea.focus();
+    textarea.selectionStart = textarea.selectionEnd = start + textToInsert.length;
+    textarea.dispatchEvent(new Event("input"));
+}
+
+function hideAutocomplete() {
+    if (el.autocompletePopup) el.autocompletePopup.style.display = "none";
+}
+
+function showAutocomplete(targetTextarea, type = "variable", query = "") {
+    const popup = el.autocompletePopup;
+    if (!popup || !targetTextarea) return;
+
+    popup.innerHTML = "";
+    const header = document.createElement("div");
+    header.className = "zh-ac-header";
+    header.textContent = type === "variable" ? "Insert Variable ($)" : "Insert Wildcard (__)";
+    popup.appendChild(header);
+
+    const items = type === "variable" 
+        ? availableVariables 
+        : availableWildcards.map(w => ({ name: `__${w}__`, desc: `${w}.txt` }));
+    
+    const filtered = items.filter(it => it.name.toLowerCase().includes(query.toLowerCase()));
+
+    if (filtered.length === 0) {
+        const none = document.createElement("div");
+        none.className = "zh-ac-item";
+        none.textContent = "No matches found";
+        popup.appendChild(none);
+    } else {
+        filtered.slice(0, 12).forEach(it => {
+            const row = document.createElement("div");
+            row.className = "zh-ac-item";
+            row.innerHTML = `<span>${it.name}</span><span class="zh-ac-meta">${it.desc || ""}</span>`;
+            row.addEventListener("click", () => {
+                insertTextAtCursor(targetTextarea, it.name);
+                hideAutocomplete();
+            });
+            popup.appendChild(row);
+        });
+    }
+
+    const rect = targetTextarea.getBoundingClientRect();
+    popup.style.top = `${rect.top + 36}px`;
+    popup.style.left = `${Math.min(window.innerWidth - 360, rect.left + 20)}px`;
+    popup.style.display = "flex";
+}
+
+function setupAutocomplete() {
+    // Toolbar buttons for explicit picker access
+    el.btnInsertVarScript?.addEventListener("click", () => {
+        showAutocomplete(el.scriptEditor, "variable", "");
+    });
+    el.btnInsertWcScript?.addEventListener("click", () => {
+        showAutocomplete(el.scriptEditor, "wildcard", "");
+    });
+    el.btnInsertVarPos?.addEventListener("click", () => {
+        showAutocomplete(el.positiveEditor, "variable", "");
+    });
+    el.btnInsertWcPos?.addEventListener("click", () => {
+        showAutocomplete(el.positiveEditor, "wildcard", "");
+    });
+    el.btnInsertWcNeg?.addEventListener("click", () => {
+        showAutocomplete(el.negativeEditor, "wildcard", "");
+    });
+
+    // Real-time keystroke triggers for $ and __
+    const hookAutoTrigger = (ta) => {
+        if (!ta) return;
+        ta.addEventListener("keyup", (e) => {
+            if (e.key === "Escape") {
+                hideAutocomplete();
+                return;
+            }
+            const pos = ta.selectionStart;
+            const textBefore = ta.value.substring(0, pos);
+            const varMatch = textBefore.match(/\$([a-zA-Z0-9_\.]*)$/);
+            if (varMatch) {
+                showAutocomplete(ta, "variable", varMatch[0]);
+                return;
+            }
+            const wcMatch = textBefore.match(/__([a-zA-Z0-9_\.\-]*)$/);
+            if (wcMatch) {
+                showAutocomplete(ta, "wildcard", wcMatch[0]);
+                return;
+            }
+            hideAutocomplete();
+        });
+    };
+
+    hookAutoTrigger(el.scriptEditor);
+    hookAutoTrigger(el.positiveEditor);
+    hookAutoTrigger(el.negativeEditor);
+
+    document.addEventListener("click", (e) => {
+        if (!el.autocompletePopup?.contains(e.target) && !e.target.closest(".zh-btn-var") && !e.target.closest(".zh-btn-wc")) {
+            hideAutocomplete();
+        }
+    });
+}
+
+// ── List & Wildcard Curator Implementation ──────────────────────────────────
+
+async function loadCuratorWildcards() {
+    try {
+        const resp = await fetch("/zombiehaus/wildcards/list");
+        const res = await resp.json();
+        if (res.success && res.data) {
+            availableWildcards = res.data;
+            if (el.curatorFileSelect) {
+                el.curatorFileSelect.innerHTML = "";
+                for (const wc of res.data) {
+                    const opt = document.createElement("option");
+                    opt.value = wc;
+                    opt.textContent = wc + ".txt";
+                    el.curatorFileSelect.appendChild(opt);
+                }
+                if (res.data.length > 0) {
+                    loadCuratorContent(res.data[0]);
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Failed to load wildcards:", e);
+    }
+}
+
+async function loadCuratorContent(filename) {
+    if (!filename || !el.curatorTextEditor) return;
+    try {
+        const resp = await fetch("/zombiehaus/wildcards/load", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename })
+        });
+        const res = await resp.json();
+        if (res.success) {
+            el.curatorTextEditor.value = res.data || "";
+            const lines = (res.data || "").split("\n").filter(l => l.trim().length > 0);
+            if (el.curatorCountBadge) el.curatorCountBadge.textContent = `${lines.length} items`;
+        }
+    } catch (e) {
+        console.error("Failed to load list content:", e);
+    }
+}
+
+function setupListCurator() {
+    el.curatorFileSelect?.addEventListener("change", (e) => {
+        loadCuratorContent(e.target.value);
+    });
+
+    el.btnCuratorSave?.addEventListener("click", async () => {
+        const filename = el.curatorFileSelect?.value;
+        const content = el.curatorTextEditor?.value || "";
+        if (!filename) return;
+
+        try {
+            const resp = await fetch("/zombiehaus/wildcards/save", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename, content })
+            });
+            const res = await resp.json();
+            if (res.success) {
+                alert(`Saved "${filename}.txt" successfully!`);
+                await loadCuratorWildcards();
+                if (el.curatorFileSelect) el.curatorFileSelect.value = filename;
+            } else {
+                alert("Save failed: " + (res.message || "Unknown error"));
+            }
+        } catch (e) {
+            console.error("Curator save error:", e);
+        }
+    });
+
+    el.btnCuratorNew?.addEventListener("click", async () => {
+        const name = prompt("Enter new wildcard list name (e.g. hairstyles, artists):");
+        if (!name || !name.trim()) return;
+        const clean = name.trim().replace(/\.txt$/i, "");
+        const resp = await fetch("/zombiehaus/wildcards/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename: clean, content: "" })
+        });
+        const res = await resp.json();
+        if (res.success) {
+            await loadCuratorWildcards();
+            if (el.curatorFileSelect) {
+                el.curatorFileSelect.value = clean;
+                loadCuratorContent(clean);
+            }
+        }
+    });
+
+    el.btnCuratorDelete?.addEventListener("click", async () => {
+        const filename = el.curatorFileSelect?.value;
+        if (!filename) return;
+        if (!confirm(`Delete wildcard list "${filename}.txt"?`)) return;
+        const resp = await fetch("/zombiehaus/wildcards/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename })
+        });
+        const res = await resp.json();
+        if (res.success) {
+            await loadCuratorWildcards();
+        }
+    });
+
+    el.curatorFilterInput?.addEventListener("input", (e) => {
+        const q = e.target.value.toLowerCase().trim();
+        const lines = (el.curatorTextEditor?.value || "").split("\n");
+        const count = q ? lines.filter(l => l.toLowerCase().includes(q)).length : lines.length;
+        if (el.curatorCountBadge) el.curatorCountBadge.textContent = `${count} matches`;
+    });
+}
+
 // Start application
 window.addEventListener("DOMContentLoaded", initStudio);
+

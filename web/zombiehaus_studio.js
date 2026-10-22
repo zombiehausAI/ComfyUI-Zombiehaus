@@ -55,39 +55,10 @@ app.registerExtension({
     async setup() {
         ensureStudioStylesheet();
 
-        // 1. Injected Floating Launcher Pill (Always accessible across any ComfyUI theme/version)
-        const injectFloatingLauncher = () => {
-            if (document.getElementById("zh-floating-studio-launcher")) return;
-            const btn = document.createElement("button");
-            btn.id = "zh-floating-studio-launcher";
-            btn.className = "zh-top-menu-btn";
-            btn.style.position = "fixed";
-            btn.style.top = "10px";
-            btn.style.right = "140px";
-            btn.style.zIndex = "99999";
-            btn.style.background = "linear-gradient(135deg, #0284c7 0%, #a855f7 100%)";
-            btn.style.color = "#ffffff";
-            btn.style.fontWeight = "800";
-            btn.style.fontSize = "12px";
-            btn.style.padding = "6px 14px";
-            btn.style.borderRadius = "20px";
-            btn.style.border = "1px solid rgba(255, 255, 255, 0.4)";
-            btn.style.boxShadow = "0 4px 20px rgba(0, 0, 0, 0.6)";
-            btn.style.cursor = "pointer";
-            btn.style.display = "flex";
-            btn.style.alignItems = "center";
-            btn.style.gap = "6px";
-            btn.innerHTML = `<span>🧟</span><span>Zombiehaus Studio</span>`;
-            btn.title = "Open Zombiehaus Studio Workstation (Screenplay, Image, Video, Suno Music)";
-            btn.onclick = () => openStudioWindow("screenplay");
-            document.body.appendChild(btn);
-        };
+        // Ensure any floating launcher element is removed
+        document.querySelectorAll("#zh-floating-studio-launcher, .zh-floating-launcher").forEach(n => n.remove());
 
-        injectFloatingLauncher();
-        setTimeout(injectFloatingLauncher, 1000);
-        setTimeout(injectFloatingLauncher, 3000);
-
-        // 2. Add to Canvas Right-Click Context Menu
+        // 1. Add to Canvas Right-Click Context Menu
         if (typeof LGraphCanvas !== "undefined" && LGraphCanvas.prototype) {
             const origGetCanvasMenuOptions = LGraphCanvas.prototype.getCanvasMenuOptions;
             LGraphCanvas.prototype.getCanvasMenuOptions = function () {

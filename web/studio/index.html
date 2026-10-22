@@ -37,6 +37,22 @@
                 <span class="zh-mode-icon">🎵</span>
                 <span>Music Studio</span>
             </button>
+            <button id="mode-btn-lists" class="zh-mode-btn" data-mode="lists">
+                <span class="zh-mode-icon">📚</span>
+                <span>List Editor</span>
+            </button>
+        </div>
+
+        <!-- UI Scaling & Profile Controls -->
+        <div class="zh-scale-rack">
+            <span class="zh-scale-label">🔍 Scale:</span>
+            <select id="ui-scale-select" class="zh-select zh-scale-dropdown" title="Adjust UI scale and font size">
+                <option value="0.9">90%</option>
+                <option value="1.0" selected>100%</option>
+                <option value="1.1">110%</option>
+                <option value="1.2">120%</option>
+                <option value="1.3">130%</option>
+            </select>
         </div>
 
         <!-- Profile Preset Controls -->
@@ -135,28 +151,14 @@
                         </div>
                     </section>
 
-                    <!-- LoRA Rack Card -->
+                    <!-- Dynamic LoRA Rack Card -->
                     <section class="zh-card">
-                        <div class="zh-card-title">Base LoRA Rack</div>
-                        <div class="zh-field">
-                            <label>LoRA Slot 1</label>
-                            <select id="engine-lora1-name" class="zh-select">
-                                <option value="None">None</option>
-                            </select>
-                            <div class="zh-slider-wrap">
-                                <input id="engine-lora1-strength" type="range" min="-2" max="2" step="0.05" value="1.0" class="zh-slider">
-                                <span id="val-lora1-strength" class="zh-slider-val">1.00</span>
-                            </div>
+                        <div class="zh-label-row">
+                            <div class="zh-card-title">LoRA Rack</div>
+                            <button id="btn-add-lora" class="zh-btn zh-btn-mini" title="Add another LoRA to the stack">+ Add LoRA</button>
                         </div>
-                        <div class="zh-field">
-                            <label>LoRA Slot 2</label>
-                            <select id="engine-lora2-name" class="zh-select">
-                                <option value="None">None</option>
-                            </select>
-                            <div class="zh-slider-wrap">
-                                <input id="engine-lora2-strength" type="range" min="-2" max="2" step="0.05" value="1.0" class="zh-slider">
-                                <span id="val-lora2-strength" class="zh-slider-val">1.00</span>
-                            </div>
+                        <div id="lora-stack-container" class="zh-dynamic-stack">
+                            <!-- Dynamic LoRA items injected here -->
                         </div>
                     </section>
 
@@ -166,16 +168,135 @@
                         <div class="zh-field">
                             <div class="zh-label-row">
                                 <label>Chroma / Flow Shift</label>
-                                <span id="val-chroma-shift" class="zh-slider-val">3.0</span>
+                                <input id="val-chroma-shift" type="number" step="0.1" min="1.0" max="6.0" value="3.0" class="zh-slider-val-input" title="Click or type exact value">
                             </div>
                             <input id="engine-chroma-shift" type="range" min="1.0" max="6.0" step="0.1" value="3.0" class="zh-slider">
                         </div>
                         <div class="zh-field">
                             <div class="zh-label-row">
                                 <label>Dynamic Guidance</label>
-                                <span id="val-guidance" class="zh-slider-val">3.5</span>
+                                <input id="val-guidance" type="number" step="0.5" min="1.0" max="10.0" value="3.5" class="zh-slider-val-input" title="Click or type exact value">
                             </div>
                             <input id="engine-guidance" type="range" min="1.0" max="10.0" step="0.5" value="3.5" class="zh-slider">
+                        </div>
+                    </section>
+
+                    <!-- Character Glamour & Anatomy Sculptor Card -->
+                    <section class="zh-card zh-collapsible-card">
+                        <div class="zh-label-row zh-collapse-header" id="glamour-toggle-header">
+                            <div class="zh-card-title">✨ Glamour & Anatomy Sculptor</div>
+                            <span class="zh-collapse-arrow" id="glamour-arrow">▼</span>
+                        </div>
+                        <div id="glamour-card-body" class="zh-collapse-body" style="display: none;">
+                            <div class="zh-stage-row mb-8">
+                                <label class="zh-stage-toggle">
+                                    <input id="glamour-enable" type="checkbox">
+                                    <span class="zh-stage-label">Enable Glamour Sculpting</span>
+                                </label>
+                            </div>
+                            
+                            <div class="zh-section-divider"><span>Facial & Identity</span></div>
+                            <div class="zh-field">
+                                <div class="zh-label-row">
+                                    <label>Age Shift</label>
+                                    <input id="val-glamour-age" type="number" step="0.1" min="-5.0" max="5.0" value="0.0" class="zh-slider-val-input">
+                                </div>
+                                <input id="glamour-age" type="range" min="-5.0" max="5.0" step="0.1" value="0.0" class="zh-slider">
+                            </div>
+                            <div class="zh-field-row">
+                                <div class="zh-field flex-1">
+                                    <div class="zh-label-row">
+                                        <label>Smile</label>
+                                        <input id="val-glamour-smile" type="number" step="0.05" min="0" max="1.0" value="0.0" class="zh-slider-val-input">
+                                    </div>
+                                    <input id="glamour-smile" type="range" min="0" max="1.0" step="0.05" value="0.0" class="zh-slider">
+                                </div>
+                                <div class="zh-field flex-1">
+                                    <div class="zh-label-row">
+                                        <label>Skin Glow</label>
+                                        <input id="val-glamour-skin" type="number" step="0.05" min="0" max="1.0" value="0.0" class="zh-slider-val-input">
+                                    </div>
+                                    <input id="glamour-skin" type="range" min="0" max="1.0" step="0.05" value="0.0" class="zh-slider">
+                                </div>
+                            </div>
+                            <div class="zh-field">
+                                <label>Ethnicity</label>
+                                <select id="glamour-ethnicity" class="zh-select">
+                                    <option value="keep_original" selected>keep_original</option>
+                                    <option value="caucasian">caucasian</option>
+                                    <option value="east_asian">east_asian</option>
+                                    <option value="south_asian">south_asian</option>
+                                    <option value="black_african">black_african</option>
+                                    <option value="latina_hispanic">latina_hispanic</option>
+                                    <option value="middle_eastern">middle_eastern</option>
+                                    <option value="nordic">nordic</option>
+                                </select>
+                            </div>
+
+                            <div class="zh-section-divider"><span>Hair & Eyes</span></div>
+                            <div class="zh-field-row">
+                                <div class="zh-field flex-1">
+                                    <label>Hair Color</label>
+                                    <select id="glamour-hair" class="zh-select">
+                                        <option value="keep_original" selected>keep_original</option>
+                                        <option value="platinum_blonde">platinum_blonde</option>
+                                        <option value="golden_blonde">golden_blonde</option>
+                                        <option value="rich_brunette">rich_brunette</option>
+                                        <option value="raven_black">raven_black</option>
+                                        <option value="auburn_copper">auburn_copper</option>
+                                        <option value="pastel_pink">pastel_pink</option>
+                                        <option value="emerald_green">emerald_green</option>
+                                        <option value="sapphire_blue">sapphire_blue</option>
+                                        <option value="silver_grey">silver_grey</option>
+                                    </select>
+                                </div>
+                                <div class="zh-field flex-1">
+                                    <label>Eye Color</label>
+                                    <select id="glamour-eyes" class="zh-select">
+                                        <option value="keep_original" selected>keep_original</option>
+                                        <option value="ice_blue">ice_blue</option>
+                                        <option value="emerald_green">emerald_green</option>
+                                        <option value="warm_hazel">warm_hazel</option>
+                                        <option value="dark_brown">dark_brown</option>
+                                        <option value="amber_gold">amber_gold</option>
+                                        <option value="violet">violet</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="zh-section-divider"><span>Body Sculpting</span></div>
+                            <div class="zh-field-row">
+                                <div class="zh-field flex-1">
+                                    <div class="zh-label-row">
+                                        <label>Breasts</label>
+                                        <input id="val-glamour-breasts" type="number" step="0.1" min="-5.0" max="5.0" value="0.0" class="zh-slider-val-input">
+                                    </div>
+                                    <input id="glamour-breasts" type="range" min="-5.0" max="5.0" step="0.1" value="0.0" class="zh-slider">
+                                </div>
+                                <div class="zh-field flex-1">
+                                    <div class="zh-label-row">
+                                        <label>Waist</label>
+                                        <input id="val-glamour-waist" type="number" step="0.1" min="-5.0" max="5.0" value="0.0" class="zh-slider-val-input">
+                                    </div>
+                                    <input id="glamour-waist" type="range" min="-5.0" max="5.0" step="0.1" value="0.0" class="zh-slider">
+                                </div>
+                            </div>
+                            <div class="zh-field-row">
+                                <div class="zh-field flex-1">
+                                    <div class="zh-label-row">
+                                        <label>Hips/Butt</label>
+                                        <input id="val-glamour-hips" type="number" step="0.1" min="-5.0" max="5.0" value="0.0" class="zh-slider-val-input">
+                                    </div>
+                                    <input id="glamour-hips" type="range" min="-5.0" max="5.0" step="0.1" value="0.0" class="zh-slider">
+                                </div>
+                                <div class="zh-field flex-1">
+                                    <div class="zh-label-row">
+                                        <label>Muscle</label>
+                                        <input id="val-glamour-muscle" type="number" step="0.1" min="0.0" max="5.0" value="0.0" class="zh-slider-val-input">
+                                    </div>
+                                    <input id="glamour-muscle" type="range" min="0.0" max="5.0" step="0.1" value="0.0" class="zh-slider">
+                                </div>
+                            </div>
                         </div>
                     </section>
                 </div>
@@ -225,14 +346,14 @@
                         <div class="zh-field">
                             <div class="zh-label-row">
                                 <label>Motion Scale / Flow</label>
-                                <span id="val-video-motion" class="zh-slider-val">1.25</span>
+                                <input id="val-video-motion" type="number" step="0.05" min="0.2" max="3.0" value="1.25" class="zh-slider-val-input" title="Click or type exact value">
                             </div>
                             <input id="video-motion-scale" type="range" min="0.2" max="3.0" step="0.05" value="1.25" class="zh-slider">
                         </div>
                         <div class="zh-field">
                             <div class="zh-label-row">
                                 <label>Temporal Denoise</label>
-                                <span id="val-video-denoise" class="zh-slider-val">1.0</span>
+                                <input id="val-video-denoise" type="number" step="0.05" min="0.3" max="1.0" value="1.0" class="zh-slider-val-input" title="Click or type exact value">
                             </div>
                             <input id="video-temporal-denoise" type="range" min="0.3" max="1.0" step="0.05" value="1.0" class="zh-slider">
                         </div>
@@ -305,7 +426,7 @@
                         <div class="zh-field">
                             <div class="zh-label-row">
                                 <label>BPM (Tempo)</label>
-                                <span id="val-music-bpm" class="zh-slider-val">128</span>
+                                <input id="val-music-bpm" type="number" step="1" min="60" max="200" value="128" class="zh-slider-val-input" title="Click or type exact value">
                             </div>
                             <input id="music-bpm" type="range" min="60" max="200" step="1" value="128" class="zh-slider">
                         </div>
@@ -362,9 +483,14 @@
                 <div class="zh-editor-container">
                     <div class="zh-editor-header">
                         <span class="zh-editor-label">Screenplay Script (Personas, Variables, Regional Directives)</span>
-                        <span class="zh-editor-hint">Variables: $women.Amanda, $amanda.lora, [SCENE], [PERSONA 1..N]</span>
+                        <div class="zh-editor-tools">
+                            <button id="btn-insert-var-script" class="zh-btn-mini zh-btn-var" title="Browse & insert variables ($variable)">$ Variables</button>
+                            <button id="btn-insert-wc-script" class="zh-btn-mini zh-btn-wc" title="Browse & insert wildcards (__wildcard__)">__ Wildcards</button>
+                        </div>
                     </div>
-                    <textarea id="script-editor" class="zh-script-textarea" spellcheck="false" placeholder="Enter screenplay script here...
+                    <div class="zh-syntax-wrap">
+                        <div id="script-backdrop" class="zh-syntax-backdrop"></div>
+                        <textarea id="script-editor" class="zh-script-textarea zh-syntax-textarea" spellcheck="false" placeholder="Enter screenplay script here...
 Example:
 [SCENE]
 luxurious modern penthouse, floor to ceiling windows, golden hour sunset, 8k uhd photorealistic
@@ -377,20 +503,77 @@ $men.John, tailored tuxedo, smiling warmly
 
 [INTERACTION]
 talking and laughing together at sunset"></textarea>
+                    </div>
                 </div>
             </div>
 
             <!-- 2. Standard Prompt View -->
             <div id="view-prompt" class="zh-view">
-                <div class="zh-panel-header">
-                    <span class="zh-panel-title">✍️ Image Prompt Studio</span>
-                    <div class="zh-prompt-guards">
-                        <span class="zh-guard-label">GUARDS:</span>
-                        <button class="zh-guard-btn" data-guard="quality">+ Quality</button>
-                        <button class="zh-guard-btn" data-guard="anatomy">+ Anatomy</button>
-                        <button class="zh-guard-btn" data-guard="3d">+ Anti-3D</button>
-                        <button class="zh-guard-btn" data-guard="watermark">+ Clean BG</button>
+                <!-- Prompt Presets Bar -->
+                <div class="zh-prompt-toolbar">
+                    <div class="zh-preset-rack">
+                        <span class="zh-toolbar-label">📂 Presets:</span>
+                        <select id="preset-category-select" class="zh-select zh-select-mini" title="Filter presets by category">
+                            <option value="all">All Categories</option>
+                            <option value="prompts">Prompts</option>
+                            <option value="characters">Characters</option>
+                            <option value="styles">Styles</option>
+                        </select>
+                        <select id="preset-prompt-select" class="zh-select zh-preset-dropdown flex-1" title="Select a saved prompt preset">
+                            <option value="">-- select prompt --</option>
+                        </select>
+                        <button id="btn-save-prompt-preset" class="zh-btn zh-btn-subtle" title="Save current prompt as preset">💾 Save</button>
+                        <button id="btn-refresh-prompts" class="zh-btn zh-btn-icon" title="Refresh prompt list">🔄</button>
                     </div>
+                    <div class="zh-prompt-actions">
+                        <button id="btn-prompt-dedupe" class="zh-btn zh-btn-mini" title="Deduplicate tags and clean commas">🧹 Dedupe</button>
+                        <button id="btn-prompt-prosify" class="zh-btn zh-btn-mini" title="Convert tags to natural cinematic prose">✍️ Prosify</button>
+                        <button id="btn-prompt-tagify" class="zh-btn zh-btn-mini" title="Convert prose to clean comma-separated tags">🏷️ Tagify</button>
+                        <button id="btn-prompt-swap" class="zh-btn zh-btn-mini" title="Swap positive and negative prompts">⇄ Swap</button>
+                        <button id="btn-prompt-strip-weights" class="zh-btn zh-btn-mini" title="Strip prompt weights (word:1.2)">🧼 Clean</button>
+                    </div>
+                </div>
+
+                <!-- Visual Style & Color Harmonizer (from ZombiehausStylePicker) -->
+                <div class="zh-style-harmonizer-bar">
+                    <div class="zh-style-field">
+                        <span class="zh-toolbar-label">🎨 Style:</span>
+                        <select id="style-movement-select" class="zh-select zh-select-mini">
+                            <option value="none_photorealistic">None (Photorealistic)</option>
+                            <option value="vogue_fashion_editorial">Vogue Fashion Editorial</option>
+                            <option value="cyberpunk_synthwave">Cyberpunk Synthwave</option>
+                            <option value="dark_fantasy_oil">Dark Fantasy Oil</option>
+                            <option value="90s_retro_anime">90s Retro Anime</option>
+                            <option value="shinkai_cinematic">Shinkai Cinematic</option>
+                            <option value="watercolor_ink_wash">Watercolor & Ink Wash</option>
+                            <option value="ukiyo_e_woodblock">Ukiyo-e Woodblock</option>
+                            <option value="art_nouveau_mucha">Art Nouveau Mucha</option>
+                            <option value="comic_book_noir">Comic Book Noir</option>
+                            <option value="pixar_3d_stylized">Pixar 3D Stylized</option>
+                            <option value="claymation_stop_motion">Claymation Stop-Motion</option>
+                            <option value="sci_fi_concept_art">Sci-Fi Concept Art</option>
+                            <option value="national_geographic">National Geographic</option>
+                            <option value="surrealist_dreamscape">Surrealist Dreamscape</option>
+                        </select>
+                    </div>
+                    <div class="zh-style-field">
+                        <span class="zh-toolbar-label">🌈 Palette:</span>
+                        <select id="color-palette-select" class="zh-select zh-select-mini">
+                            <option value="natural_balance">Natural Balance</option>
+                            <option value="warm_golden_amber">Warm Golden Amber</option>
+                            <option value="cool_cyber_cyan">Cool Cyber Cyan</option>
+                            <option value="monochrome_high_contrast">Monochrome Contrast</option>
+                            <option value="pastel_dreamy">Pastel Dreamy</option>
+                            <option value="moody_desaturated">Moody Desaturated</option>
+                            <option value="vibrant_hyper_saturated">Vibrant Saturated</option>
+                        </select>
+                    </div>
+                    <div class="zh-style-field zh-style-strength-wrap">
+                        <span class="zh-toolbar-label">Strength:</span>
+                        <input id="val-style-strength" type="number" step="0.1" min="0.0" max="2.0" value="1.0" class="zh-slider-val-input" style="width: 48px;">
+                        <input id="style-strength-slider" type="range" min="0.0" max="2.0" step="0.1" value="1.0" class="zh-slider zh-slider-mini">
+                    </div>
+                    <button id="btn-apply-style" class="zh-btn zh-btn-mini zh-btn-primary" title="Inject selected style & palette tokens into positive prompt">Inject Style</button>
                 </div>
 
                 <div class="zh-prompt-layout">
@@ -398,6 +581,8 @@ talking and laughing together at sunset"></textarea>
                         <div class="zh-editor-header">
                             <span class="zh-editor-label">Positive Prompt</span>
                             <div class="zh-prompt-meta">
+                                <button id="btn-insert-var-pos" class="zh-btn-mini zh-btn-var" title="Browse & insert variables ($variable)">$ Variables</button>
+                                <button id="btn-insert-wc-pos" class="zh-btn-mini zh-btn-wc" title="Browse & insert wildcards (__wildcard__)">__ Wildcards</button>
                                 <select id="prompt-style-select" class="zh-select zh-select-mini">
                                     <option value="Natural Prose (FLUX / SD3)">Natural Prose (FLUX / SD3)</option>
                                     <option value="Tags (SDXL / Pony)">Tags (SDXL / Pony)</option>
@@ -405,14 +590,35 @@ talking and laughing together at sunset"></textarea>
                                 <button id="btn-ollama-enhance" class="zh-btn zh-btn-ai" title="Enhance prompt with Ollama AI">✨ Enhance</button>
                             </div>
                         </div>
-                        <textarea id="positive-editor" class="zh-prompt-textarea" spellcheck="false" placeholder="Describe the scene, subject, lighting, and composition..."></textarea>
+                        <div class="zh-syntax-wrap">
+                            <div id="positive-backdrop" class="zh-syntax-backdrop"></div>
+                            <textarea id="positive-editor" class="zh-prompt-textarea zh-syntax-textarea" spellcheck="false" placeholder="Describe the scene, subject, lighting, and composition..."></textarea>
+                        </div>
                     </div>
 
                     <div class="zh-prompt-card">
                         <div class="zh-editor-header">
-                            <span class="zh-editor-label">Negative Prompt (SDXL / Pony / SD 1.5)</span>
+                            <div class="zh-label-row flex-1">
+                                <span class="zh-editor-label">Negative Prompt (SDXL / Pony / SD 1.5)</span>
+                                <div class="zh-pedalboard-row">
+                                    <button class="zh-pedal-chip" data-pedal="quality" title="Toggle Quality Guard">✦ Quality</button>
+                                    <button class="zh-pedal-chip" data-pedal="anatomy" title="Toggle Anatomy Guard">🚫 Anatomy</button>
+                                    <button class="zh-pedal-chip" data-pedal="cgi" title="Toggle Anti-CGI/3D Guard">🎨 Anti-3D</button>
+                                    <button class="zh-pedal-chip" data-pedal="watermark" title="Toggle Clean BG / Watermark Guard">💧 Watermark</button>
+                                    <button class="zh-pedal-chip" data-pedal="nsfw" title="Toggle Safe Content Guard">🔞 NSFW</button>
+                                </div>
+                            </div>
+                            <div class="zh-prompt-meta">
+                                <label class="zh-mute-neg-label" title="Temporarily mute negative prompt during generation">
+                                    <input id="mute-negative-checkbox" type="checkbox"> Mute
+                                </label>
+                                <button id="btn-insert-wc-neg" class="zh-btn-mini zh-btn-wc" title="Browse & insert wildcards (__wildcard__)">__ Wildcards</button>
+                            </div>
                         </div>
-                        <textarea id="negative-editor" class="zh-prompt-textarea zh-negative-textarea" spellcheck="false" placeholder="blurry, low quality, deformed, watermark, distorted..."></textarea>
+                        <div class="zh-syntax-wrap">
+                            <div id="negative-backdrop" class="zh-syntax-backdrop"></div>
+                            <textarea id="negative-editor" class="zh-prompt-textarea zh-syntax-textarea zh-negative-textarea" spellcheck="false" placeholder="blurry, low quality, deformed, watermark, distorted..."></textarea>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -511,6 +717,41 @@ Into the morning light...
                     </div>
                 </div>
             </div>
+
+            <!-- 5. List & Wildcard Curator View -->
+            <div id="view-lists" class="zh-view">
+                <div class="zh-panel-header">
+                    <div class="zh-panel-title-row">
+                        <span class="zh-panel-title">📚 List & Wildcard Curator</span>
+                        <span class="zh-badge zh-badge-cyan">saved_prompts/wildcards</span>
+                    </div>
+                    <div class="zh-list-actions">
+                        <select id="curator-file-select" class="zh-select zh-select-curator">
+                            <option value="">Loading lists...</option>
+                        </select>
+                        <button id="btn-curator-new" class="zh-btn zh-btn-primary" title="Create a new wildcard list">+ New List</button>
+                        <button id="btn-curator-save" class="zh-btn zh-btn-generate" title="Save changes to disk">💾 Save List</button>
+                        <button id="btn-curator-delete" class="zh-btn zh-btn-danger" title="Delete this wildcard file">🗑️ Delete</button>
+                    </div>
+                </div>
+                <div class="zh-curator-container">
+                    <div class="zh-curator-header-bar">
+                        <input id="curator-filter-input" type="text" class="zh-input flex-1" placeholder="🔍 Search or filter lines in this list...">
+                        <span id="curator-count-badge" class="zh-badge">0 items</span>
+                    </div>
+                    <div class="zh-curator-editor-wrap">
+                        <textarea id="curator-text-editor" class="zh-curator-textarea" spellcheck="false" placeholder="Select or create a list above...
+Format 1 (Simple items):
+item 1
+item 2
+item 3
+
+Format 2 (Variables & dictionaries):
+Amanda: { lora: '<lora:Chroma/Amanda:1.0>', eyes: 'blue', hair: 'brunette' }
+John: { lora: '<lora:Chroma/John:1.0>', eyes: 'brown', hair: 'short black' }"></textarea>
+                    </div>
+                </div>
+            </div>
         </section>
 
         <!-- ── COLUMN 3: RENDER PIPELINE & PREVIEWS ──────────────── -->
@@ -560,14 +801,14 @@ Into the morning light...
                             <div class="zh-field flex-1">
                                 <div class="zh-label-row">
                                     <label>Steps</label>
-                                    <span id="val-steps" class="zh-slider-val">30</span>
+                                    <input id="val-steps" type="number" step="1" min="1" max="100" value="30" class="zh-slider-val-input" title="Click or type exact value">
                                 </div>
                                 <input id="render-steps" type="range" min="1" max="100" value="30" class="zh-slider">
                             </div>
                             <div class="zh-field flex-1">
                                 <div class="zh-label-row">
                                     <label>CFG</label>
-                                    <span id="val-cfg" class="zh-slider-val">3.5</span>
+                                    <input id="val-cfg" type="number" step="0.5" min="1" max="20" value="3.5" class="zh-slider-val-input" title="Click or type exact value">
                                 </div>
                                 <input id="render-cfg" type="range" min="1" max="20" step="0.5" value="3.5" class="zh-slider">
                             </div>
@@ -616,16 +857,15 @@ Into the morning light...
                         </div>
 
                         <div class="zh-stage-row">
-                            <label class="zh-stage-toggle">
-                                <input id="stage-enable-detailer" type="checkbox" checked>
-                                <span class="zh-stage-label">Face / Detailer Refiner</span>
-                            </label>
-                            <div class="zh-stage-body">
-                                <div class="zh-checks-inline">
-                                    <label><input id="detail-face" type="checkbox" checked> FACE</label>
-                                    <label><input id="detail-eyes" type="checkbox" checked> EYES</label>
-                                    <label><input id="detail-hands" type="checkbox"> HANDS</label>
-                                </div>
+                            <div class="zh-label-row">
+                                <label class="zh-stage-toggle">
+                                    <input id="stage-enable-detailer" type="checkbox" checked>
+                                    <span class="zh-stage-label">Multi-Pass Detailer Refiners</span>
+                                </label>
+                                <button id="btn-add-detailer" class="zh-btn zh-btn-mini" title="Add another Detailer pass">+ Add Detailer</button>
+                            </div>
+                            <div id="detailer-stack-container" class="zh-stage-body zh-dynamic-stack">
+                                <!-- Dynamic Detailer passes injected here -->
                             </div>
                         </div>
 
@@ -637,7 +877,7 @@ Into the morning light...
                             <div class="zh-stage-body">
                                 <div class="zh-label-row">
                                     <label>Film Grain</label>
-                                    <span id="val-dewax-grain" class="zh-slider-val">0.05</span>
+                                    <input id="val-dewax-grain" type="number" step="0.01" min="0" max="0.3" value="0.05" class="zh-slider-val-input" title="Click or type exact value">
                                 </div>
                                 <input id="stage-dewax-grain" type="range" min="0" max="0.3" step="0.01" value="0.05" class="zh-slider">
                             </div>
@@ -770,7 +1010,9 @@ Into the morning light...
         </aside>
     </main>
 
-    <script type="module" src="/extensions/ComfyUI-Zombiehaus/studio/studio.js"></script>
+    <!-- Floating Autocomplete & Variable Picker Popup -->
+    <div id="zh-autocomplete-popup" class="zh-autocomplete-popup" style="display: none;"></div>
+
     <script type="module" src="studio.js"></script>
 </body>
 </html>

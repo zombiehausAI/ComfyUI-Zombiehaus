@@ -753,6 +753,9 @@ function detachNodeFromRack(node, canvas) {
     if (inRack) {
         compactRackNodes(inRack, canvas);
     }
+    showDockingToast(`🗄️ Detached "${node.title || node.type}" from Rack`);
+}
+
 function applyRackOrder(rack, orderedNodes, canvas = null) {
     if (!rack || !orderedNodes) return;
     const innerW = Math.max(220, rack.size[0] - 32);
@@ -3405,46 +3408,39 @@ function setupNodeEdgeDocking() {
         _lastDragPrimary = null;
         _lastPrimaryPos = null;
 
-        // Detect click on Equipment Rack resize handles (corner, bottom edge, right edge)
+        // Detect click on Equipment Rack resize handles (corner or bottom edge chin)
         if ((e.buttons & 1) === 1 && this.graph?._groups) {
             const mx = this.graph_mouse[0];
             const my = this.graph_mouse[1];
-            for (let i = this.graph._groups.length - 1; i >= 0; i--) {
-                const g = this.graph._groups[i];
-                if (!isEquipmentRackGroup(g) || !g.pos || !g.size) continue;
-                const gx = g.pos[0];
-                const gy = g.pos[1];
-                const gw = g.size[0];
-                const gh = g.size[1];
+            const cNode = findCollapsedNodeUnderPoint(this.graph, mx, my);
+            if (!cNode) {
+                for (let i = this.graph._groups.length - 1; i >= 0; i--) {
+                    const g = this.graph._groups[i];
+                    if (!isEquipmentRackGroup(g) || !g.pos || !g.size) continue;
+                    const gx = g.pos[0];
+                    const gy = g.pos[1];
+                    const gw = g.size[0];
+                    const gh = g.size[1];
 
-                // 1. Bottom-Right Corner (26x26px)
-                if (mx >= gx + gw - 26 && mx <= gx + gw + 8 && my >= gy + gh - 26 && my <= gy + gh + 8) {
-                    _rackResizing = { rack: g, mode: "corner", startW: gw, startH: gh, startX: gx, startY: gy, startMouseX: mx, startMouseY: my };
-                    this.selected_group = null;
-                    this.resizing_group = g;
-                    _lastDragPrimary = null;
-                    _draggedNodeFromRack = null;
-                    return true;
-                }
+                    // 1. Bottom-Right Corner (24x24px)
+                    if (mx >= gx + gw - 24 && mx <= gx + gw + 4 && my >= gy + gh - 24 && my <= gy + gh + 4) {
+                        _rackResizing = { rack: g, mode: "corner", startW: gw, startH: gh, startX: gx, startY: gy, startMouseX: mx, startMouseY: my };
+                        this.selected_group = null;
+                        this.resizing_group = g;
+                        _lastDragPrimary = null;
+                        _draggedNodeFromRack = null;
+                        break;
+                    }
 
-                // 2. Bottom Edge (pure vertical resize! Height only)
-                if (mx >= gx + 10 && mx <= gx + gw - 26 && my >= gy + gh - 12 && my <= gy + gh + 12) {
-                    _rackResizing = { rack: g, mode: "bottom", startW: gw, startH: gh, startX: gx, startY: gy, startMouseX: mx, startMouseY: my };
-                    this.selected_group = null;
-                    this.resizing_group = g;
-                    _lastDragPrimary = null;
-                    _draggedNodeFromRack = null;
-                    return true;
-                }
-
-                // 3. Right Edge (pure horizontal resize! Width only)
-                if (mx >= gx + gw - 12 && mx <= gx + gw + 12 && my >= gy + 36 && my <= gy + gh - 26) {
-                    _rackResizing = { rack: g, mode: "right", startW: gw, startH: gh, startX: gx, startY: gy, startMouseX: mx, startMouseY: my };
-                    this.selected_group = null;
-                    this.resizing_group = g;
-                    _lastDragPrimary = null;
-                    _draggedNodeFromRack = null;
-                    return true;
+                    // 2. Bottom Edge Chin (pure vertical resize! Height only)
+                    if (mx >= gx + 20 && mx <= gx + gw - 24 && my >= gy + gh - 12 && my <= gy + gh + 6) {
+                        _rackResizing = { rack: g, mode: "bottom", startW: gw, startH: gh, startX: gx, startY: gy, startMouseX: mx, startMouseY: my };
+                        this.selected_group = null;
+                        this.resizing_group = g;
+                        _lastDragPrimary = null;
+                        _draggedNodeFromRack = null;
+                        break;
+                    }
                 }
             }
         }
@@ -3564,34 +3560,35 @@ function setupNodeEdgeDocking() {
     // 1. Process Mouse Move for Magnetic Edge Snapping & Sticky Dragging
     const origProcessMouseMove = LGraphCanvas.prototype.processMouseMove;
     LGraphCanvas.prototype.processMouseMove = function (e) {
-        // Equipment Rack interactive edge & corner dragging
+        // Equipment Rack interactive corner & bottom chin resizing
         if (_rackResizing) {
             if ((e.buttons & 1) !== 1) {
                 const r = _rackResizing.rack;
                 _rackResizing = null;
                 if (r) syncRackNodes(r);
                 this.setDirty(true, true);
-                return;
-            }
-            const { rack, mode, startW, startH, startMouseX, startMouseY } = _rackResizing;
-            const mx = this.graph_mouse[0];
-            const my = this.graph_mouse[1];
-            const nodes = getRackNodes(rack);
-            const slotPitch = 38;
-            const minH = Math.max(100, 74 + nodes.length * slotPitch + 14);
-            const minW = 280;
+            } else {
+                const res = origProcessMouseMove ? origProcessMouseMove.apply(this, arguments) : undefined;
+                const { rack, mode, startW, startH, startMouseX, startMouseY } = _rackResizing;
+                const mx = this.graph_mouse[0];
+                const my = this.graph_mouse[1];
+                const nodes = getRackNodes(rack);
+                const slotPitch = 38;
+                const minH = Math.max(100, 74 + nodes.length * slotPitch + 14);
+                const minW = 280;
 
-            if (mode === "bottom" || mode === "corner") {
-                const newH = Math.max(minH, Math.round(startH + (my - startMouseY)));
-                rack.size[1] = newH;
+                if (mode === "bottom" || mode === "corner") {
+                    const newH = Math.max(minH, Math.round(startH + (my - startMouseY)));
+                    rack.size[1] = newH;
+                }
+                if (mode === "corner") {
+                    const newW = Math.max(minW, Math.round(startW + (mx - startMouseX)));
+                    rack.size[0] = newW;
+                }
+                syncRackNodes(rack);
+                this.setDirty(true, true);
+                return res;
             }
-            if (mode === "right" || mode === "corner") {
-                const newW = Math.max(minW, Math.round(startW + (mx - startMouseX)));
-                rack.size[0] = newW;
-            }
-            syncRackNodes(rack);
-            this.setDirty(true, true);
-            return true;
         }
 
         // Equipment Rack resize cursor hints on hover
@@ -3607,21 +3604,19 @@ function setupNodeEdgeDocking() {
                 const gw = g.size[0];
                 const gh = g.size[1];
 
-                if (mx >= gx + gw - 26 && mx <= gx + gw + 8 && my >= gy + gh - 26 && my <= gy + gh + 8) {
+                if (mx >= gx + gw - 24 && mx <= gx + gw + 4 && my >= gy + gh - 24 && my <= gy + gh + 4) {
                     rackCursor = "nwse-resize";
                     break;
                 }
-                if (mx >= gx + 10 && mx <= gx + gw - 26 && my >= gy + gh - 12 && my <= gy + gh + 12) {
+                if (mx >= gx + 20 && mx <= gx + gw - 24 && my >= gy + gh - 12 && my <= gy + gh + 6) {
                     rackCursor = "ns-resize";
-                    break;
-                }
-                if (mx >= gx + gw - 12 && mx <= gx + gw + 12 && my >= gy + 36 && my <= gy + gh - 26) {
-                    rackCursor = "ew-resize";
                     break;
                 }
             }
             if (rackCursor && this.canvas) {
                 this.canvas.style.cursor = rackCursor;
+            } else if (this.canvas && (this.canvas.style.cursor === "nwse-resize" || this.canvas.style.cursor === "ns-resize")) {
+                this.canvas.style.cursor = "default";
             }
         }
 

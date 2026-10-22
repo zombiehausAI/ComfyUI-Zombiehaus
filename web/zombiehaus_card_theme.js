@@ -149,7 +149,6 @@ function isNodeActiveExecuting(node) {
         (_zh_executingNodeId != null && String(_zh_executingNodeId) === nid) ||
         (window._zh_executingNodeId != null && String(window._zh_executingNodeId) === nid) ||
         (typeof app !== "undefined" && app.runningNodeId != null && String(app.runningNodeId) === nid) ||
-        (typeof app !== "undefined" && app.graph?._current_node && String(app.graph._current_node.id) === nid) ||
         node.executing === true
     );
 }
@@ -161,7 +160,7 @@ function triggerExecutionAnimationLoop() {
         const hasActive = (
             _zh_executingNodeId != null ||
             (window._zh_executingNodeId != null) ||
-            (typeof app !== "undefined" && (app.runningNodeId != null || (app.graph?._current_node != null)))
+            (typeof app !== "undefined" && app.runningNodeId != null)
         );
         if (hasActive) {
             if (typeof app !== "undefined" && app.canvas) {

@@ -3,16 +3,15 @@ Zombiehaus Person Inpaint & Interaction Director Node
 
 Allows adding a second person to an existing picture with complete freedom of interaction
 (holding hands, kissing, sexual contact, masturbation, oral, intercourse, or multi-action combos like kissing while fingering/stroking):
-- Supports manual brush mask from LoadImage OR automated targeted YOLO-assisted staging.
+- Strictly protects Person 1: Person 1's head, face, eyes, and main body are NEVER masked or erased.
+- Stages Person 2 in the open space adjacent to Person 1 (or between/below legs for oral/straddling).
+- Contact overlap enters Person 1 ONLY at the specific interaction anatomy (penis, vulva, lips, hands).
 - Auto-detects specific anatomical regions (penis, female breasts, vagina/vulva, lips, hands, feet)
   from the ultralytics detailer model suite to stage interactions with pinpoint anatomical accuracy.
 - Supports flexible multi-posture handjobs (sitting beside, lying beside, kneeling, standing over).
 - Supports multi-action combos (e.g. kissing while fingering, kissing while stroking, embrace with intimate touch).
-- Uses VAEEncodeForInpaint to neutralize old background/bed textures inside the mask so the model
-  reliably generates Person 2 from scratch instead of preserving empty space.
-- Contact Overlap (dilation) specifically expands into Person 1 to allow physical contact.
-- Gaussian feathering eliminates hard seams.
-- VAE encodes with 16px Chroma/Flux alignment and latent noise_mask injection.
+- Uses VAEEncodeForInpaint to neutralize only the empty open space inside the mask so the model
+  reliably generates Person 2 from scratch while keeping Person 1 100% pristine.
 - Pixel-level alpha compositing guarantees unmasked pixels of Person 1 are 100% preserved.
 """
 
@@ -131,7 +130,8 @@ def align_tensor_dim(tensor: torch.Tensor, div: int = 16) -> torch.Tensor:
 class ZombiehausPersonInpaint:
     """
     All-in-One Person Inpainter and Interaction Director for ChromaHD, Flux, and SDXL.
-    Adds a new person and lets them interact freely with the existing person.
+    Adds a new person and lets them interact freely with the existing person while
+    strictly preserving Person 1's original pose, face, and appearance.
     """
 
     STAGING_MODES = [
@@ -284,8 +284,8 @@ class ZombiehausPersonInpaint:
             return (["person", "face"], None)
         return (["person", "yolo8n-seg", "yolov8x-seg"], None)
 
-    def _detect_box(self, pil_img: Image.Image, model_path: str, confidence: float):
-        """Run YOLO inference and return the highest confidence bounding box [x1, y1, x2, y2]."""
+    def _detect_box(self, pil_img: Image.Image, model_path: str, confidence: float, target_class: int = None):
+        """Run YOLO inference and return the best bounding box [x1, y1, x2, y2]."""
         if not ULTRALYTICS_AVAILABLE or not model_path or not os.path.exists(model_path):
             return None
         try:
@@ -299,6 +299,9 @@ class ZombiehausPersonInpaint:
             best_box = None
             best_conf = 0.0
             for box in boxes:
+                cls_id = int(box.cls[0].cpu().numpy()) if hasattr(box, "cls") and len(box.cls) > 0 else 0
+                if target_class is not None and cls_id != target_class:
+                    continue
                 c = float(box.conf[0].cpu().numpy())
                 if c > best_conf:
                     best_conf = c
@@ -310,9 +313,9 @@ class ZombiehausPersonInpaint:
 
     def _generate_auto_mask(self, img_w: int, img_h: int, anat_box, person_box, mode: str, anat_box_2=None) -> Image.Image:
         """
-        Generate staging mask based on targeted anatomical detector boxes,
-        person bounding box, and the selected interaction mode.
-        Ensures ample vertical and lateral canvas space for Person 2's head, torso, and reaching limbs.
+        Generate staging mask placed strictly in the OPEN SPACE adjacent to Person 1,
+        with contact overlap ONLY at the specific interaction anatomy.
+        STRICTLY PROTECTS Person 1's head, face, eyes, and main body from being masked or erased.
         """
         mask = Image.new("L", (img_w, img_h), 0)
         draw = ImageDraw.Draw(mask)
@@ -362,266 +365,186 @@ class ZombiehausPersonInpaint:
             g_center_y = (gy1 + gy2) / 2.0
             has_anat_2 = True
 
-        # Determine side with more room relative to Person 1
-        contact_on_right = (p_center_x < img_w / 2)
+        # Determine open space on left vs right of Person 1
+        space_left = px1 if has_person else (img_w / 2)
+        space_right = (img_w - px2) if has_person else (img_w / 2)
+        stage_on_right = (space_right >= space_left)
 
-        # -----------------------------------------------------------------
-        # 1. Multi-Action Combos (e.g. Kiss & Finger, Kiss & Stroke, Full Frontal)
-        # -----------------------------------------------------------------
-        if "Combo" in mode or "Full Frontal" in mode:
-            # Full height from above head down to knees/feet
-            combo_top = max(0, int(py1 - p_h * 0.08)) if has_person else 0
-            combo_bot = min(img_h, int(py2 + p_h * 0.08)) if has_person else img_h
-
-            if contact_on_right:
-                side_left = int(px1 + p_w * 0.20) if has_person else int(img_w * 0.35)
-                side_right = img_w
-            else:
-                side_left = 0
-                side_right = int(px2 - p_w * 0.20) if has_person else int(img_w * 0.65)
-
-            # Lateral space for Person 2's body
-            draw.rectangle([side_left, combo_top, side_right, combo_bot], fill=255)
-
-            # Overlap at lips/face for the kiss
-            if has_anat:
-                draw.rectangle([max(0, int(ax1 - a_w * 0.5)), max(0, int(ay1 - a_h * 1.5)),
-                                min(img_w, int(ax2 + a_w * 0.5)), min(img_h, int(ay2 + a_h * 1.5))], fill=255)
-
-            # Overlap at groin/pelvis for the touch
-            if has_anat_2:
-                draw.rectangle([max(0, int(gx1 - g_w * 0.5)), max(0, int(gy1 - g_h * 0.5)),
-                                min(img_w, int(gx2 + g_w * 0.5)), min(img_h, int(gy2 + g_h * 0.5))], fill=255)
-
-        # -----------------------------------------------------------------
-        # 2. Handjob / Masturbation (Sitting beside, kneeling, lying, versatile)
-        # -----------------------------------------------------------------
-        elif "Masturbation" in mode or "Handjob" in mode:
-            # 1. Crotch / penis contact zone
-            if has_anat:
-                draw.rectangle([max(0, int(ax1 - a_w * 0.5)), max(0, int(ay1 - a_h * 0.4)),
-                                min(img_w, int(ax2 + a_w * 0.5)), min(img_h, int(ay2 + a_h * 0.4))], fill=255)
-                ref_cx = a_center_x
-                ref_y1 = ay1
-                ref_y2 = ay2
-            elif has_person:
-                crotch_left = max(0, int(p_center_x - p_w * 0.35))
-                crotch_top = max(0, int(py1 + p_h * 0.45))
-                crotch_right = min(img_w, int(p_center_x + p_w * 0.35))
-                crotch_bot = min(img_h, int(py1 + p_h * 0.85))
-                draw.rectangle([crotch_left, crotch_top, crotch_right, crotch_bot], fill=255)
-                ref_cx = p_center_x
-                ref_y1 = crotch_top
-                ref_y2 = crotch_bot
-            else:
-                draw.rectangle([int(img_w * 0.25), int(img_h * 0.45), int(img_w * 0.75), int(img_h * 0.85)], fill=255)
-                ref_cx = img_w / 2.0
-                ref_y1 = int(img_h * 0.45)
-                ref_y2 = int(img_h * 0.85)
-
-            # 2. Partner body space according to posture
-            if "Sitting" in mode or "Versatile" in mode:
-                # Seated beside: FULL VERTICAL HEIGHT from head to knees so Person 2's head, face,
-                # shoulders, torso, and reaching arm are completely inside the mask!
-                person2_top = max(0, int(py1 - p_h * 0.08)) if has_person else 0
-                person2_bot = min(img_h, int(py2 + p_h * 0.08)) if has_person else img_h
-                if contact_on_right:
-                    draw.rectangle([int(ref_cx - p_w * 0.15), person2_top, min(img_w, int(px2 + max(p_w * 0.95, img_w * 0.45))), person2_bot], fill=255)
-                else:
-                    draw.rectangle([max(0, int(px1 - max(p_w * 0.95, img_w * 0.45))), person2_top, int(ref_cx + p_w * 0.15), person2_bot], fill=255)
-
-            elif "Lying" in mode:
-                # Reclining / lying beside: horizontal breadth along pelvis and legs
-                lie_top = max(0, int(py1 + p_h * 0.15)) if has_person else int(img_h * 0.2)
-                lie_bot = min(img_h, int(py2 + p_h * 0.10)) if has_person else img_h
-                if contact_on_right:
-                    draw.rectangle([int(ref_cx - p_w * 0.1), lie_top, min(img_w, int(px2 + max(p_w * 0.95, img_w * 0.50))), lie_bot], fill=255)
-                else:
-                    draw.rectangle([max(0, int(px1 - max(p_w * 0.95, img_w * 0.50))), lie_top, int(ref_cx + p_w * 0.1), lie_bot], fill=255)
-
-            elif "Kneeling" in mode:
-                # Kneeling in front / between legs: downward and forward space
-                kneel_top = max(0, int(ref_y1 - (a_h * 1.5 if has_anat else p_h * 0.25)))
-                kneel_bot = min(img_h, int(ref_y2 + (a_h * 4.0 if has_anat else p_h * 0.45)))
-                draw.rectangle([max(0, int(ref_cx - max(p_w * 0.50, img_w * 0.30))), kneel_top,
-                                min(img_w, int(ref_cx + max(p_w * 0.50, img_w * 0.30))), kneel_bot], fill=255)
-
-            else:
-                # Default lateral coverage from head level down
-                d_top = max(0, int(py1 - p_h * 0.08)) if has_person else 0
-                d_bot = min(img_h, int(py2 + p_h * 0.08)) if has_person else img_h
-                if contact_on_right:
-                    draw.rectangle([int(ref_cx - p_w * 0.15), d_top, img_w, d_bot], fill=255)
-                else:
-                    draw.rectangle([0, d_top, int(ref_cx + p_w * 0.15), d_bot], fill=255)
-
-        # -----------------------------------------------------------------
-        # 3. Oral / Fellatio / Blowjob
-        # -----------------------------------------------------------------
-        elif "Oral" in mode or "Fellatio" in mode or "Blowjob" in mode:
-            if has_anat:
-                draw.rectangle([max(0, int(a_center_x - max(a_w * 2.8, img_w * 0.25))),
-                                max(0, int(ay1 - max(a_h * 1.5, img_h * 0.15))),
-                                min(img_w, int(a_center_x + max(a_w * 2.8, img_w * 0.25))),
-                                min(img_h, int(ay2 + max(a_h * 4.5, img_h * 0.45)))], fill=255)
-            elif has_person:
-                pelvis_y1 = max(0, int(py1 + p_h * 0.35))
-                pelvis_y2 = min(img_h, int(py2 + p_h * 0.15))
-                draw.rectangle([max(0, int(p_center_x - max(p_w * 0.55, img_w * 0.30))), pelvis_y1,
-                                min(img_w, int(p_center_x + max(p_w * 0.55, img_w * 0.30))), pelvis_y2], fill=255)
-            else:
-                draw.rectangle([int(img_w * 0.15), int(img_h * 0.35), int(img_w * 0.85), img_h], fill=255)
-
-        # -----------------------------------------------------------------
-        # 4. Cunnilingus / Pussy Licking
-        # -----------------------------------------------------------------
-        elif "Cunnilingus" in mode or "Pussy Licking" in mode or "Fingering" in mode:
-            if has_anat:
-                draw.rectangle([max(0, int(a_center_x - max(a_w * 2.8, img_w * 0.25))),
-                                max(0, int(ay1 - max(a_h * 1.5, img_h * 0.15))),
-                                min(img_w, int(a_center_x + max(a_w * 2.8, img_w * 0.25))),
-                                min(img_h, int(ay2 + max(a_h * 4.5, img_h * 0.45)))], fill=255)
-            elif has_person:
-                pelvis_y1 = max(0, int(py1 + p_h * 0.40))
-                pelvis_y2 = min(img_h, int(py2 + p_h * 0.15))
-                draw.rectangle([max(0, int(p_center_x - max(p_w * 0.55, img_w * 0.30))), pelvis_y1,
-                                min(img_w, int(p_center_x + max(p_w * 0.55, img_w * 0.30))), pelvis_y2], fill=255)
-            else:
-                draw.rectangle([int(img_w * 0.15), int(img_h * 0.4), int(img_w * 0.85), img_h], fill=255)
-
-        # -----------------------------------------------------------------
-        # 5. Paizuri / Titjob / Breast Play
-        # -----------------------------------------------------------------
-        elif "Paizuri" in mode or "Titjob" in mode or "Breast Play" in mode:
-            if has_anat:
-                draw.rectangle([max(0, int(ax1 - max(a_w * 0.6, img_w * 0.15))),
-                                max(0, int(ay1 - max(a_h * 1.8, img_h * 0.25))),
-                                min(img_w, int(ax2 + max(a_w * 0.6, img_w * 0.15))),
-                                min(img_h, int(ay2 + max(a_h * 1.5, img_h * 0.20)))], fill=255)
-            elif has_person:
-                chest_y1 = max(0, int(py1 + p_h * 0.15))
-                chest_y2 = min(img_h, int(py1 + p_h * 0.65))
-                draw.rectangle([max(0, int(p_center_x - max(p_w * 0.50, img_w * 0.30))), chest_y1,
-                                min(img_w, int(p_center_x + max(p_w * 0.50, img_w * 0.30))), chest_y2], fill=255)
-            else:
-                draw.rectangle([int(img_w * 0.2), int(img_h * 0.15), int(img_w * 0.8), int(img_h * 0.70)], fill=255)
-
-        # -----------------------------------------------------------------
-        # 6. Intercourse (Straddling / Missionary / Doggy)
-        # -----------------------------------------------------------------
-        elif "Straddling" in mode or "Cowgirl" in mode:
-            ref_x = a_center_x if has_anat else p_center_x
-            ref_y = a_center_y if has_anat else (py1 + p_h * 0.55)
-            draw.rectangle([max(0, int(ref_x - max(p_w * 0.60, img_w * 0.35))),
-                            max(0, int(ref_y - max(p_h * 0.45, img_h * 0.35))),
-                            min(img_w, int(ref_x + max(p_w * 0.60, img_w * 0.35))),
-                            min(img_h, int(ref_y + max(p_h * 0.35, img_h * 0.30)))], fill=255)
-
-        elif "Missionary" in mode or "Face-to-Face" in mode:
-            ref_x = a_center_x if has_anat else p_center_x
-            pelvis_y1 = max(0, int(py1 - p_h * 0.05)) if has_person else 0
-            pelvis_y2 = min(img_h, int(py2 + p_h * 0.05)) if has_person else img_h
-            if ref_x < img_w / 2:
-                draw.rectangle([int(ref_x - p_w * 0.2), pelvis_y1, img_w, pelvis_y2], fill=255)
-            else:
-                draw.rectangle([0, pelvis_y1, int(ref_x + p_w * 0.2), pelvis_y2], fill=255)
-
-        elif "Doggy" in mode or "From Behind" in mode:
-            pelvis_y1 = max(0, int(py1 - p_h * 0.05)) if has_person else 0
-            pelvis_y2 = min(img_h, int(py2 + p_h * 0.05)) if has_person else img_h
-            if p_center_x < img_w / 2:
-                draw.rectangle([0, pelvis_y1, int(px2), pelvis_y2], fill=255)
-            else:
-                draw.rectangle([int(px1), pelvis_y1, img_w, pelvis_y2], fill=255)
-
-        # -----------------------------------------------------------------
-        # 7. Footjob / Soles
-        # -----------------------------------------------------------------
-        elif "Footjob" in mode or "Soles" in mode:
-            if has_anat:
-                draw.rectangle([max(0, int(ax1 - a_w * 1.5)), max(0, int(ay1 - a_h * 1.5)),
-                                min(img_w, int(ax2 + a_w * 1.5)), min(img_h, int(ay2 + a_h * 1.5))], fill=255)
-            elif has_person:
-                draw.rectangle([max(0, int(px1 - p_w * 0.2)), max(0, int(py1 + p_h * 0.55)),
-                                min(img_w, int(px2 + p_w * 0.2)), min(img_h, int(py2 + p_h * 0.15))], fill=255)
-            else:
-                draw.rectangle([int(img_w * 0.15), int(img_h * 0.5), int(img_w * 0.85), img_h], fill=255)
-
-        # -----------------------------------------------------------------
-        # 8. Kissing / Lips & Face
-        # -----------------------------------------------------------------
-        elif "Kissing" in mode or "Lips" in mode:
-            head_top = max(0, int(py1 - p_h * 0.08)) if has_person else 0
-            head_bot = min(img_h, int(py1 + p_h * 0.50)) if has_person else int(img_h * 0.5)
-            if has_anat:
-                if a_center_x < img_w / 2:
-                    draw.rectangle([max(0, int(ax1 - a_w * 0.5)), head_top,
-                                    min(img_w, int(ax2 + max(a_w * 4.0, img_w * 0.35))), head_bot], fill=255)
-                else:
-                    draw.rectangle([max(0, int(ax1 - max(a_w * 4.0, img_w * 0.35))), head_top,
-                                    min(img_w, int(ax2 + a_w * 0.5)), head_bot], fill=255)
-            elif has_person:
-                if p_center_x < img_w / 2:
-                    draw.rectangle([int(px1 + p_w * 0.20), head_top, min(img_w, int(px2 + p_w * 0.85)), head_bot], fill=255)
-                else:
-                    draw.rectangle([max(0, int(px1 - p_w * 0.85)), head_top, int(px2 - p_w * 0.20), head_bot], fill=255)
-            else:
-                draw.rectangle([int(img_w * 0.20), 0, int(img_w * 0.80), int(img_h * 0.55)], fill=255)
-
-        # -----------------------------------------------------------------
-        # 9. Holding Hands
-        # -----------------------------------------------------------------
-        elif "Holding Hands" in mode:
-            h_top = max(0, int(py1 - p_h * 0.05)) if has_person else 0
-            h_bot = min(img_h, int(py2 + p_h * 0.05)) if has_person else img_h
-            if contact_on_right:
-                draw.rectangle([int(px1 + p_w * 0.25), h_top, img_w, h_bot], fill=255)
-            else:
-                draw.rectangle([0, h_top, int(px2 - p_w * 0.25), h_bot], fill=255)
-
-        # -----------------------------------------------------------------
-        # 10. Spooning / Back Hug
-        # -----------------------------------------------------------------
-        elif "Spooning" in mode or "Back Hug" in mode:
-            top = max(0, int(py1 - p_h * 0.08)) if has_person else 0
-            bottom = min(img_h, int(py2 + p_h * 0.08)) if has_person else img_h
-            if p_center_x < img_w / 2:
-                draw.rectangle([0, top, int(px2 - p_w * 0.15), bottom], fill=255)
-            else:
-                draw.rectangle([int(px1 + p_w * 0.15), top, img_w, bottom], fill=255)
-
-        elif "Lap Sitting" in mode or "Straddling Lap" in mode:
-            draw.rectangle([max(0, int(p_center_x - max(p_w * 0.55, img_w * 0.30))), max(0, int(py1 + p_h * 0.20)),
-                            min(img_w, int(p_center_x + max(p_w * 0.55, img_w * 0.30))), min(img_h, int(py1 + p_h * 0.90))], fill=255)
-
-        elif "Head on Lap" in mode or "Resting" in mode:
-            lap_y1 = max(0, int(py1 + p_h * 0.40)) if has_person else int(img_h * 0.4)
-            lap_y2 = min(img_h, int(py2 + p_h * 0.05)) if has_person else img_h
-            draw.rectangle([max(0, int(p_center_x - p_w * 0.70)), lap_y1, min(img_w, int(p_center_x + p_w * 0.70)), lap_y2], fill=255)
-
-        elif "Left" in mode:
-            top = max(0, int(py1 - p_h * 0.08)) if has_person else 0
-            bottom = min(img_h, int(py2 + p_h * 0.08)) if has_person else img_h
-            right = int(px1 + p_w * 0.25) if has_person else int(img_w * 0.55)
-            draw.rectangle([0, top, right, bottom], fill=255)
-
+        # Mode overrides for explicit Left / Right
+        if "Left" in mode:
+            stage_on_right = False
         elif "Right" in mode:
-            top = max(0, int(py1 - p_h * 0.08)) if has_person else 0
-            bottom = min(img_h, int(py2 + p_h * 0.08)) if has_person else img_h
-            left = int(px2 - p_w * 0.25) if has_person else int(img_w * 0.45)
-            draw.rectangle([left, top, img_w, bottom], fill=255)
+            stage_on_right = True
 
-        elif "Massage" in mode or "Oil Rub" in mode:
-            top = max(0, int(py1 + p_h * 0.10)) if has_person else int(img_h * 0.15)
-            bottom = min(img_h, int(py1 + p_h * 0.80)) if has_person else int(img_h * 0.80)
-            draw.rectangle([max(0, int(p_center_x - p_w * 0.60)), top, min(img_w, int(p_center_x + p_w * 0.60)), bottom], fill=255)
-
-        else:
-            # Default half screen with overlap into Person 1
-            if contact_on_right:
-                draw.rectangle([int(p_center_x), 0, img_w, img_h], fill=255)
+        # Determine Person 2's lateral bounds in OPEN space (outside Person 1)
+        if has_person:
+            if stage_on_right:
+                p2_x1 = int(px2)
+                p2_x2 = img_w
             else:
-                draw.rectangle([0, 0, int(p_center_x), img_h], fill=255)
+                p2_x1 = 0
+                p2_x2 = int(px1)
+            p2_top = max(0, int(py1 - p_h * 0.08))
+            p2_bot = min(img_h, int(py2 + p_h * 0.08))
+        else:
+            if stage_on_right:
+                p2_x1 = int(img_w * 0.52)
+                p2_x2 = img_w
+            else:
+                p2_x1 = 0
+                p2_x2 = int(img_w * 0.48)
+            p2_top = 0
+            p2_bot = img_h
+
+        # -------------------------------------------------------------
+        # Branch 1: Masturbation / Handjob
+        # -------------------------------------------------------------
+        if "Masturbation" in mode or "Handjob" in mode:
+            if "Kneeling" in mode:
+                # Kneeling below/between legs: strictly lower half
+                crotch_top = max(0, int(ay1 - 30)) if has_anat else max(0, int(py1 + p_h * 0.45))
+                crotch_cx = a_center_x if has_anat else p_center_x
+                kneel_w = max(a_w * 3.5, img_w * 0.45) if has_anat else max(p_w * 0.70, img_w * 0.45)
+                draw.rectangle([max(0, int(crotch_cx - kneel_w / 2)), crotch_top,
+                                min(img_w, int(crotch_cx + kneel_w / 2)), img_h], fill=255)
+            else:
+                # Sitting beside, lying beside, or versatile:
+                # 1. Person 2 body in the OPEN space beside Person 1 (Person 1's head/torso is 100% UNTOUCHED)
+                draw.rectangle([p2_x1, p2_top, p2_x2, p2_bot], fill=255)
+
+                # 2. Target Contact Zone: ONLY around the penis / crotch
+                if has_anat:
+                    draw.rectangle([max(0, int(ax1 - a_w * 0.25)), max(0, int(ay1 - a_h * 0.25)),
+                                    min(img_w, int(ax2 + a_w * 0.25)), min(img_h, int(ay2 + a_h * 0.25))], fill=255)
+                    penis_cx = a_center_x
+                    penis_y1 = ay1
+                    penis_y2 = ay2
+                else:
+                    penis_cx = p_center_x
+                    penis_y1 = int(py1 + p_h * 0.50)
+                    penis_y2 = int(py1 + p_h * 0.75)
+                    draw.rectangle([max(0, int(penis_cx - p_w * 0.20)), penis_y1,
+                                    min(img_w, int(penis_cx + p_w * 0.20)), penis_y2], fill=255)
+
+                # 3. Arm reach connecting Person 2's body to the penis at waist level
+                arm_top = max(0, int(penis_y1 - 30))
+                arm_bot = min(img_h, int(penis_y2 + 40))
+                if stage_on_right:
+                    draw.rectangle([int(penis_cx), arm_top, p2_x1 + 10, arm_bot], fill=255)
+                else:
+                    draw.rectangle([p2_x2 - 10, arm_top, int(penis_cx), arm_bot], fill=255)
+
+        # -------------------------------------------------------------
+        # Branch 2: Multi-Action Combos (e.g. Kiss & Finger, Kiss & Stroke)
+        # -------------------------------------------------------------
+        elif "Combo" in mode or "Full Frontal" in mode:
+            # 1. Person 2 body in the OPEN space beside Person 1
+            draw.rectangle([p2_x1, p2_top, p2_x2, p2_bot], fill=255)
+
+            # 2. Kiss contact zone: ONLY at lips/face height
+            if has_anat:
+                draw.rectangle([max(0, int(ax1 - a_w * 0.3)), max(0, int(ay1 - a_h * 0.8)),
+                                min(img_w, int(ax2 + a_w * 0.3)), min(img_h, int(ay2 + a_h * 0.8))], fill=255)
+                face_y1 = ay1
+                face_y2 = ay2
+            else:
+                face_y1 = int(py1)
+                face_y2 = int(py1 + p_h * 0.30)
+
+            # Tilt bridge reaching toward lips
+            if stage_on_right:
+                draw.rectangle([int(px2 - p_w * 0.15), face_y1, p2_x1 + 10, face_y2], fill=255)
+            else:
+                draw.rectangle([p2_x2 - 10, face_y1, int(px1 + p_w * 0.15), face_y2], fill=255)
+
+            # 3. Groin / Vulva / Penis contact zone
+            if has_anat_2:
+                draw.rectangle([max(0, int(gx1 - g_w * 0.3)), max(0, int(gy1 - g_h * 0.3)),
+                                min(img_w, int(gx2 + g_w * 0.3)), min(img_h, int(gy2 + g_h * 0.3))], fill=255)
+                groin_cx = g_center_x
+                groin_y1 = gy1
+                groin_y2 = gy2
+            else:
+                groin_cx = p_center_x
+                groin_y1 = int(py1 + p_h * 0.50)
+                groin_y2 = int(py1 + p_h * 0.75)
+                draw.rectangle([max(0, int(groin_cx - p_w * 0.20)), groin_y1,
+                                min(img_w, int(groin_cx + p_w * 0.20)), groin_y2], fill=255)
+
+            # Arm reach to groin at waist level
+            if stage_on_right:
+                draw.rectangle([int(groin_cx), max(0, groin_y1 - 30), p2_x1 + 10, min(img_h, groin_y2 + 40)], fill=255)
+            else:
+                draw.rectangle([p2_x2 - 10, max(0, groin_y1 - 30), int(groin_cx), min(img_h, groin_y2 + 40)], fill=255)
+
+        # -------------------------------------------------------------
+        # Branch 3: Oral / Fellatio / Blowjob
+        # -------------------------------------------------------------
+        elif "Oral" in mode or "Fellatio" in mode or "Blowjob" in mode:
+            # Person 2 kneels between/below legs: strictly lower half
+            oral_top = max(0, int(ay1 - 30)) if has_anat else max(0, int(py1 + p_h * 0.40))
+            oral_cx = a_center_x if has_anat else p_center_x
+            oral_w = max(a_w * 3.5, img_w * 0.45) if has_anat else max(p_w * 0.70, img_w * 0.45)
+            draw.rectangle([max(0, int(oral_cx - oral_w / 2)), oral_top,
+                            min(img_w, int(oral_cx + oral_w / 2)), img_h], fill=255)
+
+        # -------------------------------------------------------------
+        # Branch 4: Cunnilingus / Pussy Licking / Female Fingering
+        # -------------------------------------------------------------
+        elif "Cunnilingus" in mode or "Pussy Licking" in mode or "Fingering" in mode:
+            groin_top = max(0, int(ay1 - 30)) if has_anat else max(0, int(py1 + p_h * 0.45))
+            groin_cx = a_center_x if has_anat else p_center_x
+            draw.rectangle([max(0, int(groin_cx - img_w * 0.25)), groin_top,
+                            min(img_w, int(groin_cx + img_w * 0.25)), img_h], fill=255)
+
+        # -------------------------------------------------------------
+        # Branch 5: Kissing / Lips & Face Contact
+        # -------------------------------------------------------------
+        elif "Kissing" in mode or "Lips" in mode:
+            # Person 2 body in the OPEN space beside Person 1
+            draw.rectangle([p2_x1, p2_top, p2_x2, p2_bot], fill=255)
+
+            # Lips contact zone: ONLY at lips height
+            if has_anat:
+                draw.rectangle([max(0, int(ax1 - a_w * 0.3)), max(0, int(ay1 - a_h * 0.8)),
+                                min(img_w, int(ax2 + a_w * 0.3)), min(img_h, int(ay2 + a_h * 0.8))], fill=255)
+                face_y1 = ay1
+                face_y2 = ay2
+            else:
+                face_y1 = int(py1)
+                face_y2 = int(py1 + p_h * 0.35)
+
+            if stage_on_right:
+                draw.rectangle([int(px2 - p_w * 0.15), face_y1, p2_x1 + 10, face_y2], fill=255)
+            else:
+                draw.rectangle([p2_x2 - 10, face_y1, int(px1 + p_w * 0.15), face_y2], fill=255)
+
+        # -------------------------------------------------------------
+        # Branch 6: Holding Hands
+        # -------------------------------------------------------------
+        elif "Holding Hands" in mode:
+            draw.rectangle([p2_x1, p2_top, p2_x2, p2_bot], fill=255)
+            if has_anat:
+                draw.rectangle([max(0, int(ax1 - a_w * 0.3)), max(0, int(ay1 - a_h * 0.3)),
+                                min(img_w, int(ax2 + a_w * 0.3)), min(img_h, int(ay2 + a_h * 0.3))], fill=255)
+                hand_cx = a_center_x
+                hand_y1 = ay1
+                hand_y2 = ay2
+            else:
+                hand_cx = px2 if stage_on_right else px1
+                hand_y1 = int(py1 + p_h * 0.45)
+                hand_y2 = int(py1 + p_h * 0.70)
+            if stage_on_right:
+                draw.rectangle([int(hand_cx), hand_y1 - 20, p2_x1 + 10, hand_y2 + 20], fill=255)
+            else:
+                draw.rectangle([p2_x2 - 10, hand_y1 - 20, int(hand_cx), hand_y2 + 20], fill=255)
+
+        # -------------------------------------------------------------
+        # Branch 7: Beside / Standing / Sitting / Embrace (Default)
+        # -------------------------------------------------------------
+        else:
+            # Person 2 placed strictly in the open space beside Person 1
+            draw.rectangle([p2_x1, p2_top, p2_x2, p2_bot], fill=255)
 
         return mask
 
@@ -821,10 +744,10 @@ class ZombiehausPersonInpaint:
                         if sec_model_path:
                             anat_box_2 = self._detect_box(pil_img, sec_model_path, detection_confidence)
 
-                # Also detect full person boundary as spatial reference
+                # Specifically detect person boundary (class 0 = person)
                 person_model_path = _find_detector_model_path(["person_yolov8n-seg", "yolov8x-seg", "person"])
                 if person_model_path:
-                    person_box = self._detect_box(pil_img, person_model_path, detection_confidence)
+                    person_box = self._detect_box(pil_img, person_model_path, detection_confidence, target_class=0)
 
             mask_pil = self._generate_auto_mask(w, h, anat_box, person_box, effective_mode, anat_box_2=anat_box_2)
 

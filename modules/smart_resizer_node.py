@@ -39,20 +39,21 @@ class ZombiehausSmartResizer:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
                 "aspect_ratio": (cls.ASPECT_RATIOS, {"default": "1:1 Square (1024x1024)"}),
                 "fit_mode": (cls.FIT_MODES, {"default": "Center Crop"}),
                 "target_base": (cls.RES_PRESETS, {"default": "1024 (Flux / ChromaHD / SDXL)"}),
                 "multiple_of": ([16, 64, 8], {"default": 16}),
             },
             "optional": {
+                "image": ("IMAGE",),
+                "pipe": ("PIPE",),
                 "custom_width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 16}),
                 "custom_height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 16}),
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "INT", "INT", "STRING")
-    RETURN_NAMES = ("image", "width", "height", "aspect_ratio_str")
+    RETURN_TYPES = ("IMAGE", "PIPE", "INT", "INT", "STRING")
+    RETURN_NAMES = ("image", "pipe", "width", "height", "aspect_ratio_str")
     FUNCTION = "resize_image"
     CATEGORY = "Zombiehaus/Utilities"
 
@@ -97,7 +98,13 @@ class ZombiehausSmartResizer:
         h = max(64, (h // mult) * mult)
         return w, h, f"{rw}:{rh}"
 
-    def resize_image(self, image: torch.Tensor, aspect_ratio: str, fit_mode: str, target_base: str, multiple_of: int, custom_width: int = 1024, custom_height: int = 1024):
+    def resize_image(self, aspect_ratio: str, fit_mode: str, target_base: str, multiple_of: int,
+                     image: torch.Tensor = None, pipe=None, custom_width: int = 1024, custom_height: int = 1024):
+        if image is None and pipe is not None:
+            image = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+        if image is None:
+            raise ValueError("[ZombiehausSmartResizer] IMAGE is required (provide via image input or pipe)")
+
         # image is [B, H, W, C]
         b_size, in_h, in_w, in_c = image.shape
         out_w, out_h, ar_str = self._get_target_dims(in_w, in_h, aspect_ratio, target_base, multiple_of, custom_width, custom_height)
@@ -167,7 +174,30 @@ class ZombiehausSmartResizer:
             out_tensors.append(torch.from_numpy(out_np))
 
         final_tensor = torch.stack(out_tensors, dim=0)
-        return (final_tensor, out_w, out_h, ar_str)
+
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["image"] = final_tensor
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    out_pipe[1] if len(out_pipe) > 1 else None,
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    out_pipe[3] if len(out_pipe) > 3 else None,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    out_pipe[5] if len(out_pipe) > 5 else None,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    final_tensor,
+                    out_pipe[8] if len(out_pipe) > 8 else None,
+                    out_pipe[9] if len(out_pipe) > 9 else "",
+                    out_pipe[10] if len(out_pipe) > 10 else "",
+                ))
+
+        return (final_tensor, out_pipe, out_w, out_h, ar_str)
 
 
 class ZombiehausImageScaleDownBy:
@@ -231,7 +261,10 @@ class ZombiehausImageScaleDownBy:
                     out_pipe[4] if len(out_pipe) > 4 else None,
                     out_pipe[5] if len(out_pipe) > 5 else None,
                     out_pipe[6] if len(out_pipe) > 6 else None,
-                    final_images
+                    final_images,
+                    out_pipe[8] if len(out_pipe) > 8 else None,
+                    out_pipe[9] if len(out_pipe) > 9 else "",
+                    out_pipe[10] if len(out_pipe) > 10 else "",
                 ))
 
         return (final_images, out_pipe)

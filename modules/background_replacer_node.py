@@ -126,7 +126,6 @@ class ZombiehausBackgroundReplacer:
         models = scan_segm_models()
         return {
             "required": {
-                "image": ("IMAGE",),
                 "detector_model": (models, {"default": models[0] if models else "yolov8x-seg.pt"}),
                 "detection_confidence": ("FLOAT", {"default": 0.35, "min": 0.1, "max": 0.95, "step": 0.05}),
                 "grow_shrink": ("INT", {"default": 2, "min": -64, "max": 64, "step": 1}),
@@ -135,19 +134,26 @@ class ZombiehausBackgroundReplacer:
                 "relighting_strength": ("FLOAT", {"default": 0.35, "min": 0.0, "max": 1.0, "step": 0.05}),
             },
             "optional": {
+                "image": ("IMAGE",),
+                "pipe": ("PIPE",),
                 "new_background_image": ("IMAGE",),
                 "optional_mask": ("MASK",),
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "MASK", "IMAGE")
-    RETURN_NAMES = ("composite_image", "background_mask", "person_mask", "subject_cutout")
+    RETURN_TYPES = ("IMAGE", "MASK", "MASK", "IMAGE", "PIPE")
+    RETURN_NAMES = ("composite_image", "background_mask", "person_mask", "subject_cutout", "pipe")
     FUNCTION = "replace_background"
     CATEGORY = "Zombiehaus/Image"
 
-    def replace_background(self, image, detector_model, detection_confidence,
+    def replace_background(self, detector_model, detection_confidence,
                            grow_shrink, edge_feather, relighting_mode,
-                           relighting_strength, new_background_image=None, optional_mask=None):
+                           relighting_strength, image=None, pipe=None,
+                           new_background_image=None, optional_mask=None):
+        if image is None and pipe is not None:
+            image = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+        if image is None:
+            raise ValueError("[ZombiehausBackgroundReplacer] IMAGE is required (provide via image input or pipe)")
 
         batch_size = image.shape[0]
         bg_batch_size = new_background_image.shape[0] if new_background_image is not None else 0
@@ -253,4 +259,27 @@ class ZombiehausBackgroundReplacer:
         final_person_mask = torch.cat(out_person_masks, dim=0) if len(out_person_masks) > 1 else out_person_masks[0]
         final_cutout = torch.cat(out_cutouts, dim=0) if len(out_cutouts) > 1 else out_cutouts[0]
 
-        return (final_image, final_bg_mask, final_person_mask, final_cutout)
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["image"] = final_image
+                d["mask"] = final_bg_mask
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    out_pipe[1] if len(out_pipe) > 1 else None,
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    out_pipe[3] if len(out_pipe) > 3 else None,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    out_pipe[5] if len(out_pipe) > 5 else None,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    final_image,
+                    final_bg_mask,
+                    out_pipe[9] if len(out_pipe) > 9 else "",
+                    out_pipe[10] if len(out_pipe) > 10 else "",
+                ))
+
+        return (final_image, final_bg_mask, final_person_mask, final_cutout, out_pipe)

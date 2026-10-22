@@ -194,14 +194,13 @@ class ZombiehausFaceSwap:
     """
     Zombiehaus Face Swapper
     Transfers face likeness from a reference picture onto a target image.
-    Outputs the composite image, full-resolution inpainting mask, and aligned face crop.
+    Outputs the composite image, full-resolution inpainting mask, aligned face crop, and updated pipe.
     """
     @classmethod
     def INPUT_TYPES(cls):
         face_models = scan_face_models()
         return {
             "required": {
-                "target_image": ("IMAGE",),
                 "reference_image": ("IMAGE",),
                 "detector_model": (face_models, {"default": face_models[0] if face_models else "face_yolov8n.pt"}),
                 "detection_confidence": ("FLOAT", {"default": 0.45, "min": 0.1, "max": 0.99, "step": 0.05}),
@@ -212,18 +211,26 @@ class ZombiehausFaceSwap:
                 "context_padding": ("INT", {"default": 16, "min": 0, "max": 64, "step": 4}),
             },
             "optional": {
+                "target_image": ("IMAGE",),
+                "pipe": ("PIPE",),
                 "optional_mask": ("MASK",),
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE")
-    RETURN_NAMES = ("image", "face_mask", "aligned_face")
+    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "PIPE")
+    RETURN_NAMES = ("image", "face_mask", "aligned_face", "pipe")
     FUNCTION = "swap_face"
     CATEGORY = "Zombiehaus/Image"
 
-    def swap_face(self, target_image, reference_image, detector_model,
+    def swap_face(self, reference_image, detector_model,
                   detection_confidence, target_face_index, color_match,
-                  face_scale, blend_feather, context_padding, optional_mask=None):
+                  face_scale, blend_feather, context_padding,
+                  target_image=None, pipe=None, optional_mask=None):
+        if target_image is None and pipe is not None:
+            target_image = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+        if target_image is None:
+            raise ValueError("[ZombiehausFaceSwap] TARGET_IMAGE is required (provide via target_image input or pipe)")
+
         batch_size = target_image.shape[0]
         ref_batch_size = reference_image.shape[0]
 
@@ -313,4 +320,27 @@ class ZombiehausFaceSwap:
         final_mask = torch.cat(out_masks, dim=0) if len(out_masks) > 1 else out_masks[0]
         final_aligned = torch.cat(aligned_faces, dim=0) if len(aligned_faces) > 1 else aligned_faces[0]
 
-        return (final_image, final_mask, final_aligned)
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["image"] = final_image
+                d["mask"] = final_mask
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    out_pipe[1] if len(out_pipe) > 1 else None,
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    out_pipe[3] if len(out_pipe) > 3 else None,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    out_pipe[5] if len(out_pipe) > 5 else None,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    final_image,
+                    final_mask,
+                    out_pipe[9] if len(out_pipe) > 9 else "",
+                    out_pipe[10] if len(out_pipe) > 10 else "",
+                ))
+
+        return (final_image, final_mask, final_aligned, out_pipe)

@@ -29,11 +29,12 @@ The **Zombiehaus Smart Resizer** (`ZombiehausSmartResizer`) prepares arbitrary i
 
 ## Inputs
 
-- **image** (IMAGE): Source image or batch.
 - **aspect_ratio** (COMBO): Target ratio preset.
 - **fit_mode** (COMBO): Cropping or padding strategy.
 - **target_base** (COMBO): Resolution tier (`1024`, `768`, or `512`).
 - **multiple_of** (COMBO): `16` (standard) or `64` (strict VAE compatibility).
+- **image** (IMAGE, optional): Source image or batch. Can be extracted from `pipe` if not connected.
+- **pipe** (PIPE, optional): Incoming Zombiehaus PIPE bus.
 - **custom_width** / **custom_height** (INT, optional): Used when `Custom Resolution` is selected.
 
 ## Outputs
@@ -41,6 +42,7 @@ The **Zombiehaus Smart Resizer** (`ZombiehausSmartResizer`) prepares arbitrary i
 | Output | Type | Description |
 |---|---|---|
 | `image` | IMAGE | Formatted, scaled image |
+| `pipe` | PIPE | Outgoing Zombiehaus PIPE carrying the formatted image |
 | `width` | INT | Computed pixel width |
 | `height` | INT | Computed pixel height |
 | `aspect_ratio_str` | STRING | Label (e.g. `16:9` or `1:1`) |

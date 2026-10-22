@@ -42,12 +42,12 @@ class ZombiehausControlNetApply:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
                 "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.01}),
                 "start_percent": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "end_percent": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
             },
             "optional": {
+                "image": ("IMAGE",),
                 "control_net": ("CONTROL_NET",),
                 "pipe": ("PIPE",),
                 "positive": ("CONDITIONING",),
@@ -60,10 +60,15 @@ class ZombiehausControlNetApply:
     FUNCTION = "apply_controlnet"
     CATEGORY = "Zombiehaus/Conditioning"
 
-    def apply_controlnet(self, image, strength, start_percent, end_percent,
-                         control_net=None, pipe=None, positive=None, negative=None):
+    def apply_controlnet(self, strength, start_percent, end_percent,
+                         image=None, control_net=None, pipe=None, positive=None, negative=None):
 
-        # Extract conditioning and components from pipe if present
+        # Extract image and conditioning from pipe if present
+        if image is None and pipe is not None:
+            image = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+        if image is None:
+            raise ValueError("[Zombiehaus ControlNet Apply] IMAGE is required (provide directly or via pipe).")
+
         model = None
         clip = None
         vae = None
@@ -79,7 +84,7 @@ class ZombiehausControlNetApply:
 
         # Bypass if control_net is not provided or strength is 0
         if control_net is None or strength <= 0.0:
-            out_pipe = (model, clip, vae, positive, negative) if pipe is not None else None
+            out_pipe = pipe
             return (positive, negative, out_pipe)
 
         # Apply controlnet to positive conditioning
@@ -94,7 +99,30 @@ class ZombiehausControlNetApply:
             pos_out.append([t[0], d])
 
         neg_out = negative
-        out_pipe = (model, clip, vae, pos_out, neg_out) if pipe is not None else None
+
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["positive"] = pos_out
+                d["negative"] = neg_out
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else model,
+                    out_pipe[1] if len(out_pipe) > 1 else clip,
+                    out_pipe[2] if len(out_pipe) > 2 else vae,
+                    pos_out,
+                    neg_out,
+                    out_pipe[5] if len(out_pipe) > 5 else None,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    out_pipe[7] if len(out_pipe) > 7 else image,
+                    out_pipe[8] if len(out_pipe) > 8 else None,
+                    out_pipe[9] if len(out_pipe) > 9 else "",
+                    out_pipe[10] if len(out_pipe) > 10 else "",
+                ))
+
         return (pos_out, neg_out, out_pipe)
 
 
@@ -147,6 +175,9 @@ class ZombiehausControlNetAllInOne:
                          image=None, pipe=None, positive=None, negative=None,
                          low_threshold=100, high_threshold=200):
         # Extract components from pipe
+        if image is None and pipe is not None:
+            image = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+
         model = None
         clip = None
         vae = None
@@ -185,7 +216,7 @@ class ZombiehausControlNetAllInOne:
         )
 
         if is_bypass:
-            out_pipe = (model, clip, vae, positive, negative) if pipe is not None else None
+            out_pipe = pipe
             return (out_pipe, positive, negative, hint_image if hint_image is not None else image)
 
         # Load / retrieve ControlNet model from cache
@@ -205,5 +236,29 @@ class ZombiehausControlNetAllInOne:
             d["control_apply_to_uncond"] = False
             pos_out.append([t[0], d])
 
-        out_pipe = (model, clip, vae, pos_out, negative) if pipe is not None else None
-        return (out_pipe, pos_out, negative, hint_image)
+        neg_out = negative
+
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["positive"] = pos_out
+                d["negative"] = neg_out
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else model,
+                    out_pipe[1] if len(out_pipe) > 1 else clip,
+                    out_pipe[2] if len(out_pipe) > 2 else vae,
+                    pos_out,
+                    neg_out,
+                    out_pipe[5] if len(out_pipe) > 5 else None,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    out_pipe[7] if len(out_pipe) > 7 else hint_image,
+                    out_pipe[8] if len(out_pipe) > 8 else None,
+                    out_pipe[9] if len(out_pipe) > 9 else "",
+                    out_pipe[10] if len(out_pipe) > 10 else "",
+                ))
+
+        return (out_pipe, pos_out, neg_out, hint_image)

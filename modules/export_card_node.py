@@ -54,7 +54,6 @@ class ZombiehausExportCard:
 
         return {
             "required": {
-                "images": ("IMAGE",),
                 "filename_prefix": ("STRING", {"default": "Zombiehaus"}),
                 "clean_metadata": ("BOOLEAN", {"default": True}),
                 "watermark_text": ("STRING", {"default": ""}),
@@ -63,6 +62,8 @@ class ZombiehausExportCard:
                 "burn_recipe_banner": ("BOOLEAN", {"default": False}),
             },
             "optional": {
+                "images": ("IMAGE",),
+                "pipe": ("PIPE",),
                 "prompt_text": ("STRING", {"multiline": True, "forceInput": True}),
                 "negative_text": ("STRING", {"multiline": True, "forceInput": True}),
                 "model_name": ("STRING", {"default": ""}),
@@ -74,16 +75,36 @@ class ZombiehausExportCard:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING")
-    RETURN_NAMES = ("exported_image", "clean_prompt")
+    RETURN_TYPES = ("IMAGE", "STRING", "PIPE")
+    RETURN_NAMES = ("exported_image", "clean_prompt", "pipe")
     FUNCTION = "export_image"
     OUTPUT_NODE = True
     CATEGORY = "Zombiehaus/Image"
 
-    def export_image(self, images, filename_prefix, clean_metadata,
+    def export_image(self, filename_prefix, clean_metadata,
                      watermark_text, watermark_position, watermark_opacity,
-                     burn_recipe_banner, prompt_text="", negative_text="",
+                     burn_recipe_banner, images=None, pipe=None, prompt_text="", negative_text="",
                      model_name="", seed=0, prompt=None, extra_pnginfo=None):
+        if images is None and pipe is not None:
+            images = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+        if images is None:
+            raise ValueError("[ZombiehausExportCard] IMAGES is required (provide via images input or pipe)")
+
+        if not prompt_text and pipe is not None:
+            if isinstance(pipe, dict):
+                prompt_text = pipe.get("positive_text") or pipe.get("text") or pipe.get("prompt") or ""
+            elif len(pipe) > 9 and isinstance(pipe[9], str):
+                prompt_text = pipe[9]
+        if not negative_text and pipe is not None:
+            if isinstance(pipe, dict):
+                negative_text = pipe.get("negative_text") or pipe.get("negative_prompt") or ""
+            elif len(pipe) > 10 and isinstance(pipe[10], str):
+                negative_text = pipe[10]
+
+        if seed == 0 and pipe is not None:
+            pipe_seed = pipe.get("seed") if isinstance(pipe, dict) else (pipe[5] if len(pipe) > 5 else None)
+            if pipe_seed is not None and int(pipe_seed) > 0:
+                seed = int(pipe_seed)
 
         output_dir = folder_paths.get_output_directory()
         results = []
@@ -153,4 +174,27 @@ class ZombiehausExportCard:
             results.append(pil_to_tensor(img_pil))
 
         final_tensor = torch.cat(results, dim=0) if len(results) > 1 else results[0]
-        return (final_tensor, clean_p)
+
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["image"] = final_tensor
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    out_pipe[1] if len(out_pipe) > 1 else None,
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    out_pipe[3] if len(out_pipe) > 3 else None,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    out_pipe[5] if len(out_pipe) > 5 else None,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    final_tensor,
+                    out_pipe[8] if len(out_pipe) > 8 else None,
+                    out_pipe[9] if len(out_pipe) > 9 else "",
+                    out_pipe[10] if len(out_pipe) > 10 else "",
+                ))
+
+        return (final_tensor, clean_p, out_pipe)

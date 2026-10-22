@@ -21,21 +21,30 @@ class ZombiehausImagePreprocessor:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
                 "preprocessor": (cls.PREPROCESSORS, {"default": "Canny Edge"}),
                 "low_threshold": ("INT", {"default": 100, "min": 0, "max": 255, "step": 1}),
                 "high_threshold": ("INT", {"default": 200, "min": 0, "max": 255, "step": 1}),
                 "blur_radius": ("FLOAT", {"default": 4.0, "min": 0.0, "max": 64.0, "step": 0.5}),
                 "invert": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {
+                "image": ("IMAGE",),
+                "pipe": ("PIPE",),
             }
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image",)
+    RETURN_TYPES = ("IMAGE", "PIPE")
+    RETURN_NAMES = ("image", "pipe")
     FUNCTION = "preprocess_image"
     CATEGORY = "Zombiehaus/Conditioning"
 
-    def preprocess_image(self, image: torch.Tensor, preprocessor: str, low_threshold: int, high_threshold: int, blur_radius: float, invert: bool):
+    def preprocess_image(self, preprocessor: str, low_threshold: int, high_threshold: int,
+                         blur_radius: float, invert: bool, image: torch.Tensor = None, pipe=None):
+        if image is None and pipe is not None:
+            image = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+        if image is None:
+            raise ValueError("[ZombiehausImagePreprocessor] IMAGE is required (provide via image input or pipe)")
+
         # image is [B, H, W, C] float32 in [0, 1]
         out_tensors = []
 
@@ -128,7 +137,30 @@ class ZombiehausImagePreprocessor:
             out_tensors.append(out_tensor)
 
         final_batch = torch.stack(out_tensors, dim=0)
-        return (final_batch,)
+
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["image"] = final_batch
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    out_pipe[1] if len(out_pipe) > 1 else None,
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    out_pipe[3] if len(out_pipe) > 3 else None,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    out_pipe[5] if len(out_pipe) > 5 else None,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    final_batch,
+                    out_pipe[8] if len(out_pipe) > 8 else None,
+                    out_pipe[9] if len(out_pipe) > 9 else "",
+                    out_pipe[10] if len(out_pipe) > 10 else "",
+                ))
+
+        return (final_batch, out_pipe)
 
 NODE_CLASS_MAPPINGS = {
     "ZombiehausImagePreprocessor": ZombiehausImagePreprocessor,

@@ -353,7 +353,6 @@ class ZombiehausRestormer:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
                 "model_file": (_get_model_files(),),
                 "task": (_TASKS,),
                 "tile_size": ("INT", {"default": 256, "min": 0, "max": 2048, "step": 8,
@@ -362,14 +361,16 @@ class ZombiehausRestormer:
                                          "tooltip": "Overlap between adjacent tiles for seam blending."}),
             },
             "optional": {
+                "image": ("IMAGE",),
+                "pipe": ("PIPE",),
                 "blend": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05, "round": 0.01,
                                     "tooltip": "Blend between original input (0.0) and restored image (1.0)."}),
                 "mask": ("MASK", {"tooltip": "Optional mask to limit restoration to specific regions."}),
             }
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image",)
+    RETURN_TYPES = ("IMAGE", "PIPE")
+    RETURN_NAMES = ("image", "pipe")
     FUNCTION = "restore"
     CATEGORY = "Zombiehaus/Restoration"
 
@@ -477,22 +478,28 @@ class ZombiehausRestormer:
 
     # ── Main entry point ──────────────────────────────────────────────────────
 
-    def restore(self, image, model_file, task, tile_size, tile_overlap, blend=1.0, mask=None):
+    def restore(self, model_file, task, tile_size, tile_overlap, image=None, blend=1.0, mask=None, pipe=None):
         """
         Restore the image.
 
         Args:
-            image:        [B, H, W, C] float32 in [0, 1]
             model_file:   .pth filename from models/restormer/
             task:         restoration task name
             tile_size:    tile edge length (0 = full image)
             tile_overlap: overlap in pixels for tile blending
+            image:        optional [B, H, W, C] float32 in [0, 1] (or extracted from pipe)
             blend:        linear interpolation weight between input (0.0) and restored (1.0)
             mask:         optional [H, W] or [B, H, W] mask tensor
+            pipe:         optional PIPE bus carrying (model, clip, vae, pos, neg, seed, latent, image, mask, ...)
 
         Returns:
-            ([B, H, W, C] float32,)
+            ([B, H, W, C] float32, updated pipe)
         """
+        if image is None and pipe is not None:
+            image = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+        if image is None:
+            raise ValueError("[Zombiehaus Restormer] IMAGE is required (provide via image input or pipe)")
+
         if model_file.startswith("--"):
             raise ValueError(
                 "[Zombiehaus Restormer] No model files available. "
@@ -541,7 +548,30 @@ class ZombiehausRestormer:
                     out = torch.lerp(orig, out, float(blend))
 
         out = torch.clamp(out, 0.0, 1.0)
-        return (out,)
+
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["image"] = out
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    out_pipe[1] if len(out_pipe) > 1 else None,
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    out_pipe[3] if len(out_pipe) > 3 else None,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    out_pipe[5] if len(out_pipe) > 5 else None,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    out,
+                    out_pipe[8] if len(out_pipe) > 8 else None,
+                    out_pipe[9] if len(out_pipe) > 9 else "",
+                    out_pipe[10] if len(out_pipe) > 10 else "",
+                ))
+
+        return (out, out_pipe)
 
 
 NODE_CLASS_MAPPINGS = {

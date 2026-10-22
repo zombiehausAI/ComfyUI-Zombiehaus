@@ -53,6 +53,7 @@ class ZombiehausGlamourController:
                 "muscle_tone": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 5.0, "step": 0.1}),
             },
             "optional": {
+                "pipe": ("PIPE",),
                 "base_positive": ("STRING", {"multiline": True, "default": ""}),
                 "base_negative": ("STRING", {"multiline": True, "default": ""}),
             }
@@ -63,14 +64,16 @@ class ZombiehausGlamourController:
         "STRING", "FLOAT",  # eyes_prompt, eyes_denoise
         "STRING", "FLOAT",  # chest_prompt, chest_denoise
         "STRING", "FLOAT",  # hips_prompt, hips_denoise
-        "STRING", "STRING"   # master_positive, master_negative
+        "STRING", "STRING",  # master_positive, master_negative
+        "PIPE"
     )
     RETURN_NAMES = (
         "face_prompt", "face_denoise",
         "eyes_prompt", "eyes_denoise",
         "chest_prompt", "chest_denoise",
         "hips_prompt", "hips_denoise",
-        "master_positive", "master_negative"
+        "master_positive", "master_negative",
+        "pipe"
     )
     FUNCTION = "generate_sculpt_controls"
     CATEGORY = "Zombiehaus/Detailing"
@@ -78,7 +81,17 @@ class ZombiehausGlamourController:
     def generate_sculpt_controls(self, age_shift, ethnicity, smile_intensity, skin_glow,
                                  hair_color, eye_color, breasts_scale, waist_cinch,
                                  hips_and_butt, thigh_thickness, muscle_tone,
-                                 base_positive="", base_negative=""):
+                                 pipe=None, base_positive="", base_negative=""):
+        if not base_positive and pipe is not None:
+            if isinstance(pipe, dict):
+                base_positive = pipe.get("positive_text") or pipe.get("text") or pipe.get("prompt") or ""
+            elif len(pipe) > 9 and isinstance(pipe[9], str):
+                base_positive = pipe[9]
+        if not base_negative and pipe is not None:
+            if isinstance(pipe, dict):
+                base_negative = pipe.get("negative_text") or pipe.get("negative_prompt") or ""
+            elif len(pipe) > 10 and isinstance(pipe[10], str):
+                base_negative = pipe[10]
 
         # ------------------------------------------------------------------
         # 1. Face & Identity Slot
@@ -264,10 +277,34 @@ class ZombiehausGlamourController:
         )
         master_negative = neg_base
 
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["positive_text"] = master_positive
+                d["negative_text"] = master_negative
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    out_pipe[1] if len(out_pipe) > 1 else None,
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    out_pipe[3] if len(out_pipe) > 3 else None,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    out_pipe[5] if len(out_pipe) > 5 else None,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    out_pipe[7] if len(out_pipe) > 7 else None,
+                    out_pipe[8] if len(out_pipe) > 8 else None,
+                    master_positive,
+                    master_negative,
+                ))
+
         return (
             face_prompt, face_denoise,
             eyes_prompt, eyes_denoise,
             chest_prompt, chest_denoise,
             hips_prompt, hips_denoise,
-            master_positive, master_negative
+            master_positive, master_negative,
+            out_pipe
         )

@@ -39,6 +39,8 @@ class ZombiehausMultiCLIPTextEncode:
                 "flux_guidance": ("FLOAT", {"default": 3.5, "min": 0.0, "max": 100.0, "step": 0.1}),
             },
             "optional": {
+                # Optional pipe
+                "pipe": ("PIPE",),
                 # Optional CLIP inputs from model loader
                 "clip1": ("CLIP",),
                 "clip2": ("CLIP",),
@@ -50,8 +52,8 @@ class ZombiehausMultiCLIPTextEncode:
             }
         }
     
-    RETURN_TYPES = ("CONDITIONING",)
-    RETURN_NAMES = ("conditioning",)
+    RETURN_TYPES = ("CONDITIONING", "PIPE")
+    RETURN_NAMES = ("conditioning", "pipe")
     FUNCTION = "encode_text"
     CATEGORY = "Zombiehaus/Conditioning"
     OUTPUT_NODE = False
@@ -59,7 +61,9 @@ class ZombiehausMultiCLIPTextEncode:
     def encode_text(self, text_clip1, text_clip2, text_clip3, text_clip4,
                    enable_clip1, enable_clip2, enable_clip3, enable_clip4,
                    use_flux_guidance, flux_guidance,
-                   clip1=None, clip2=None, clip3=None, clip4=None, clip_merged=None):
+                   pipe=None, clip1=None, clip2=None, clip3=None, clip4=None, clip_merged=None):
+        if clip1 is None and pipe is not None:
+            clip1 = pipe.get("clip") if isinstance(pipe, dict) else (pipe[1] if len(pipe) > 1 else None)
         """
         Encode text using multiple CLIP models and combine the conditioning.
         """
@@ -143,7 +147,29 @@ class ZombiehausMultiCLIPTextEncode:
                 traceback.print_exc()
         
         
-        return (final_conditioning,)
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["positive"] = final_conditioning
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    clip1 if clip1 is not None else (out_pipe[1] if len(out_pipe) > 1 else None),
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    final_conditioning,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    out_pipe[5] if len(out_pipe) > 5 else None,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    out_pipe[7] if len(out_pipe) > 7 else None,
+                    out_pipe[8] if len(out_pipe) > 8 else None,
+                    out_pipe[9] if len(out_pipe) > 9 else "",
+                    out_pipe[10] if len(out_pipe) > 10 else "",
+                ))
+
+        return (final_conditioning, out_pipe)
     
     def _merge_conditionings(self, conditionings):
         """

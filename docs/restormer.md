@@ -23,19 +23,21 @@ Each task has its own pretrained model — make sure to select the matching `tas
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `image` | IMAGE | — | Input image tensor `[B, H, W, C]` in `[0, 1]` |
 | `model_file` | dropdown | — | `.pth` file from `models/restormer/` |
 | `task` | dropdown | `Motion_Deblurring` | Restoration task — must match the loaded model |
 | `tile_size` | INT | 256 | Tile edge length in pixels. **0 = full image** (no tiling). Use tiling for large images that don't fit in VRAM. |
 | `tile_overlap` | INT | 32 | Pixel overlap between adjacent tiles. Larger values reduce seam artifacts at the cost of extra computation. |
+| `image` | IMAGE *(optional)* | — | Input image tensor `[B, H, W, C]` in `[0, 1]`. Optional if connected via `pipe`. |
+| `pipe` | PIPE *(optional)* | — | Incoming Zombiehaus PIPE. If `image` is not wired directly, the node extracts the image from `pipe`. |
 | `blend` | FLOAT *(optional)* | 1.0 | Blending factor between original input (0.0) and restored output (1.0). Use values like 0.20–0.50 to preserve organic skin texture while reducing blur. |
 | `mask` | MASK *(optional)* | — | Optional mask tensor `[H, W]` or `[B, H, W]` to confine restoration strictly to masked regions. |
 
-## Output
+## Outputs
 
 | Output | Type | Description |
 |--------|------|-------------|
 | `image` | IMAGE | Restored image, same shape as input |
+| `pipe` | PIPE | Outgoing Zombiehaus PIPE carrying the restored image while preserving all other bus components (model, clip, vae, prompts, seed, latent, mask) |
 
 ## Tips
 

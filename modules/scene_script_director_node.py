@@ -61,14 +61,14 @@ class ZombiehausSceneScriptDirector:
         return {
             "required": {
                 "pipe": ("PIPE",),
-                "script": ("STRING", {"forceInput": True}),
                 "default_lora_strength": ("FLOAT", {"default": 0.85, "min": 0.0, "max": 2.0, "step": 0.05}),
-                "default_overlap_blend": ("FLOAT", {"default": 0.25, "min": 0.05, "max": 0.60, "step": 0.05}),
+                "default_overlap_blend": ("FLOAT", {"default": 0.25, "min": 0.0, "max": 2.0, "step": 0.05}),
             },
             "optional": {
+                "script": ("STRING", {"forceInput": True}),
                 "script_input": ("STRING", {"forceInput": True}),
-                "mask_width": ("INT", {"default": 128, "min": 64, "max": 256, "step": 8}),
-                "mask_height": ("INT", {"default": 128, "min": 64, "max": 256, "step": 8}),
+                "mask_width": ("INT", {"default": 128, "min": 0, "max": 4096, "step": 8}),
+                "mask_height": ("INT", {"default": 128, "min": 0, "max": 4096, "step": 8}),
             }
         }
 
@@ -191,6 +191,8 @@ class ZombiehausSceneScriptDirector:
         Generate smooth spatial attention mask for a persona.
         Supports explicit 'box: x1, y1, x2, y2' or automatic overlapping column staging.
         """
+        w = 128 if not w or w <= 0 else int(w)
+        h = 128 if not h or h <= 0 else int(h)
         mask = np.zeros((h, w), dtype=np.float32)
 
         # Check for explicit bounding box: "box: x1, y1, x2, y2"

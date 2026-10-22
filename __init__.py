@@ -55,6 +55,8 @@ from .modules.persona_interact_node import ZombiehausPersonaInteract
 from .modules.dual_persona_director_node import ZombiehausDualPersonaDirector
 from .modules.scene_script_director_node import ZombiehausSceneScriptDirector
 from .modules.pipe_bus_node import ZombiehausPipeBus
+from .modules.studio_node import ZombiehausStudio
+from .modules.script_studio_node import ZombiehausScriptStudio
 from .modules.model_scryer_node import (
     ZombiehausModelScryer,
     inspect_safetensors_file,
@@ -141,6 +143,106 @@ async def ollama_status(request):
         "tested_url": ollama_url,
         "error": last_error
     })
+
+@server.PromptServer.instance.routes.get("/zombiehaus/studio/profiles")
+async def get_studio_profiles_api(request):
+    """API endpoint to list all available studio model profiles."""
+    try:
+        from .modules.studio_node import list_studio_profiles, load_profile_data
+        names = list_studio_profiles()
+        profiles = []
+        for name in names:
+            profiles.append({
+                "name": name,
+                "data": load_profile_data(name)
+            })
+        return web.json_response({"success": True, "profiles": profiles})
+    except Exception as e:
+        return web.json_response({"success": False, "message": str(e)})
+
+@server.PromptServer.instance.routes.post("/zombiehaus/studio/profiles/save")
+async def save_studio_profile_api(request):
+    """API endpoint to save a studio model profile."""
+    try:
+        from .modules.studio_node import get_studio_profiles_dir
+        body = await request.json()
+        name = body.get("name", "").strip()
+        data = body.get("data", {})
+        if not name:
+            return web.json_response({"success": False, "message": "Profile name is required"})
+
+        clean_name = re.sub(r'[\\/*?:"<>|]', "", name)
+        p_dir = get_studio_profiles_dir()
+        p_file = os.path.join(p_dir, f"{clean_name}.json")
+        with open(p_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        return web.json_response({"success": True, "name": clean_name})
+    except Exception as e:
+        return web.json_response({"success": False, "message": str(e)})
+
+@server.PromptServer.instance.routes.post("/zombiehaus/studio/profiles/delete")
+async def delete_studio_profile_api(request):
+    """API endpoint to delete a studio model profile."""
+    try:
+        from .modules.studio_node import get_studio_profiles_dir
+        body = await request.json()
+        name = body.get("name", "").strip()
+        if not name:
+            return web.json_response({"success": False, "message": "Profile name is required"})
+
+        clean_name = re.sub(r'[\\/*?:"<>|]', "", name)
+        p_dir = get_studio_profiles_dir()
+        p_file = os.path.join(p_dir, f"{clean_name}.json")
+        if os.path.isfile(p_file):
+            os.remove(p_file)
+            return web.json_response({"success": True, "deleted": clean_name})
+        return web.json_response({"success": False, "message": "Profile not found or is built-in"})
+    except Exception as e:
+        return web.json_response({"success": False, "message": str(e)})
+
+@server.PromptServer.instance.routes.get("/zombiehaus/studio")
+async def serve_studio_page(request):
+    """Serve the standalone Zombiehaus Studio web interface."""
+    html_path = os.path.join(os.path.dirname(__file__), "web", "studio", "index.html")
+    if os.path.isfile(html_path):
+        return web.FileResponse(html_path)
+    return web.Response(text="Zombiehaus Studio index.html not found", status=404)
+
+@server.PromptServer.instance.routes.get("/zombiehaus/studio/models")
+async def get_studio_models_api(request):
+    """Return all installed checkpoints, diffusion models, vaes, clips, loras, upscalers, samplers, and schedulers."""
+    try:
+        import folder_paths
+        import comfy.samplers
+
+        def safe_list(folder_type):
+            try:
+                return folder_paths.get_filename_list(folder_type) or []
+            except Exception:
+                return []
+
+        checkpoints = ["None"] + safe_list("checkpoints")
+        unets = ["None"] + safe_list("diffusion_models")
+        vaes = ["None"] + safe_list("vae")
+        clips = ["disabled"] + safe_list("clip")
+        loras = ["None"] + safe_list("loras")
+        upscalers = ["None"] + safe_list("upscale_models")
+        samplers = list(comfy.samplers.KSampler.SAMPLERS)
+        schedulers = list(comfy.samplers.KSampler.SCHEDULERS)
+
+        return web.json_response({
+            "success": True,
+            "checkpoints": checkpoints,
+            "unets": unets,
+            "vaes": vaes,
+            "clips": clips,
+            "loras": loras,
+            "upscalers": upscalers,
+            "samplers": samplers,
+            "schedulers": schedulers
+        })
+    except Exception as e:
+        return web.json_response({"success": False, "message": str(e)})
 
 @server.PromptServer.instance.routes.post("/zombiehaus/enhance_prompt")
 async def enhance_prompt(request):
@@ -1868,6 +1970,9 @@ NODE_CLASS_MAPPINGS = {
     "ZombiehausSceneScriptDirector": ZombiehausSceneScriptDirector,
     "ZombiehausPipeBus": ZombiehausPipeBus,
     "ZombiehausModelScryer": ZombiehausModelScryer,
+    "ZombiehausStudio": ZombiehausStudio,
+    "ZombiehausChromaStudio": ZombiehausStudio,
+    "ZombiehausScriptStudio": ZombiehausScriptStudio,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1933,6 +2038,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZombiehausSceneScriptDirector": "Zombiehaus Scene Script Director (N-Persona)",
     "ZombiehausPipeBus": "Zombiehaus Pipe Bus (Distribution)",
     "ZombiehausModelScryer": "Zombiehaus Model Scryer (WeightScryer)",
+    "ZombiehausStudio": "Zombiehaus Studio",
+    "ZombiehausChromaStudio": "Zombiehaus Studio (Legacy)",
+    "ZombiehausScriptStudio": "Zombiehaus Script Studio",
 }
 
 WEB_DIRECTORY = "./web"

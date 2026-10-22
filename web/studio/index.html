@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zombiehaus Studio — Unified Creative Workstation</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%3E%3Ctext y=%2226%22 font-size=%2224%22>🧟</text></svg>">
+    <link rel="stylesheet" href="/extensions/ComfyUI-Zombiehaus/studio/studio.css">
+    <link rel="stylesheet" href="studio.css">
+</head>
+<body class="zh-studio-body">
+    <!-- Top Workstation Bar -->
+    <header class="zh-app-header">
+        <div class="zh-brand">
+            <span class="zh-brand-icon">🧟</span>
+            <div class="zh-brand-text">
+                <span class="zh-brand-name">ZOMBIEHAUS</span>
+                <span class="zh-brand-sub">STUDIO</span>
+            </div>
+        </div>
+
+        <!-- Mode Switcher -->
+        <div class="zh-mode-switcher">
+            <button id="mode-btn-screenplay" class="zh-mode-btn active" data-mode="screenplay">
+                <span class="zh-mode-icon">🎬</span>
+                <span>Screenplay Director</span>
+            </button>
+            <button id="mode-btn-prompt" class="zh-mode-btn" data-mode="prompt">
+                <span class="zh-mode-icon">✍️</span>
+                <span>Prompt Studio</span>
+            </button>
+        </div>
+
+        <!-- Profile Preset Controls -->
+        <div class="zh-profile-rack">
+            <label class="zh-profile-label">Profile:</label>
+            <select id="profile-select" class="zh-select zh-profile-dropdown">
+                <option value="Chroma 1-HD Photoreal">Chroma 1-HD Photoreal</option>
+            </select>
+            <button id="btn-save-profile" class="zh-btn zh-btn-subtle" title="Save current setup as a new profile">💾 Save</button>
+            <button id="btn-delete-profile" class="zh-btn zh-btn-danger" title="Delete current custom profile">🗑️</button>
+        </div>
+
+        <!-- Connection & Action Controls -->
+        <div class="zh-action-rack">
+            <div id="connection-pill" class="zh-status-pill connected">
+                <span class="zh-status-dot"></span>
+                <span id="connection-text">Connected</span>
+            </div>
+            <button id="btn-interrupt" class="zh-btn zh-btn-danger zh-btn-interrupt" style="display: none;">🛑 Stop</button>
+            <button id="btn-generate" class="zh-btn zh-btn-generate">
+                <span class="zh-gen-icon">⚡</span>
+                <span class="zh-gen-text">GENERATE</span>
+                <span class="zh-gen-shortcut">Ctrl+↵</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main 3-Column Studio Cockpit -->
+    <main class="zh-cockpit">
+        <!-- ── COLUMN 1: ENGINE & MODELS ────────────────────────── -->
+        <aside class="zh-column zh-col-engine">
+            <div class="zh-panel-header">
+                <span class="zh-panel-title">🎛️ Engine & Models</span>
+                <span id="badge-arch" class="zh-badge zh-badge-cyan">CHROMA</span>
+            </div>
+            
+            <div class="zh-column-scroll">
+                <!-- Model Loader Card -->
+                <section class="zh-card">
+                    <div class="zh-card-title">Base Model & Architecture</div>
+                    <div class="zh-field">
+                        <label>Architecture</label>
+                        <select id="engine-architecture" class="zh-select">
+                            <option value="chroma">Chroma (16-ch DiT)</option>
+                            <option value="flux">FLUX.1 (16-ch)</option>
+                            <option value="sdxl">SDXL (4-ch)</option>
+                            <option value="pony">Pony Diffusion (SDXL)</option>
+                            <option value="sd15">SD 1.5 (4-ch)</option>
+                            <option value="sd3">SD3 / SD3.5 (16-ch)</option>
+                        </select>
+                    </div>
+                    <div class="zh-field">
+                        <label>Checkpoint</label>
+                        <select id="engine-checkpoint" class="zh-select">
+                            <option value="None">None (Use UNet)</option>
+                        </select>
+                    </div>
+                    <div class="zh-field">
+                        <label>UNet / Diffusion Model</label>
+                        <select id="engine-unet" class="zh-select">
+                            <option value="None">None (Use Checkpoint)</option>
+                        </select>
+                    </div>
+                    <div class="zh-field-row">
+                        <div class="zh-field flex-1">
+                            <label>Weight Dtype</label>
+                            <select id="engine-dtype" class="zh-select">
+                                <option value="default">default</option>
+                                <option value="fp8_e4m3fn">fp8_e4m3fn</option>
+                                <option value="fp8_e5m2">fp8_e5m2</option>
+                            </select>
+                        </div>
+                        <div class="zh-field flex-1">
+                            <label>CLIP Type</label>
+                            <select id="engine-clip-type" class="zh-select">
+                                <option value="flux2">flux2 (T5+CLIP-L)</option>
+                                <option value="flux">flux</option>
+                                <option value="sdxl">sdxl</option>
+                                <option value="sd3">sd3</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="zh-field">
+                        <label>CLIP Model</label>
+                        <select id="engine-clip-name" class="zh-select">
+                            <option value="disabled">disabled (From Checkpoint)</option>
+                        </select>
+                    </div>
+                    <div class="zh-field">
+                        <label>VAE Model</label>
+                        <select id="engine-vae" class="zh-select">
+                            <option value="None">None (From Checkpoint)</option>
+                        </select>
+                    </div>
+                </section>
+
+                <!-- LoRA Rack Card -->
+                <section class="zh-card">
+                    <div class="zh-card-title">Base LoRA Rack</div>
+                    <div class="zh-field">
+                        <label>LoRA Slot 1</label>
+                        <select id="engine-lora1-name" class="zh-select">
+                            <option value="None">None</option>
+                        </select>
+                        <div class="zh-slider-wrap">
+                            <input id="engine-lora1-strength" type="range" min="-2" max="2" step="0.05" value="1.0" class="zh-slider">
+                            <span id="val-lora1-strength" class="zh-slider-val">1.00</span>
+                        </div>
+                    </div>
+                    <div class="zh-field">
+                        <label>LoRA Slot 2</label>
+                        <select id="engine-lora2-name" class="zh-select">
+                            <option value="None">None</option>
+                        </select>
+                        <div class="zh-slider-wrap">
+                            <input id="engine-lora2-strength" type="range" min="-2" max="2" step="0.05" value="1.0" class="zh-slider">
+                            <span id="val-lora2-strength" class="zh-slider-val">1.00</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Flow Dynamics Card -->
+                <section class="zh-card">
+                    <div class="zh-card-title">Flow Dynamics & Conditioning</div>
+                    <div class="zh-field">
+                        <div class="zh-label-row">
+                            <label>Chroma / Flow Shift</label>
+                            <span id="val-chroma-shift" class="zh-slider-val">3.0</span>
+                        </div>
+                        <input id="engine-chroma-shift" type="range" min="1.0" max="6.0" step="0.1" value="3.0" class="zh-slider">
+                    </div>
+                    <div class="zh-field">
+                        <div class="zh-label-row">
+                            <label>Dynamic Guidance</label>
+                            <span id="val-guidance" class="zh-slider-val">3.5</span>
+                        </div>
+                        <input id="engine-guidance" type="range" min="1.0" max="10.0" step="0.5" value="3.5" class="zh-slider">
+                    </div>
+                </section>
+            </div>
+        </aside>
+
+        <!-- ── COLUMN 2: CREATIVE WORKSPACE (DIRECTOR / PROMPT) ──── -->
+        <section class="zh-column zh-col-creative">
+            <!-- Screenplay Director View -->
+            <div id="view-screenplay" class="zh-view active">
+                <div class="zh-panel-header">
+                    <span class="zh-panel-title">🎬 Screenplay Director</span>
+                    <div class="zh-quick-tags">
+                        <button class="zh-tag-chip" data-insert="[SCENE] cinematic lighting, photorealistic 8k, bokeh background\n">Scene</button>
+                        <button class="zh-tag-chip" data-insert="[PERSONA 1: Left] $women.Amanda, standing smiling\n">Persona 1</button>
+                        <button class="zh-tag-chip" data-insert="[PERSONA 2: Right] $men.John, confident portrait\n">Persona 2</button>
+                        <button class="zh-tag-chip" data-insert="[INTERACTION] smiling warmly at each other\n">Interaction</button>
+                    </div>
+                </div>
+
+                <!-- Regional Layout Preview Bar -->
+                <div class="zh-regional-preview">
+                    <div class="zh-region-slice zh-region-left">
+                        <span class="zh-region-tag">LEFT REGION</span>
+                        <span class="zh-region-persona">Persona 1</span>
+                    </div>
+                    <div class="zh-region-slice zh-region-center">
+                        <span class="zh-region-tag">SCENE & INTERACTION</span>
+                        <span class="zh-region-persona">Global Blend</span>
+                    </div>
+                    <div class="zh-region-slice zh-region-right">
+                        <span class="zh-region-tag">RIGHT REGION</span>
+                        <span class="zh-region-persona">Persona 2</span>
+                    </div>
+                </div>
+
+                <!-- Script Editor Box -->
+                <div class="zh-editor-container">
+                    <div class="zh-editor-header">
+                        <span class="zh-editor-label">Screenplay Script (Personas, Variables, Regional Directives)</span>
+                        <span class="zh-editor-hint">Variables: $women.Amanda, $amanda.lora, [SCENE], [PERSONA 1..N]</span>
+                    </div>
+                    <textarea id="script-editor" class="zh-script-textarea" spellcheck="false" placeholder="Enter screenplay script here...
+Example:
+[SCENE]
+luxurious modern penthouse, floor to ceiling windows, golden hour sunset, 8k uhd photorealistic
+
+[PERSONA 1: Left]
+$women.Amanda, wearing elegant evening gown, holding wine glass
+
+[PERSONA 2: Right]
+$men.John, tailored tuxedo, smiling warmly
+
+[INTERACTION]
+talking and laughing together at sunset"></textarea>
+                </div>
+            </div>
+
+            <!-- Standard Prompt View -->
+            <div id="view-prompt" class="zh-view">
+                <div class="zh-panel-header">
+                    <span class="zh-panel-title">✍️ Prompt Studio</span>
+                    <div class="zh-prompt-guards">
+                        <span class="zh-guard-label">GUARDS:</span>
+                        <button class="zh-guard-btn" data-guard="quality">+ Quality</button>
+                        <button class="zh-guard-btn" data-guard="anatomy">+ Anatomy</button>
+                        <button class="zh-guard-btn" data-guard="3d">+ Anti-3D</button>
+                        <button class="zh-guard-btn" data-guard="watermark">+ Clean BG</button>
+                    </div>
+                </div>
+
+                <div class="zh-prompt-layout">
+                    <!-- Positive Prompt Area -->
+                    <div class="zh-prompt-card">
+                        <div class="zh-editor-header">
+                            <span class="zh-editor-label">Positive Prompt</span>
+                            <div class="zh-prompt-meta">
+                                <select id="prompt-style-select" class="zh-select zh-select-mini">
+                                    <option value="Natural Prose (FLUX / SD3)">Natural Prose (FLUX / SD3)</option>
+                                    <option value="Tags (SDXL / Pony)">Tags (SDXL / Pony)</option>
+                                </select>
+                                <button id="btn-ollama-enhance" class="zh-btn zh-btn-ai" title="Enhance prompt with Ollama AI">✨ Enhance</button>
+                            </div>
+                        </div>
+                        <textarea id="positive-editor" class="zh-prompt-textarea" spellcheck="false" placeholder="Describe the scene, subject, lighting, and composition..."></textarea>
+                    </div>
+
+                    <!-- Negative Prompt Area -->
+                    <div class="zh-prompt-card">
+                        <div class="zh-editor-header">
+                            <span class="zh-editor-label">Negative Prompt (SDXL / Pony / SD 1.5)</span>
+                        </div>
+                        <textarea id="negative-editor" class="zh-prompt-textarea zh-negative-textarea" spellcheck="false" placeholder="blurry, low quality, deformed, watermark, distorted..."></textarea>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── COLUMN 3: RENDER PIPELINE & PREVIEW ──────────────── -->
+        <aside class="zh-column zh-col-render">
+            <div class="zh-panel-header">
+                <span class="zh-panel-title">⚡ Render Pipeline</span>
+                <span id="badge-res" class="zh-badge zh-badge-purple">1024 × 1024</span>
+            </div>
+
+            <div class="zh-column-scroll">
+                <!-- Aspect Ratio & Resolution Card -->
+                <section class="zh-card">
+                    <div class="zh-card-title">Canvas Resolution</div>
+                    <div class="zh-ratio-grid">
+                        <button class="zh-ratio-btn active" data-w="1024" data-h="1024">1:1 Square</button>
+                        <button class="zh-ratio-btn" data-w="1344" data-h="768">16:9 Wide</button>
+                        <button class="zh-ratio-btn" data-w="768" data-h="1344">9:16 Portrait</button>
+                        <button class="zh-ratio-btn" data-w="832" data-h="1216">2:3 Classic</button>
+                    </div>
+                    <div class="zh-field-row mt-8">
+                        <div class="zh-field flex-1">
+                            <label>Width</label>
+                            <input id="render-width" type="number" step="64" value="1024" class="zh-input">
+                        </div>
+                        <div class="zh-field flex-1">
+                            <label>Height</label>
+                            <input id="render-height" type="number" step="64" value="1024" class="zh-input">
+                        </div>
+                        <div class="zh-field flex-1">
+                            <label>Batch</label>
+                            <input id="render-batch" type="number" min="1" max="8" value="1" class="zh-input">
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Sampler & Seed Card -->
+                <section class="zh-card">
+                    <div class="zh-card-title">KSampler Settings</div>
+                    <div class="zh-field">
+                        <div class="zh-label-row">
+                            <label>Seed</label>
+                            <button id="btn-seed-random" class="zh-btn-mini" title="Randomize seed on every run">🎲 Randomize</button>
+                        </div>
+                        <input id="render-seed" type="number" value="0" class="zh-input">
+                    </div>
+                    <div class="zh-field-row">
+                        <div class="zh-field flex-1">
+                            <div class="zh-label-row">
+                                <label>Steps</label>
+                                <span id="val-steps" class="zh-slider-val">30</span>
+                            </div>
+                            <input id="render-steps" type="range" min="1" max="100" value="30" class="zh-slider">
+                        </div>
+                        <div class="zh-field flex-1">
+                            <div class="zh-label-row">
+                                <label>CFG</label>
+                                <span id="val-cfg" class="zh-slider-val">3.5</span>
+                            </div>
+                            <input id="render-cfg" type="range" min="1" max="20" step="0.5" value="3.5" class="zh-slider">
+                        </div>
+                    </div>
+                    <div class="zh-field-row">
+                        <div class="zh-field flex-1">
+                            <label>Sampler</label>
+                            <select id="render-sampler" class="zh-select">
+                                <option value="euler_ancestral">euler_ancestral</option>
+                                <option value="euler">euler</option>
+                                <option value="dpmpp_2m">dpmpp_2m</option>
+                            </select>
+                        </div>
+                        <div class="zh-field flex-1">
+                            <label>Scheduler</label>
+                            <select id="render-scheduler" class="zh-select">
+                                <option value="simple">simple</option>
+                                <option value="normal">normal</option>
+                                <option value="karras">karras</option>
+                                <option value="sgm_uniform">sgm_uniform</option>
+                            </select>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Modular Pipeline Stages Card -->
+                <section class="zh-card">
+                    <div class="zh-card-title">Modular Enhancement Stages</div>
+                    
+                    <!-- Stage 1: Hi-Res Fix -->
+                    <div class="zh-stage-row">
+                        <label class="zh-stage-toggle">
+                            <input id="stage-enable-hires" type="checkbox" checked>
+                            <span class="zh-stage-label">Hi-Res Latent Fix</span>
+                        </label>
+                        <div class="zh-stage-body">
+                            <div class="zh-field-row">
+                                <div class="zh-field flex-1">
+                                    <label>Scale Factor</label>
+                                    <input id="stage-hires-scale" type="number" step="0.1" value="1.5" min="1.0" max="3.0" class="zh-input">
+                                </div>
+                                <div class="zh-field flex-1">
+                                    <label>Denoise</label>
+                                    <input id="stage-hires-denoise" type="number" step="0.05" value="0.45" min="0.1" max="1.0" class="zh-input">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stage 2: Detailer -->
+                    <div class="zh-stage-row">
+                        <label class="zh-stage-toggle">
+                            <input id="stage-enable-detailer" type="checkbox" checked>
+                            <span class="zh-stage-label">Face / Detailer Refiner</span>
+                        </label>
+                        <div class="zh-stage-body">
+                            <div class="zh-checks-inline">
+                                <label><input id="detail-face" type="checkbox" checked> FACE</label>
+                                <label><input id="detail-eyes" type="checkbox" checked> EYES</label>
+                                <label><input id="detail-hands" type="checkbox"> HANDS</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stage 3: De-Wax -->
+                    <div class="zh-stage-row">
+                        <label class="zh-stage-toggle">
+                            <input id="stage-enable-dewax" type="checkbox" checked>
+                            <span class="zh-stage-label">De-Wax & Film Texture</span>
+                        </label>
+                        <div class="zh-stage-body">
+                            <div class="zh-label-row">
+                                <label>Film Grain</label>
+                                <span id="val-dewax-grain" class="zh-slider-val">0.05</span>
+                            </div>
+                            <input id="stage-dewax-grain" type="range" min="0" max="0.3" step="0.01" value="0.05" class="zh-slider">
+                        </div>
+                    </div>
+
+                    <!-- Stage 4: Restormer -->
+                    <div class="zh-stage-row">
+                        <label class="zh-stage-toggle">
+                            <input id="stage-enable-restormer" type="checkbox">
+                            <span class="zh-stage-label">Restormer Neural Pass</span>
+                        </label>
+                        <div class="zh-stage-body">
+                            <select id="stage-restormer-task" class="zh-select">
+                                <option value="Real-World Image Restoration (Denoising)">Real-World Image Denoising</option>
+                                <option value="Defocus Deblurring">Defocus Deblurring</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Stage 5: Model Upscale -->
+                    <div class="zh-stage-row">
+                        <label class="zh-stage-toggle">
+                            <input id="stage-enable-upscale" type="checkbox" checked>
+                            <span class="zh-stage-label">Model Upscale Pass</span>
+                        </label>
+                        <div class="zh-stage-body">
+                            <div class="zh-field">
+                                <label>Upscaler Model</label>
+                                <select id="stage-upscale-model" class="zh-select">
+                                    <option value="None">None</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Live Generation Preview Stage -->
+                <section class="zh-card zh-preview-card">
+                    <div class="zh-card-title">Live Preview & Output</div>
+                    
+                    <!-- Progress Bar -->
+                    <div id="progress-container" class="zh-progress-wrap" style="display: none;">
+                        <div class="zh-progress-bar">
+                            <div id="progress-fill" class="zh-progress-fill" style="width: 0%;"></div>
+                        </div>
+                        <div class="zh-progress-text">
+                            <span id="progress-step">Rendering...</span>
+                            <span id="progress-percent">0%</span>
+                        </div>
+                    </div>
+
+                    <!-- Image Viewport -->
+                    <div id="preview-viewport" class="zh-viewport">
+                        <div id="preview-empty" class="zh-viewport-empty">
+                            <span class="zh-empty-icon">🎨</span>
+                            <p>Ready to render</p>
+                            <span class="zh-empty-hint">Hit <strong>⚡ GENERATE</strong> or press <strong>Ctrl+Enter</strong></span>
+                        </div>
+                        <img id="preview-img" class="zh-preview-image" alt="Generated Image" style="display: none;">
+                    </div>
+
+                    <!-- Gallery History Strip -->
+                    <div class="zh-history-strip">
+                        <div class="zh-history-label">Recent Generations</div>
+                        <div id="history-container" class="zh-history-items">
+                            <!-- Thumbnails dynamically added here -->
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </aside>
+    </main>
+
+    <script type="module" src="/extensions/ComfyUI-Zombiehaus/studio/studio.js"></script>
+    <script type="module" src="studio.js"></script>
+</body>
+</html>

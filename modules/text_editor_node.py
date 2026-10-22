@@ -225,13 +225,25 @@ class ZombiehausTextEditor:
         """
         Parses <lora:...> tags from prompt text, supporting standard, random range (~), and dynamic dropoff (> / @).
         Ignores tags wrapped in /* ... */ comments.
+        Preserves 'lora: <lora:...>' configuration directives for downstream nodes (e.g. SceneScriptDirector).
         Returns:
             (lora_entries: list of dict, clean_prompt: str)
         """
         if not prompt or not isinstance(prompt, str):
             return [], ""
 
-        uncommented = re.sub(r'/\*.*?\*/', '', prompt, flags=re.DOTALL)
+        # Protect configuration directives: lora: <lora:...> -> lora: ...
+        # Prevents regional / scene screenplay directives from being wiped out or loaded globally.
+        def preserve_lora_directive(m):
+            return f"{m.group(1)}{m.group(2)}"
+
+        protected_prompt = re.sub(
+            r'(?im)^(\s*lora\s*:\s*)<lora:([^>\r\n]+)>',
+            preserve_lora_directive,
+            prompt
+        )
+
+        uncommented = re.sub(r'/\*.*?\*/', '', protected_prompt, flags=re.DOTALL)
         tag_pattern = r'<lora:([^>]+)>'
 
         loras = []
@@ -241,7 +253,7 @@ class ZombiehausTextEditor:
             if parsed:
                 loras.append(parsed)
 
-        clean = re.sub(r'/\*\s*<lora:[^>]+>\s*\*/|<lora:[^>]+>', '', prompt)
+        clean = re.sub(r'/\*\s*<lora:[^>]+>\s*\*/|<lora:[^>]+>', '', protected_prompt)
         clean = re.sub(r'[ \t]+', ' ', clean)
         clean = re.sub(r'\s*,\s*,+', ', ', clean)
         clean = re.sub(r'\s+,', ',', clean)

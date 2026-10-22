@@ -207,7 +207,7 @@ function fetchThemes(callback) {
                 if (callback) callback();
                 if (app.graph && app.graph._nodes) {
                     for (const n of app.graph._nodes) {
-                        if (n.type === "ZombiehausTextEditor") {
+                        if (n.type === "ZombiehausTextEditor" || n.type === "ZombiehausStudio" || n.type === "ZombiehausChromaStudio" || n.type === "ZombiehausScriptStudio") {
                             const tw = n.widgets?.find(w => w.name === "syntax_theme");
                             if (tw) tw.options.values = getThemeOptions();
                             const pw = n.widgets?.find(w => w.name === "positive");
@@ -232,7 +232,7 @@ function injectSyntaxStyles() {
                 if (nodeEl && window.app?.graph?._nodes) {
                     const nodeId = nodeEl.getAttribute("data-node-id");
                     const graphNode = window.app.graph._nodes.find(n => String(n.id) === String(nodeId));
-                    if (graphNode && graphNode.type === "ZombiehausTextEditor") {
+                    if (graphNode && (graphNode.type === "ZombiehausTextEditor" || graphNode.type === "ZombiehausStudio" || graphNode.type === "ZombiehausChromaStudio" || graphNode.type === "ZombiehausScriptStudio")) {
                         const pw = graphNode.widgets?.find(w => w.name === "positive");
                         const nw = graphNode.widgets?.find(w => w.name === "negative");
                         if (pw) {
@@ -3790,7 +3790,7 @@ let _ollamaError = "";
 function updateOllamaButtonsOnGraph(available) {
     if (!app.graph || !app.graph._nodes) return;
     for (const n of app.graph._nodes) {
-        if (n.type === "ZombiehausTextEditor") {
+        if (n.type === "ZombiehausTextEditor" || n.type === "ZombiehausStudio" || n.type === "ZombiehausChromaStudio" || n.type === "ZombiehausScriptStudio") {
             const btn = n.widgets?.find(w => w.name && w.name.includes("Enhance with Ollama"));
             if (btn) {
                 btn.name = available ? "✨ Enhance with Ollama" : "✨ Enhance with Ollama (Offline)";
@@ -5613,7 +5613,7 @@ function updateTextEditorProportions(targetNode) {
 app.registerExtension({
     name: "zombiehaus.TextEditor",
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (nodeData.name === "ZombiehausTextEditor") {
+        if (nodeData.name === "ZombiehausTextEditor" || nodeData.name === "ZombiehausStudio" || nodeData.name === "ZombiehausChromaStudio" || nodeData.name === "ZombiehausScriptStudio") {
 
             fetchThemes();
             fetchWildcardList();

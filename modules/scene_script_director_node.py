@@ -27,25 +27,22 @@ from .lora_loader_node import ZombiehausLoraLoader
 
 
 DEFAULT_SCRIPT_TEMPLATE = """[SCENE]
-location: a sunlit luxury bedroom, white linen sheets, warm morning sunlight, authentic 35mm film photography, 8k
-negative: deformed, distorted, extra limbs, bad anatomy, bad hands, plastic skin, blur, watermark, lowres
+mode: Expressions
+A sunlit luxury master bedroom with soft white linen sheets, warm morning sunlight streaming in through floor-to-ceiling windows, authentic 35mm film photography, 8k, intimate cinematic lighting.
+all(__chromafidelity__)
 
 [PERSONA 1]
-lora: None
+lora: <lora:Jane_v1:1.0>
 position: left
-appearance: 1woman, athletic toned body, natural skin texture, blonde wavy hair, blue eyes
-clothing: lace bralette
-pose: sitting on the bed, leaning forward with an open sensual smile
+Jane is an athletic toned woman with glowing natural skin texture, blue eyes, and loose wavy blonde hair. She is wearing a delicate lace bralette, sitting comfortably on the bed and leaning forward with an open sensual smile and warm relaxed expression.
 
 [PERSONA 2]
-lora: None
+lora: <lora:Jill_v1:1.0>
 position: right
-appearance: 1woman, curvy feminine physique, soft waist, pale skin, brunette hair, brown eyes
-clothing: silk robe slipping off shoulder
-pose: lying comfortably on her side beside her, looking up into her eyes
+Jill is resting comfortably on her side beside Jane with a curvy feminine physique, soft waist, brunette hair, and smiling eyes. Her silk robe is slipping off her shoulder as she gazes up affectionately into Jane's eyes.
 
 [INTERACTION]
-action: two women interacting intimately, one leaning in with hand resting on the other's hip, bodies close, natural skin contact, warm ambient lighting
+Two women sharing an intimate, tender moment on the bed. Jane is leaning in with one hand resting softly on Jill's hip, close skin-to-skin contact, bodies touching under the warm ambient morning light.
 contact_blend: 0.25
 """
 
@@ -55,7 +52,8 @@ class ZombiehausSceneScriptDirector:
     Screenplay-Style Multi-Persona Scene Director.
     Parses [SCENE], [PERSONA N], and [INTERACTION] sections into a unified regional diffusion pipe.
     Fully integrated with ZombiehausTextEditor for syntax-highlighted screenplay editing,
-    preset saving/loading, and automatic upstream LoRA parsing.
+    preset saving/loading, natural language expressions (ChromaHD-1), tags mode (Pony/SDXL),
+    and automatic LoRA parsing.
     """
 
     @classmethod
@@ -63,15 +61,12 @@ class ZombiehausSceneScriptDirector:
         return {
             "required": {
                 "pipe": ("PIPE",),
-                "script": ("STRING", {
-                    "default": DEFAULT_SCRIPT_TEMPLATE,
-                    "multiline": True
-                }),
+                "script": ("STRING", {"forceInput": True}),
                 "default_lora_strength": ("FLOAT", {"default": 0.85, "min": 0.0, "max": 2.0, "step": 0.05}),
                 "default_overlap_blend": ("FLOAT", {"default": 0.25, "min": 0.05, "max": 0.60, "step": 0.05}),
             },
             "optional": {
-                "script_input": ("STRING", {"forceInput": True, "multiline": True}),
+                "script_input": ("STRING", {"forceInput": True}),
                 "mask_width": ("INT", {"default": 128, "min": 64, "max": 256, "step": 8}),
                 "mask_height": ("INT", {"default": 128, "min": 64, "max": 256, "step": 8}),
             }
@@ -84,7 +79,13 @@ class ZombiehausSceneScriptDirector:
 
     @staticmethod
     def _parse_script(text: str) -> dict:
-        """Parse structured INI/markdown section script into python dictionaries."""
+        """
+        Parse structured screenplay script into python dictionaries.
+        Supports both:
+          - mode: Expressions (natural language descriptive prose & emotions for ChromaHD-1 / Flux)
+          - mode: Tags (comma-separated Danbooru tag style for Pony V6 / SDXL / SD1.5)
+        and config directives (position:, box:, lora:, contact_blend:).
+        """
         sections = {}
         current_section = "SCENE"
         sections[current_section] = []
@@ -103,54 +104,83 @@ class ZombiehausSceneScriptDirector:
             else:
                 sections[current_section].append(line_str)
 
-        # Parse key-values in each section
+        # Detect script mode (Expressions vs Tags)
+        script_mode = "Expressions"
+        for l_raw in lines:
+            m_mode = re.match(r"^(?:mode|format|type)\s*:\s*(expressions|tags)\b", l_raw.strip(), re.IGNORECASE)
+            if m_mode:
+                script_mode = "Tags" if m_mode.group(1).lower() == "tags" else "Expressions"
+                break
+
         parsed = {
+            "mode": script_mode,
             "scene": {},
             "interaction": {},
             "personas": []
         }
 
+        # Known directives that configure node settings rather than prompt descriptions
+        CONFIG_DIRECTIVES = {"position", "box", "lora", "contact_blend", "name", "blend", "negative", "mode", "format", "type"}
+
         for sec_name, raw_lines in sections.items():
-            kv = {}
-            freeform = []
+            directives = {}
+            prose_parts = []
+
             for l in raw_lines:
                 # 1. Check for embedded <lora:name:strength> tags
                 lora_tag_match = re.search(r'<lora:([^>]+)>', l, flags=re.IGNORECASE)
                 if lora_tag_match:
-                    kv["lora"] = lora_tag_match.group(1).strip()
+                    directives["lora"] = lora_tag_match.group(1).strip()
                     # Remove the tag from the line so it doesn't pollute prompts
                     l = re.sub(r'<lora:[^>]+>', '', l).strip()
 
                 if not l:
                     continue
 
+                # 2. Check for key: value syntax vs natural language prose
                 if ":" in l:
                     k, v = l.split(":", 1)
                     k_clean = k.strip().lower()
                     v_clean = v.strip()
-                    # Clean any brackets from lora value (e.g. lora: <lora:AudraMiller:0.85>)
-                    if k_clean == "lora":
-                        v_clean = re.sub(r'^<lora:|>|\'$|"$|^[\'"]', '', v_clean).strip()
-                        if v_clean:
-                            kv[k_clean] = v_clean
+
+                    if k_clean in CONFIG_DIRECTIVES:
+                        if k_clean == "lora":
+                            v_clean = re.sub(r'^<lora:|>|\'$|"$|^[\'"]', '', v_clean).strip()
+                            if v_clean:
+                                directives["lora"] = v_clean
+                        else:
+                            directives[k_clean] = v_clean
                     else:
-                        kv[k_clean] = v_clean
+                        # Descriptive line (e.g. appearance:, clothing:, or prose with colons)
+                        if v_clean:
+                            prose_parts.append(v_clean)
                 else:
-                    freeform.append(l)
+                    # Natural language expression or tag line
+                    prose_parts.append(l)
+
+            if script_mode == "Tags":
+                # For Pony / SDXL / Danbooru: comma-separated tag deduplication and formatting
+                raw_tags = []
+                for part in prose_parts:
+                    for t in part.split(","):
+                        t_str = t.strip()
+                        if t_str and t_str not in raw_tags:
+                            raw_tags.append(t_str)
+                prompt_text = ", ".join(raw_tags)
+            else:
+                # For ChromaHD-1 / Flux: continuous natural language prose & expressions
+                prompt_text = " ".join(prose_parts).strip()
 
             if "SCENE" in sec_name or "GLOBAL" in sec_name:
-                parsed["scene"].update(kv)
-                if freeform:
-                    parsed["scene"]["description"] = ", ".join(freeform)
+                parsed["scene"].update(directives)
+                parsed["scene"]["prompt"] = prompt_text
             elif "INTERACTION" in sec_name:
-                parsed["interaction"].update(kv)
-                if freeform:
-                    parsed["interaction"]["description"] = ", ".join(freeform)
+                parsed["interaction"].update(directives)
+                parsed["interaction"]["prompt"] = prompt_text
             elif "PERSONA" in sec_name or "CHARACTER" in sec_name:
                 p_data = {"name": sec_name}
-                p_data.update(kv)
-                if freeform:
-                    p_data["freeform"] = ", ".join(freeform)
+                p_data.update(directives)
+                p_data["prompt"] = prompt_text
                 parsed["personas"].append(p_data)
 
         return parsed
@@ -216,19 +246,22 @@ class ZombiehausSceneScriptDirector:
         mask[:, :] = val[np.newaxis, :]
         return torch.from_numpy(mask).unsqueeze(0)
 
-    def direct_scene_script(self, pipe, script, default_lora_strength=0.85,
+    def direct_scene_script(self, pipe, script=None, default_lora_strength=0.85,
                             default_overlap_blend=0.25, mask_width=128, mask_height=128,
-                            script_input=None):
+                            script_input=None, **kwargs):
         # 1. Unpack base pipe
+        base_negative = None
         if isinstance(pipe, dict):
             model = pipe.get("model")
             clip = pipe.get("clip")
             vae = pipe.get("vae")
             seed = pipe.get("seed", 0)
+            base_negative = pipe.get("negative")
         elif isinstance(pipe, (tuple, list)):
             model = pipe[0] if len(pipe) > 0 else None
             clip = pipe[1] if len(pipe) > 1 else None
             vae = pipe[2] if len(pipe) > 2 else None
+            base_negative = pipe[4] if len(pipe) > 4 else None
             seed = pipe[5] if len(pipe) > 5 else 0
         else:
             raise ValueError(f"[ZombiehausSceneScriptDirector] Unsupported pipe format: {type(pipe)}")
@@ -257,16 +290,14 @@ class ZombiehausSceneScriptDirector:
                         if cp and isinstance(cp, str):
                             upstream_clean_prompt = cp
 
-        # Determine effective screenplay script (priority: script_input > script widget > clean_prompt from pipe)
+        # Determine effective screenplay script (priority: script input > script_input > clean_prompt from pipe)
         effective_script = ""
-        if script_input and isinstance(script_input, str) and script_input.strip():
-            effective_script = script_input.strip()
-        elif script and isinstance(script, str) and script.strip() and script.strip() != DEFAULT_SCRIPT_TEMPLATE.strip():
+        if script and isinstance(script, str) and script.strip():
             effective_script = script.strip()
+        elif script_input and isinstance(script_input, str) and script_input.strip():
+            effective_script = script_input.strip()
         elif upstream_clean_prompt and ("[" in upstream_clean_prompt and "]" in upstream_clean_prompt):
             effective_script = upstream_clean_prompt.strip()
-        elif script and isinstance(script, str) and script.strip():
-            effective_script = script.strip()
         else:
             effective_script = DEFAULT_SCRIPT_TEMPLATE.strip()
 
@@ -277,7 +308,7 @@ class ZombiehausSceneScriptDirector:
         interaction = parsed.get("interaction", {})
 
         if not personas:
-            raise ValueError("[ZombiehausSceneScriptDirector] No [PERSONA] sections found in script.")
+            raise ValueError("[ZombiehausSceneScriptDirector] No [PERSONA] sections found in screenplay script.")
 
         # Resolve overlap blend
         overlap = default_overlap_blend
@@ -358,22 +389,24 @@ class ZombiehausSceneScriptDirector:
                 else:
                     print(f"[ZombiehausSceneScriptDirector] LoRA not found: {lora_name}")
 
-        # 5. Compile Spatial Conditioning for N Personas
+        # 5. Compile Spatial Conditioning for N Personas using Natural Language Prose
         encoder = CLIPTextEncode()
         regional_conditionings = []
         mask_tensors = []
 
         total_personas = len(personas)
         for idx, p_data in enumerate(personas):
-            # Assemble Persona Text
+            # Assemble Persona Text (Chroma natural prose + expressions)
+            p_prompt = p_data.get("prompt", "")
             parts = []
             if "trigger_words" in p_data and p_data["trigger_words"]:
-                parts.append(p_data["trigger_words"])
-            for k in ("appearance", "clothing", "pose", "action", "freeform"):
-                if k in p_data and p_data[k]:
-                    clean_val = re.sub(r'<lora:[^>]+>', '', p_data[k]).strip()
-                    if clean_val:
-                        parts.append(clean_val)
+                if p_data["trigger_words"].lower() not in p_prompt.lower():
+                    parts.append(p_data["trigger_words"])
+            if p_prompt:
+                clean_p = re.sub(r'<lora:[^>]+>', '', p_prompt).strip()
+                if clean_p:
+                    parts.append(clean_p)
+
             p_text = ", ".join(parts) if parts else "1person, authentic photo, high quality"
 
             # Create Spatial Mask
@@ -389,39 +422,38 @@ class ZombiehausSceneScriptDirector:
                 n[1]["mask_strength"] = 1.0
                 regional_conditionings.append(n)
 
-        # 6. Global Scene & Interaction Conditioning (Applies across all characters)
-        scene_parts = []
-        for k in ("location", "camera", "style", "description"):
-            if k in scene and scene[k]:
-                clean_s = re.sub(r'<lora:[^>]+>', '', scene[k]).strip()
-                if clean_s:
-                    scene_parts.append(clean_s)
+        # 6. Global Scene & Interaction Conditioning (Natural Language Ambient Context)
+        global_parts = []
+        scene_prompt = scene.get("prompt", "")
+        if scene_prompt:
+            clean_s = re.sub(r'<lora:[^>]+>', '', scene_prompt).strip()
+            if clean_s:
+                global_parts.append(clean_s)
 
-        inter_parts = []
-        for k in ("action", "description"):
-            if k in interaction and interaction[k]:
-                clean_i = re.sub(r'<lora:[^>]+>', '', interaction[k]).strip()
-                if clean_i:
-                    inter_parts.append(clean_i)
+        inter_prompt = interaction.get("prompt", "")
+        if inter_prompt:
+            clean_i = re.sub(r'<lora:[^>]+>', '', inter_prompt).strip()
+            if clean_i:
+                global_parts.append(clean_i)
 
-        global_prompt_elements = []
-        if scene_parts:
-            global_prompt_elements.append(", ".join(scene_parts))
-        if inter_parts:
-            global_prompt_elements.append(", ".join(inter_parts))
-
-        global_prompt = " | ".join(global_prompt_elements) if global_prompt_elements else "natural cinematic lighting, 8k photography"
+        global_prompt = " | ".join(global_parts) if global_parts else "natural cinematic lighting, 8k photography"
         raw_global_cond = encoder.encode(active_clip, global_prompt)[0]
 
         # Combine Regional Personas + Global Scene Context
         positive = regional_conditionings + raw_global_cond
 
-        # Negative Conditioning
-        neg_text = scene.get("negative", "deformed, distorted, extra limbs, bad anatomy, bad hands, plastic skin, blur, watermark")
-        neg_text = re.sub(r'<lora:[^>]+>', '', neg_text).strip()
-        negative = encoder.encode(active_clip, neg_text)[0]
+        # 7. Resolve Negative Conditioning
+        # Prioritize the global negative menu / conditioning passed from ZombiehausTextEditor via pipe
+        if base_negative is not None and isinstance(base_negative, list) and len(base_negative) > 0:
+            negative = base_negative
+        elif "negative" in scene and scene["negative"]:
+            clean_neg = re.sub(r'<lora:[^>]+>', '', scene["negative"]).strip()
+            negative = encoder.encode(active_clip, clean_neg)[0]
+        else:
+            default_neg = "deformed, distorted, extra limbs, bad anatomy, bad hands, plastic skin, blur, watermark"
+            negative = encoder.encode(active_clip, default_neg)[0]
 
-        # 7. Build Output Pipe
+        # 8. Build Output Pipe
         output_pipe = (active_model, active_clip, vae, positive, negative, seed)
 
         # Combined batch mask [N, H, W]
@@ -429,12 +461,12 @@ class ZombiehausSceneScriptDirector:
 
         # Build readable summary for ShowText
         summary_lines = [
-            f"🎬 Scene Script Compiled: {total_personas} Personas",
+            f"🎬 Scene Script Compiled: {total_personas} Personas [Mode: {parsed.get('mode', 'Expressions')}]",
             f"Overarching Scene: {global_prompt[:90]}...",
             "Personas Loaded:"
         ]
         for idx, p in enumerate(personas):
-            summary_lines.append(f"  • {p['name']} ({p.get('position', f'col {idx}')}): {p.get('appearance', 'standard')[:50]}")
+            summary_lines.append(f"  • {p['name']} ({p.get('position', f'col {idx}')}): {p.get('prompt', 'standard')[:60]}")
         if loaded_lora_logs:
             summary_lines.append("LoRAs Injected: " + "; ".join(loaded_lora_logs))
 

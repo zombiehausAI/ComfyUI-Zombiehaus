@@ -49,7 +49,6 @@ class ZombiehausSaveImage:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images": ("IMAGE",),
                 "filename_prefix": ("STRING", {"default": "images/%date%/ComfyUI_%seed%"}),
                 "format": (["png", "jpeg", "webp"], {"default": "png"}),
                 "quality": ("INT", {"default": 95, "min": 1, "max": 100, "step": 1, "display": "slider"}),
@@ -57,6 +56,8 @@ class ZombiehausSaveImage:
                 "clean_vram": ("BOOLEAN", {"default": False, "label_on": "Clean VRAM", "label_off": "Keep VRAM"}),
             },
             "optional": {
+                "images": ("IMAGE",),
+                "pipe": ("PIPE",),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
             },
             "hidden": {
@@ -70,7 +71,16 @@ class ZombiehausSaveImage:
     OUTPUT_NODE = True
     CATEGORY = "Zombiehaus/Utilities"
 
-    def save_images(self, images, filename_prefix, format, quality, embed_metadata="enabled", clean_vram=False, seed=None, prompt=None, extra_pnginfo=None):
+    def save_images(self, filename_prefix, format, quality, embed_metadata="enabled", clean_vram=False, images=None, pipe=None, seed=None, prompt=None, extra_pnginfo=None):
+        if images is None and pipe is not None:
+            images = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+        if images is None:
+            raise ValueError("[ZombiehausSaveImage] IMAGES is required (provide via images input or pipe)")
+
+        # Intelligent seed resolution from pipe if seed is unset or 0
+        from .pipe_bus_node import resolve_pipe_seed
+        seed = resolve_pipe_seed(pipe, local_seed=seed)
+
         output_dir = folder_paths.get_output_directory()
         results = []
 

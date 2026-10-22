@@ -73,7 +73,6 @@ class ZombiehausHiresFix:
 
         return {
             "required": {
-                "image": ("IMAGE",),
                 "pipe": ("PIPE",),
                 "scale_by": ("FLOAT", {"default": 1.5, "min": 1.1, "max": 4.0, "step": 0.1}),
                 "upscale_method": (methods, {"default": "bicubic"}),
@@ -85,6 +84,9 @@ class ZombiehausHiresFix:
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "restore_face": ("BOOLEAN", {"default": True}),
                 "dewax_texture": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "image": ("IMAGE",),
             }
         }
 
@@ -93,14 +95,30 @@ class ZombiehausHiresFix:
     FUNCTION = "enhance"
     CATEGORY = "Zombiehaus/Image"
 
-    def enhance(self, image, pipe, scale_by, upscale_method, denoise, steps,
-                cfg, sampler_name, scheduler, seed, restore_face, dewax_texture):
+    def enhance(self, pipe, scale_by, upscale_method, denoise, steps,
+                cfg, sampler_name, scheduler, seed, restore_face, dewax_texture, image=None):
+        if image is None and pipe is not None:
+            image = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+        if image is None:
+            raise ValueError("[ZombiehausHiresFix] IMAGE is required (provide via image input or pipe)")
 
-        model = pipe[0]
-        clip = pipe[1]
-        vae = pipe[2]
-        positive = pipe[3]
-        negative = pipe[4]
+        # Resolve pipe components (supports both tuple and dict PIPE formats)
+        if isinstance(pipe, dict):
+            model = pipe.get("model")
+            clip = pipe.get("clip")
+            vae = pipe.get("vae")
+            positive = pipe.get("positive")
+            negative = pipe.get("negative")
+        else:
+            model = pipe[0] if len(pipe) > 0 else None
+            clip = pipe[1] if len(pipe) > 1 else None
+            vae = pipe[2] if len(pipe) > 2 else None
+            positive = pipe[3] if len(pipe) > 3 else None
+            negative = pipe[4] if len(pipe) > 4 else None
+
+        # Intelligent hybrid seed fallback: if seed == 0, adopt pipe seed
+        from .pipe_bus_node import resolve_pipe_seed
+        seed = resolve_pipe_seed(pipe, local_seed=seed)
 
         batch_size = image.shape[0]
         processed_batch = []
@@ -146,4 +164,22 @@ class ZombiehausHiresFix:
             processed_batch.append(single_final)
 
         final_image = torch.cat(processed_batch, dim=0) if len(processed_batch) > 1 else processed_batch[0]
-        return (final_image, pipe)
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["image"] = final_image
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    out_pipe[1] if len(out_pipe) > 1 else None,
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    out_pipe[3] if len(out_pipe) > 3 else None,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    seed,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    final_image
+                ))
+        return (final_image, out_pipe)

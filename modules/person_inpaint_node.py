@@ -697,12 +697,23 @@ class ZombiehausPersonInpaint:
                        optional_mask=None, detector_model="Auto (Targeted by Preset)",
                        detection_confidence=0.35, positive_override=None, negative_override=None):
 
-        # 1. Resolve pipe components
-        model = pipe[0]
-        clip = pipe[1]
-        vae = pipe[2]
-        positive = positive_override if positive_override is not None else pipe[3]
-        negative = negative_override if negative_override is not None else pipe[4]
+        # 1. Resolve pipe components (supports both tuple and dict PIPE formats)
+        if isinstance(pipe, dict):
+            model = pipe.get("model")
+            clip = pipe.get("clip")
+            vae = pipe.get("vae")
+            positive = positive_override if positive_override is not None else pipe.get("positive")
+            negative = negative_override if negative_override is not None else pipe.get("negative")
+        else:
+            model = pipe[0] if len(pipe) > 0 else None
+            clip = pipe[1] if len(pipe) > 1 else None
+            vae = pipe[2] if len(pipe) > 2 else None
+            positive = positive_override if positive_override is not None else (pipe[3] if len(pipe) > 3 else None)
+            negative = negative_override if negative_override is not None else (pipe[4] if len(pipe) > 4 else None)
+
+        # Intelligent hybrid seed fallback: if seed == 0, adopt pipe seed
+        from .pipe_bus_node import resolve_pipe_seed
+        seed = resolve_pipe_seed(pipe, local_seed=seed)
 
         # 2. Align image dimensions to 16px multiples for Chroma / Flux DiT
         aligned_image = align_tensor_dim(image, div=16)
@@ -815,5 +826,28 @@ class ZombiehausPersonInpaint:
         blend_mask = feathered_mask.unsqueeze(-1).to(aligned_image.device)
         final_image = aligned_image * (1.0 - blend_mask) + decoded.to(aligned_image.device) * blend_mask
 
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["image"] = final_image
+                d["mask"] = feathered_mask
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    out_pipe[1] if len(out_pipe) > 1 else None,
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    out_pipe[3] if len(out_pipe) > 3 else None,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    seed,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    final_image,
+                    feathered_mask,
+                    out_pipe[9] if len(out_pipe) > 9 else "",
+                    out_pipe[10] if len(out_pipe) > 10 else "",
+                ))
+
         prompt_hint = self._get_prompt_hint(interaction_preset)
-        return (final_image, feathered_mask, pipe, prompt_hint)
+        return (final_image, feathered_mask, out_pipe, prompt_hint)

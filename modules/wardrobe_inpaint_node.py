@@ -204,8 +204,8 @@ class ZombiehausWardrobeInpaint:
             },
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "garment_mask")
+    RETURN_TYPES = ("IMAGE", "MASK", "PIPE")
+    RETURN_NAMES = ("image", "garment_mask", "pipe")
     FUNCTION = "inpaint"
     CATEGORY = "Zombiehaus/Image"
 
@@ -247,14 +247,24 @@ class ZombiehausWardrobeInpaint:
         if not do_inpaint or garment_mask_binary.max().item() == 0.0:
             if do_inpaint and garment_mask_binary.max().item() == 0.0:
                 print(f"[ZombiehausWardrobeInpaint] No garment detected for preset '{preset}', skipping inpaint.")
-            return (image, garment_mask)
+            return (image, garment_mask, pipe)
 
         # 2. Resolve diffusion parameters from PIPE if not provided directly
         if pipe is not None:
-            model = model if model is not None else (pipe[0] if len(pipe) > 0 else None)
-            vae = vae if vae is not None else (pipe[2] if len(pipe) > 2 else None)
-            positive = positive if positive is not None else (pipe[3] if len(pipe) > 3 else None)
-            negative = negative if negative is not None else (pipe[4] if len(pipe) > 4 else None)
+            if isinstance(pipe, dict):
+                model = model if model is not None else pipe.get("model")
+                vae = vae if vae is not None else pipe.get("vae")
+                positive = positive if positive is not None else pipe.get("positive")
+                negative = negative if negative is not None else pipe.get("negative")
+            else:
+                model = model if model is not None else (pipe[0] if len(pipe) > 0 else None)
+                vae = vae if vae is not None else (pipe[2] if len(pipe) > 2 else None)
+                positive = positive if positive is not None else (pipe[3] if len(pipe) > 3 else None)
+                negative = negative if negative is not None else (pipe[4] if len(pipe) > 4 else None)
+
+        # Intelligent hybrid seed fallback: if seed == 0, adopt pipe seed
+        from .pipe_bus_node import resolve_pipe_seed
+        seed = resolve_pipe_seed(pipe, local_seed=seed)
 
         if model is None:
             raise ValueError(
@@ -313,4 +323,27 @@ class ZombiehausWardrobeInpaint:
             blended_sub = sub_orig * (1.0 - sub_mask) + decoded.to(image.device) * sub_mask
             final_image[:, y_off:y_off + h_dec, x_off:x_off + w_dec, :] = blended_sub
 
-        return (final_image, garment_mask)
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["image"] = final_image
+                d["mask"] = garment_mask
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    out_pipe[1] if len(out_pipe) > 1 else None,
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    out_pipe[3] if len(out_pipe) > 3 else None,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    seed,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    final_image,
+                    garment_mask,
+                    out_pipe[9] if len(out_pipe) > 9 else "",
+                    out_pipe[10] if len(out_pipe) > 10 else "",
+                ))
+
+        return (final_image, garment_mask, out_pipe)

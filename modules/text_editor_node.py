@@ -2408,11 +2408,16 @@ class ZombiehausTextEditor:
                      function_lib=None,
                      unique_id=None, extra_pnginfo=None):
         """Process positive and negative text inputs, resolve wildcards/weights, and return text, seed, conditioning, and pipe."""
-        # 1. Determine actual seed based on seed_action
+        # 1. Determine actual seed based on seed_action with intelligent pipe fallback
         try:
             base_seed = int(seed) if seed is not None else 0
         except (ValueError, TypeError):
             base_seed = 0
+
+        # Intelligent hybrid fallback: if seed is 0 and action is 'fixed', adopt pipe seed
+        from .pipe_bus_node import resolve_pipe_seed, ZombiehausPipe
+        if base_seed == 0 and seed_action == "fixed":
+            base_seed = resolve_pipe_seed(pipe, local_seed=base_seed, seed_action=seed_action)
 
         if seed_action == "randomize":
             actual_seed = random.randint(0, 0xffffffffffffffff)
@@ -2547,11 +2552,17 @@ class ZombiehausTextEditor:
         model = None
         vae = None
 
-        if pipe is not None and isinstance(pipe, (tuple, list)):
-            model = pipe[0] if len(pipe) > 0 else None
-            if active_clip is None and len(pipe) > 1:
-                active_clip = pipe[1]
-            vae = pipe[2] if len(pipe) > 2 else None
+        if pipe is not None:
+            if isinstance(pipe, dict):
+                model = pipe.get("model")
+                if active_clip is None:
+                    active_clip = pipe.get("clip")
+                vae = pipe.get("vae")
+            elif isinstance(pipe, (tuple, list)):
+                model = pipe[0] if len(pipe) > 0 else None
+                if active_clip is None and len(pipe) > 1:
+                    active_clip = pipe[1]
+                vae = pipe[2] if len(pipe) > 2 else None
 
         if active_clip is not None:
             try:
@@ -2573,7 +2584,14 @@ class ZombiehausTextEditor:
                 pos_cond = []
                 neg_cond = []
 
-        output_pipe = (model, active_clip, vae, pos_cond, neg_cond) if (pipe is not None or active_clip is not None) else None
+        output_pipe = ZombiehausPipe((
+            model, active_clip, vae, pos_cond, neg_cond, actual_seed,
+            pipe.get("latent") if isinstance(pipe, dict) else (pipe[6] if (pipe and len(pipe) > 6) else None),
+            pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if (pipe and len(pipe) > 7) else None),
+            pipe.get("mask") if isinstance(pipe, dict) else (pipe[8] if (pipe and len(pipe) > 8) else None),
+            output_positive,
+            output_negative,
+        )) if (pipe is not None or active_clip is not None) else None
 
         # Update the node's widget values in the workflow metadata if available
         if unique_id is not None and extra_pnginfo is not None:

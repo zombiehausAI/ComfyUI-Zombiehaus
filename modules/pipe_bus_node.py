@@ -11,18 +11,49 @@ Allows packing, updating, tapping, and fanning out workflow components:
 class ZombiehausPipe(tuple):
     """
     Unified Zombiehaus PIPE object.
-    Supports both tuple indexing: pipe[0]=model, pipe[1]=clip, pipe[2]=vae, pipe[3]=pos, pipe[4]=neg...
-    and dictionary access: pipe.get("model"), pipe.get("vae"), etc.
+    Supports both tuple indexing:
+      0: model, 1: clip, 2: vae, 3: positive, 4: negative, 5: seed,
+      6: latent, 7: image, 8: mask, 9: positive_text, 10: negative_text
+    and dictionary access: pipe.get("model"), pipe.get("mask"), pipe.get("positive_text"), etc.
     """
-    _KEYS = ("model", "clip", "vae", "positive", "negative", "seed", "latent", "image")
+    _KEYS = (
+        "model", "clip", "vae", "positive", "negative",
+        "seed", "latent", "image", "mask",
+        "positive_text", "negative_text"
+    )
+    _ALIASES = {
+        "prompt": 9,
+        "positive_prompt": 9,
+        "negative_prompt": 10,
+        "text": 9,
+    }
 
     def get(self, key, default=None):
-        mapping = {k: idx for idx, k in enumerate(self._KEYS)}
-        idx = mapping.get(key)
+        idx = self._ALIASES.get(key)
+        if idx is None:
+            mapping = {k: i for i, k in enumerate(self._KEYS)}
+            idx = mapping.get(key)
         if idx is not None and idx < len(self):
             val = self[idx]
             return val if val is not None else default
         return default
+
+
+def resolve_pipe_seed(pipe, local_seed=0, seed_action=None) -> int:
+    """
+    Intelligent seed fallback for Zombiehaus nodes:
+    - If local_seed != 0 (or seed_action is active: 'randomize', 'increment', 'decrement'), local takes precedence.
+    - If local_seed == 0 (and seed_action is 'fixed' or None), falls back to seed in pipe if > 0.
+    """
+    if seed_action in ("randomize", "increment", "decrement"):
+        return local_seed if local_seed is not None else 0
+    if local_seed is not None and local_seed != 0:
+        return local_seed
+    if pipe is not None:
+        p_seed = pipe.get("seed") if isinstance(pipe, dict) else (pipe[5] if len(pipe) > 5 else None)
+        if isinstance(p_seed, int) and p_seed > 0:
+            return p_seed
+    return local_seed or 0
 
 
 class ZombiehausPipeBus:
@@ -46,7 +77,10 @@ class ZombiehausPipeBus:
                 "negative": ("CONDITIONING",),
                 "latent": ("LATENT",),
                 "image": ("IMAGE",),
+                "mask": ("MASK",),
                 "seed": ("INT", {"forceInput": True}),
+                "positive_text": ("STRING", {"forceInput": True}),
+                "negative_text": ("STRING", {"forceInput": True}),
             }
         }
 
@@ -59,7 +93,10 @@ class ZombiehausPipeBus:
         "CONDITIONING",
         "LATENT",
         "IMAGE",
+        "MASK",
         "INT",
+        "STRING",
+        "STRING",
     )
     RETURN_NAMES = (
         "pipe",
@@ -70,13 +107,17 @@ class ZombiehausPipeBus:
         "negative",
         "latent",
         "image",
+        "mask",
         "seed",
+        "positive_text",
+        "negative_text",
     )
     FUNCTION = "distribute_pipe"
     CATEGORY = "Zombiehaus/Pipes"
 
     def distribute_pipe(self, pipe=None, model=None, clip=None, vae=None,
-                        positive=None, negative=None, latent=None, image=None, seed=None):
+                        positive=None, negative=None, latent=None, image=None, mask=None,
+                        seed=None, positive_text=None, negative_text=None):
         # 1. Unpack incoming master pipe if connected
         p_model = None
         p_clip = None
@@ -86,6 +127,9 @@ class ZombiehausPipeBus:
         p_seed = 0
         p_latent = None
         p_image = None
+        p_mask = None
+        p_positive_text = ""
+        p_negative_text = ""
 
         if pipe is not None:
             if isinstance(pipe, dict):
@@ -97,6 +141,9 @@ class ZombiehausPipeBus:
                 p_seed = pipe.get("seed", 0)
                 p_latent = pipe.get("latent")
                 p_image = pipe.get("image")
+                p_mask = pipe.get("mask")
+                p_positive_text = pipe.get("positive_text", "")
+                p_negative_text = pipe.get("negative_text", "")
             elif isinstance(pipe, (tuple, list)):
                 p_model = pipe[0] if len(pipe) > 0 else None
                 p_clip = pipe[1] if len(pipe) > 1 else None
@@ -106,6 +153,16 @@ class ZombiehausPipeBus:
                 p_seed = pipe[5] if len(pipe) > 5 else 0
                 p_latent = pipe[6] if len(pipe) > 6 else None
                 p_image = pipe[7] if len(pipe) > 7 else None
+                p_mask = pipe[8] if len(pipe) > 8 else None
+                p_positive_text = pipe[9] if len(pipe) > 9 else ""
+                p_negative_text = pipe[10] if len(pipe) > 10 else ""
+
+        # Extract prompt text from positive conditioning metadata if not explicitly provided
+        if not p_positive_text and p_positive and isinstance(p_positive, (list, tuple)):
+            for chunk in p_positive:
+                if len(chunk) > 1 and isinstance(chunk[1], dict) and "clean_prompt" in chunk[1]:
+                    p_positive_text = chunk[1]["clean_prompt"]
+                    break
 
         # 2. Individual inputs take priority over pipe values
         out_model = model if model is not None else p_model
@@ -116,6 +173,9 @@ class ZombiehausPipeBus:
         out_seed = seed if seed is not None else p_seed
         out_latent = latent if latent is not None else p_latent
         out_image = image if image is not None else p_image
+        out_mask = mask if mask is not None else p_mask
+        out_pos_text = positive_text if positive_text is not None else p_positive_text
+        out_neg_text = negative_text if negative_text is not None else p_negative_text
 
         # 3. Construct unified master PIPE
         output_pipe = ZombiehausPipe((
@@ -127,6 +187,9 @@ class ZombiehausPipeBus:
             out_seed,
             out_latent,
             out_image,
+            out_mask,
+            out_pos_text,
+            out_neg_text,
         ))
 
         return (
@@ -138,5 +201,8 @@ class ZombiehausPipeBus:
             out_negative,
             out_latent,
             out_image,
+            out_mask,
             int(out_seed) if out_seed is not None else 0,
+            str(out_pos_text) if out_pos_text is not None else "",
+            str(out_neg_text) if out_neg_text is not None else "",
         )

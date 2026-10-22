@@ -15,12 +15,12 @@ class ZombiehausDeWaxTextureRestore:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
                 "micro_texture": ("FLOAT", {"default": 0.30, "min": 0.0, "max": 2.0, "step": 0.05, "round": 0.001}),
                 "grain_intensity": ("FLOAT", {"default": 0.12, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.001}),
                 "blur_radius": ("INT", {"default": 3, "min": 1, "max": 9, "step": 2}),
             },
             "optional": {
+                "image": ("IMAGE",),
                 "blend_mode": (["normal", "soft_light", "overlay", "linear_light", "screen", "multiply"], {"default": "normal"}),
                 "blend_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05, "round": 0.01}),
                 "mask": ("MASK",),
@@ -33,8 +33,13 @@ class ZombiehausDeWaxTextureRestore:
     FUNCTION = "restore_texture"
     CATEGORY = "Zombiehaus/PostProcessing"
 
-    def restore_texture(self, image, micro_texture, grain_intensity, blur_radius,
-                        blend_mode="normal", blend_strength=1.0, mask=None, pipe=None):
+    def restore_texture(self, micro_texture, grain_intensity, blur_radius,
+                        image=None, blend_mode="normal", blend_strength=1.0, mask=None, pipe=None):
+        if image is None and pipe is not None:
+            image = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+        if image is None:
+            raise ValueError("[ZombiehausDeWaxTextureRestore] IMAGE is required (provide via image input or pipe)")
+
         # Permute input from [B, H, W, C] to [B, C, H, W] for 2D convolution
         x = image.permute(0, 3, 1, 2).contiguous()
         b, c, h, w = x.shape
@@ -138,7 +143,26 @@ class ZombiehausDeWaxTextureRestore:
         # Strict clamping to [0.0, 1.0] and permute back to [B, H, W, C]
         final_out = torch.clamp(final_out, 0.0, 1.0)
         final_out = final_out.permute(0, 2, 3, 1).contiguous()
-        return (final_out, pipe)
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["image"] = final_out
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    out_pipe[1] if len(out_pipe) > 1 else None,
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    out_pipe[3] if len(out_pipe) > 3 else None,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    out_pipe[5] if len(out_pipe) > 5 else None,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    final_out
+                ))
+
+        return (final_out, out_pipe)
 
 
 NODE_CLASS_MAPPINGS = {

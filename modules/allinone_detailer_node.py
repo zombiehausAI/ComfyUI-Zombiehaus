@@ -291,7 +291,7 @@ def detail_region(image_tensor, mask_pil, model, clip, vae,
 # ---------------------------------------------------------------------------
 
 class ZombiehausDetailerSlot:
-    """Config bundle node for one detection + inpaint pass."""
+    """Config bundle node for one detection + inpaint pass with daisy-chain pipe support."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -314,18 +314,35 @@ class ZombiehausDetailerSlot:
                 "enabled": ("BOOLEAN", {"default": True}),
             },
             "optional": {
+                "pipe": ("PIPE",),
                 "positive": ("CONDITIONING",),
                 "negative": ("CONDITIONING",),
             },
         }
 
-    RETURN_TYPES = ("DETAILER_SLOT",)
-    RETURN_NAMES = ("slot",)
+    RETURN_TYPES = ("DETAILER_SLOT", "PIPE")
+    RETURN_NAMES = ("slot", "pipe")
     FUNCTION = "build"
     CATEGORY = "Zombiehaus/Detailing"
 
     def build(self, model, steps, cfg, denoise, padding, mask_blur, blend_feather,
-              context_pad, sampler, scheduler, enabled, positive=None, negative=None):
+              context_pad, sampler, scheduler, enabled, pipe=None, positive=None, negative=None):
+        # Extract default conditioning from pipe if provided
+        p_pos = None
+        p_neg = None
+        if pipe is not None:
+            if isinstance(pipe, dict):
+                p_pos = pipe.get("positive")
+                p_neg = pipe.get("negative")
+            elif isinstance(pipe, (tuple, list)):
+                p_pos = pipe[3] if len(pipe) > 3 else None
+                p_neg = pipe[4] if len(pipe) > 4 else None
+
+        # Effective conditioning for THIS slot:
+        # Manual override takes priority for this node only!
+        slot_positive = positive if positive is not None else p_pos
+        slot_negative = negative if negative is not None else p_neg
+
         slot = {
             "model": model,
             "steps": steps,
@@ -338,10 +355,18 @@ class ZombiehausDetailerSlot:
             "sampler": sampler,
             "scheduler": scheduler,
             "enabled": enabled,
-            "positive": positive,
-            "negative": negative,
+            "positive": slot_positive,
+            "negative": slot_negative,
         }
-        return (slot,)
+
+        # The outgoing pipe passes through the original clean pipe so downstream
+        # slots in the daisy chain and the detailer retain the default prompt.
+        out_pipe = pipe
+        if out_pipe is None and (positive is not None or negative is not None):
+            from .pipe_bus_node import ZombiehausPipe
+            out_pipe = ZombiehausPipe((None, None, None, positive, negative, 0, None, None))
+
+        return (slot, out_pipe)
 
 
 # ---------------------------------------------------------------------------
@@ -398,9 +423,17 @@ class ZombiehausAllInOneDetailer:
                 positive = positive if positive is not None else (pipe[3] if len(pipe) > 3 else None)
                 negative = negative if negative is not None else (pipe[4] if len(pipe) > 4 else None)
 
+            # Intelligent hybrid seed fallback: if seed == 0, adopt pipe seed
+            from .pipe_bus_node import resolve_pipe_seed, ZombiehausPipe
+            seed = resolve_pipe_seed(pipe, local_seed=seed)
+
+            # Extract image from pipe if not provided directly
+            if image is None and pipe is not None:
+                image = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+
             # Validate required fields
             if image is None:
-                raise ValueError("[AllInOneDetailer] IMAGE is required (wire an image input)")
+                raise ValueError("[AllInOneDetailer] IMAGE is required (provide via image input or pipe)")
             if model is None:
                 raise ValueError("[AllInOneDetailer] MODEL is required (provide via pipe or direct input)")
             if vae is None:
@@ -535,7 +568,11 @@ class ZombiehausAllInOneDetailer:
                 processed_batch.append(single_tensor)
 
             final_tensor = torch.cat(processed_batch, dim=0) if len(processed_batch) > 1 else processed_batch[0]
-            output_pipe = (model, clip, vae, positive, negative)
+            output_pipe = ZombiehausPipe((
+                model, clip, vae, positive, negative, seed,
+                pipe[6] if pipe and len(pipe) > 6 else None,
+                final_tensor
+            )) if (pipe is not None or model is not None) else None
             return (final_tensor, output_pipe)
         finally:
             _send_progress(unique_id, status="done")

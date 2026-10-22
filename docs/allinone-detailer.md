@@ -8,7 +8,7 @@ Two nodes for modular, slot-based image detailing using YOLO detection and VAE i
 
 ### Zombiehaus Detailer Slot
 
-A config bundle node. One per subject to detail (face, hands, body, etc.). Outputs a `DETAILER_SLOT` dict containing all settings for one detection + inpaint pass.
+A config bundle node. One per subject to detail (face, hands, body, etc.). Outputs a `DETAILER_SLOT` dict containing all settings for one detection + inpaint pass, and provides a daisy-chainable `PIPE` output to eliminate wiring spaghetti.
 
 **Inputs**
 
@@ -25,10 +25,19 @@ A config bundle node. One per subject to detail (face, hands, body, etc.). Outpu
 | sampler | dropdown | euler_ancestral | Sampler name |
 | scheduler | dropdown | karras | Noise scheduler |
 | enabled | BOOLEAN | True | Skip this slot when False |
-| positive | CONDITIONING (optional) | — | Per-slot positive prompt override |
-| negative | CONDITIONING (optional) | — | Per-slot negative prompt override |
+| pipe | PIPE (optional) | — | Upstream pipeline carrying base model, conditioning, and seed |
+| positive | CONDITIONING (optional) | — | Per-slot positive prompt override (used strictly for this slot) |
+| negative | CONDITIONING (optional) | — | Per-slot negative prompt override (used strictly for this slot) |
 
-**Output:** `DETAILER_SLOT`
+**Outputs**
+
+| Name | Type | Description |
+|------|------|-------------|
+| slot | DETAILER_SLOT | Settings bundle wired into `All-in-One Detailer` |
+| pipe | PIPE | Passthrough pipe carrying clean upstream conditioning for daisy-chaining |
+
+> [!TIP]
+> **Daisy-Chaining Detailer Slots**: You can daisy-chain multiple `Detailer Slot` nodes in series (`Pipe Bus` ──► `Slot 1` ──► `Slot 2` ──► `Slot 3` ──► `AllInOneDetailer`). The outgoing `pipe` always forwards the clean base conditioning down the chain. If you attach a custom positive or negative prompt to a specific slot (e.g. face detail prompt on Slot 1), that override applies **only to that slot** and will not pollute downstream slots!
 
 ---
 
@@ -41,14 +50,14 @@ The main processing node. Accepts a pipe carrying model/clip/vae/conditioning pl
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | confidence | FLOAT | 0.3 | YOLO detection confidence threshold |
-| pipe | PIPE (optional) | — | Carries model, clip, vae, positive, negative |
+| pipe | PIPE (optional) | — | Carries model, clip, vae, positive, negative, and seed |
 | image | IMAGE (optional) | — | Source image to detail |
 | model | MODEL (optional) | — | Overrides pipe model |
 | clip | CLIP (optional) | — | Overrides pipe clip |
 | vae | VAE (optional) | — | Overrides pipe vae |
 | positive | CONDITIONING (optional) | — | Overrides pipe positive |
 | negative | CONDITIONING (optional) | — | Overrides pipe negative |
-| seed | INT (optional) | 0 | Sampling seed |
+| seed | INT (optional) | 0 | Sampling seed (Hybrid fallback: if set to `0`, automatically adopts the pipe seed) |
 | slot_1 … slot_N | DETAILER_SLOT (optional) | — | Any number of detailing passes (slots added dynamically via the node UI) |
 
 **Outputs**
@@ -56,7 +65,7 @@ The main processing node. Accepts a pipe carrying model/clip/vae/conditioning pl
 | Name | Type | Description |
 |------|------|-------------|
 | image | IMAGE | Fully detailed image (or image batch) after all slots |
-| pipe | PIPE | Input pipe passed through unchanged |
+| pipe | PIPE | Consolidated master PIPE carrying updated image, active seed, and components |
 
 ---
 

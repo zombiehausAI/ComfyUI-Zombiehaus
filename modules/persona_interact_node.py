@@ -295,6 +295,10 @@ class ZombiehausPersonaInteract:
         if model is None or vae is None or positive is None:
             raise ValueError("[ZombiehausPersonaInteract] Pipe is missing model, vae, or positive conditioning.")
 
+        # Intelligent hybrid seed fallback: if seed == 0, adopt pipe seed
+        from .pipe_bus_node import resolve_pipe_seed
+        seed = resolve_pipe_seed(pipe, local_seed=seed)
+
         # 2. Align canvas dimensions to multiples of 64
         orig_h, orig_w = image.shape[1], image.shape[2]
         w = (orig_w // 64) * 64

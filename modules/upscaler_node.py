@@ -125,11 +125,22 @@ class ZombiehausUpscaler:
         if pipe is not None:
             # Pipe format: (model, clip, vae, positive, negative)
             
-            model = model if model is not None else (pipe[0] if len(pipe) > 0 else None)
-            clip = pipe[1] if len(pipe) > 1 else None  # Extract CLIP from pipe for passthrough
-            vae = vae if vae is not None else (pipe[2] if len(pipe) > 2 else None)
-            positive = positive if positive is not None else (pipe[3] if len(pipe) > 3 else None)
-            negative = negative if negative is not None else (pipe[4] if len(pipe) > 4 else None)
+            if isinstance(pipe, dict):
+                model = model if model is not None else pipe.get("model")
+                clip = clip if clip is not None else pipe.get("clip")
+                vae = vae if vae is not None else pipe.get("vae")
+                positive = positive if positive is not None else pipe.get("positive")
+                negative = negative if negative is not None else pipe.get("negative")
+            elif isinstance(pipe, (tuple, list)):
+                model = model if model is not None else (pipe[0] if len(pipe) > 0 else None)
+                clip = clip if clip is not None else (pipe[1] if len(pipe) > 1 else None)
+                vae = vae if vae is not None else (pipe[2] if len(pipe) > 2 else None)
+                positive = positive if positive is not None else (pipe[3] if len(pipe) > 3 else None)
+                negative = negative if negative is not None else (pipe[4] if len(pipe) > 4 else None)
+
+            # Intelligent hybrid seed fallback: if seed == 0, adopt pipe seed
+            from .pipe_bus_node import resolve_pipe_seed, ZombiehausPipe
+            seed = resolve_pipe_seed(pipe, local_seed=seed)
             
         else:
             # Use individual inputs as provided
@@ -312,8 +323,12 @@ class ZombiehausUpscaler:
         processed_batch = torch.cat(processed_images, dim=0)
         original_batch = torch.cat(original_images, dim=0)
 
-        # Create output pipe
-        output_pipe = (model, clip, vae, positive, negative)
+        # Create output pipe with active seed and processed image
+        output_pipe = ZombiehausPipe((
+            model, clip, vae, positive, negative, seed,
+            pipe.get("latent") if isinstance(pipe, dict) else (pipe[6] if (pipe and len(pipe) > 6) else None),
+            processed_batch
+        ))
 
 
         return (processed_batch, original_batch, output_pipe)

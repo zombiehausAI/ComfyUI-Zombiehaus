@@ -17,8 +17,19 @@ In advanced workflows, passing individual connections (`MODEL`, `CLIP`, `VAE`, `
 ## Universal Compatibility
 
 The outgoing `pipe` is wrapped in a dual-access `ZombiehausPipe` object that supports both:
-- **Tuple Indexing**: `pipe[0]` (MODEL), `pipe[1]` (CLIP), `pipe[2]` (VAE), `pipe[3]` (POSITIVE), `pipe[4]` (NEGATIVE), `pipe[5]` (SEED), `pipe[6]` (LATENT), `pipe[7]` (IMAGE).
-- **Dictionary Access**: `pipe.get("model")`, `pipe.get("vae")`, `pipe.get("positive")`, etc.
+- **Tuple Indexing**:
+  * `pipe[0]`: MODEL
+  * `pipe[1]`: CLIP
+  * `pipe[2]`: VAE
+  * `pipe[3]`: POSITIVE (conditioning)
+  * `pipe[4]`: NEGATIVE (conditioning)
+  * `pipe[5]`: SEED (integer)
+  * `pipe[6]`: LATENT (latent tensor dict)
+  * `pipe[7]`: IMAGE (active pixel image tensor)
+  * `pipe[8]`: MASK (active alpha/inpainting mask)
+  * `pipe[9]`: POSITIVE_TEXT (raw prompt string)
+  * `pipe[10]`: NEGATIVE_TEXT (raw negative prompt string)
+- **Dictionary Access**: `pipe.get("model")`, `pipe.get("vae")`, `pipe.get("positive")`, `pipe.get("mask")`, `pipe.get("positive_text")` (or `pipe.get("prompt")`), `pipe.get("negative_text")`, etc.
 
 This guarantees 100% interoperability with all Zombiehaus nodes as well as standard ComfyUI ecosystem nodes.
 
@@ -27,16 +38,19 @@ This guarantees 100% interoperability with all Zombiehaus nodes as well as stand
 ## Architecture Diagram
 
 ```
-[MODEL] ──┐
-[CLIP]  ──┼──> [ Zombiehaus Pipe Bus ] ──> [pipe] (Unified Master Pipe)
-[VAE]   ──┤                 │          ──> [model]
-[POS]   ──┤                 │          ──> [clip]
-[NEG]   ──┤                 │          ──> [vae]
-[LATENT]──┤                 │          ──> [positive]
-[IMAGE] ──┤                 │          ──> [negative]
-[SEED]  ──┘                 │          ──> [latent]
-[pipe]  ────────────────────┘          ──> [image]
-                                       ──> [seed]
+[MODEL]     ──┐
+[CLIP]      ──┼──> [ Zombiehaus Pipe Bus ] ──> [pipe] (Unified Master Pipe)
+[VAE]       ──┤                 │          ──> [model]
+[POS]       ──┤                 │          ──> [clip]
+[NEG]       ──┤                 │          ──> [vae]
+[LATENT]    ──┤                 │          ──> [positive]
+[IMAGE]     ──┤                 │          ──> [negative]
+[MASK]      ──┤                 │          ──> [latent]
+[SEED]      ──┤                 │          ──> [image]
+[POS_TEXT]  ──┤                 │          ──> [mask]
+[NEG_TEXT]  ──┤                 │          ──> [seed]
+[pipe]      ──┘                 │          ──> [positive_text]
+                                           ──> [negative_text]
 ```
 
 ---
@@ -55,7 +69,10 @@ All inputs are optional, giving you complete freedom to use the bus as a package
 | **`negative`** | `CONDITIONING` | Negative conditioning input. Overrides `negative` in `pipe` if connected. |
 | **`latent`** | `LATENT` | Latent tensor input. Overrides `latent` in `pipe` if connected. |
 | **`image`** | `IMAGE` | Pixel image input. Overrides `image` in `pipe` if connected. |
+| **`mask`** | `MASK` | Mask tensor input. Overrides `mask` in `pipe` if connected. |
 | **`seed`** | `INT` | Master seed input. Overrides `seed` in `pipe` if connected. |
+| **`positive_text`** | `STRING` | Positive prompt string. Overrides text in `pipe` if connected. |
+| **`negative_text`** | `STRING` | Negative prompt string. Overrides text in `pipe` if connected. |
 
 ---
 
@@ -71,7 +88,10 @@ All inputs are optional, giving you complete freedom to use the bus as a package
 | **`negative`** | `CONDITIONING` | Extracted negative conditioning vector. |
 | **`latent`** | `LATENT` | Extracted latent tensor. |
 | **`image`** | `IMAGE` | Extracted pixel image tensor. |
+| **`mask`** | `MASK` | Extracted mask tensor. |
 | **`seed`** | `INT` | Extracted master seed integer. |
+| **`positive_text`** | `STRING` | Extracted clean positive prompt string. |
+| **`negative_text`** | `STRING` | Extracted clean negative prompt string. |
 
 ---
 
@@ -85,6 +105,16 @@ In complex multi-stage workflows (e.g. Img2Img, HiRes Fix, FaceSwap, Detailing),
 
 ### 3. Pipeline Component Overriding
 Suppose you apply a LoRA or ControlNet mid-pipeline. Simply connect your original `pipe` into the bus, connect the new patched `model` into the bus's `model` input, and the bus will emit an updated `pipe` carrying the patched model while preserving the original VAE, CLIP, and conditioning.
+
+---
+
+## Hybrid Intelligent Seed Fallback
+
+All major Zombiehaus processing nodes (`ZombiehausTextEditor`, `ZombiehausKSampler`, `ZombiehausAllInOneDetailer`, `ZombiehausHiresFix`, `ZombiehausPersonInpaint`, `ZombiehausPersonaInteract`, `ZombiehausWardrobeInpaint`, and `ZombiehausUpscaler`) feature **intelligent hybrid seed fallback**:
+
+* **Auto-Adopt (`seed: 0`, `fixed`)**: If a downstream node's local `seed` widget is left at `0` (or action set to `fixed`), it automatically inherits and executes with the seed carried within the connected `pipe`.
+* **Local Override (`seed > 0` or action like `randomize` / `increment`)**: Setting a non-zero seed or choosing an active action on the local node takes immediate precedence, using its own seed instead of the pipe.
+* **Cascading Propagation**: Each node packages its active seed into its outgoing `output_pipe`, ensuring seamless deterministic seed propagation across the entire workflow (Text Editor ──► KSampler ──► Detailers ──► Inpainters ──► Upscalers).
 
 ---
 

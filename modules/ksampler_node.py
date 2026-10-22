@@ -59,14 +59,22 @@ class ZombiehausKSampler:
         
         # Extract from pipe or use individual inputs
         if pipe is not None:
-            # Pipe format: (model, clip, vae, positive, negative)
-            
-            # Individual inputs take priority over pipe
-            model = model if model is not None else (pipe[0] if len(pipe) > 0 else None)
-            clip = clip if clip is not None else (pipe[1] if len(pipe) > 1 else None)
-            vae = vae if vae is not None else (pipe[2] if len(pipe) > 2 else None)
-            positive = positive if positive is not None else (pipe[3] if len(pipe) > 3 else None)
-            negative = negative if negative is not None else (pipe[4] if len(pipe) > 4 else None)
+            if isinstance(pipe, dict):
+                model = model if model is not None else pipe.get("model")
+                clip = clip if clip is not None else pipe.get("clip")
+                vae = vae if vae is not None else pipe.get("vae")
+                positive = positive if positive is not None else pipe.get("positive")
+                negative = negative if negative is not None else pipe.get("negative")
+            elif isinstance(pipe, (tuple, list)):
+                model = model if model is not None else (pipe[0] if len(pipe) > 0 else None)
+                clip = clip if clip is not None else (pipe[1] if len(pipe) > 1 else None)
+                vae = vae if vae is not None else (pipe[2] if len(pipe) > 2 else None)
+                positive = positive if positive is not None else (pipe[3] if len(pipe) > 3 else None)
+                negative = negative if negative is not None else (pipe[4] if len(pipe) > 4 else None)
+
+        # Intelligent hybrid seed fallback: if seed == 0, adopt pipe seed
+        from .pipe_bus_node import resolve_pipe_seed, ZombiehausPipe
+        seed = resolve_pipe_seed(pipe, local_seed=seed)
         
         # Validate required inputs
         if model is None:
@@ -160,8 +168,12 @@ class ZombiehausKSampler:
                 cudnn.enabled = original_cudnn_enabled
                 cudnn.benchmark = original_cudnn_benchmark
         
-        # Create output pipe
-        output_pipe = (model, clip, vae, positive, negative)
+        # Create output pipe with active seed, latent, and decoded image
+        output_pipe = ZombiehausPipe((
+            model, clip, vae, positive, negative, seed,
+            latent_samples[0] if latent_samples else None,
+            image
+        ))
         
         
         return (

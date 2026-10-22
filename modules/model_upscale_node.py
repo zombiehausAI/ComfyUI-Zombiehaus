@@ -29,7 +29,6 @@ class ZombiehausModelUpscale:
 
         return {
             "required": {
-                "image": ("IMAGE",),
                 "upscale_model_name": (upscale_models, {"default": upscale_models[0] if upscale_models else "None"}),
                 "upscale_mode": (modes, {"default": "target"}),
                 "target_size": ("INT", {"default": 2560, "min": 256, "max": 8192, "step": 64}),
@@ -40,6 +39,7 @@ class ZombiehausModelUpscale:
                 "tile_overlap": ("INT", {"default": 32, "min": 16, "max": 256, "step": 16}),
             },
             "optional": {
+                "image": ("IMAGE",),
                 "pipe": ("PIPE",),
                 "target_width": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 64}),
                 "target_height": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 64}),
@@ -209,12 +209,18 @@ class ZombiehausModelUpscale:
             print(f"[ZombiehausModelUpscale] Saved pre-downscale upscale: {file_path}")
             counter += 1
 
-    def upscale_and_rescale(self, image, upscale_model_name, upscale_mode="target",
+    def upscale_and_rescale(self, upscale_model_name, upscale_mode="target",
                             target_size=2560, downscale_enabled=True, scale_down_by=0.5,
                             rescale_method="lanczos", tile_size=512, tile_overlap=32,
-                            pipe=None, target_width=0, target_height=0,
+                            image=None, pipe=None, target_width=0, target_height=0,
                             save_upscale=False, upscale_save_prefix="Zombiehaus_Upscale",
                             upscale_enabled=None, prompt=None, extra_pnginfo=None, **kwargs):
+        # Extract image from pipe if not provided directly
+        if image is None and pipe is not None:
+            image = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+        if image is None:
+            raise ValueError("[ZombiehausModelUpscale] IMAGE is required (provide via image input or pipe)")
+
         current_img = image
 
         # Backward compatibility for workflows passing boolean upscale_enabled
@@ -294,4 +300,23 @@ class ZombiehausModelUpscale:
         final_current = torch.cat(out_current, dim=0) if len(out_current) > 1 else out_current[0]
         final_upscaled = torch.cat(out_upscaled, dim=0) if len(out_upscaled) > 1 else out_upscaled[0]
 
-        return (final_current, pipe, final_upscaled)
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["image"] = final_current
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    out_pipe[1] if len(out_pipe) > 1 else None,
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    out_pipe[3] if len(out_pipe) > 3 else None,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    out_pipe[5] if len(out_pipe) > 5 else None,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    final_current
+                ))
+
+        return (final_current, out_pipe, final_upscaled)

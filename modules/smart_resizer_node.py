@@ -173,26 +173,34 @@ class ZombiehausSmartResizer:
 class ZombiehausImageScaleDownBy:
     """
     Downscales image batch by a factor using high-quality Lanczos antialiasing.
-    Direct drop-in replacement for easy imageScaleDownBy.
+    Direct drop-in replacement for easy imageScaleDownBy with full pipe support.
     """
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images": ("IMAGE",),
                 "scale_by": (
                     "FLOAT",
                     {"default": 0.5, "min": 0.01, "max": 1.0, "step": 0.01},
                 ),
+            },
+            "optional": {
+                "images": ("IMAGE",),
+                "pipe": ("PIPE",),
             }
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("images",)
+    RETURN_TYPES = ("IMAGE", "PIPE")
+    RETURN_NAMES = ("images", "pipe")
     FUNCTION = "image_scale_down_by"
     CATEGORY = "Zombiehaus/Image"
 
-    def image_scale_down_by(self, images: torch.Tensor, scale_by: float):
+    def image_scale_down_by(self, scale_by: float, images: torch.Tensor = None, pipe=None):
+        if images is None and pipe is not None:
+            images = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
+        if images is None:
+            raise ValueError("[ZombiehausImageScaleDownBy] IMAGES is required (provide via images input or pipe)")
+
         b_size, in_h, in_w, in_c = images.shape
         new_width = max(1, int(round(in_w * scale_by)))
         new_height = max(1, int(round(in_h * scale_by)))
@@ -205,7 +213,28 @@ class ZombiehausImageScaleDownBy:
             out_np = np.array(pil_img).astype(np.float32) / 255.0
             results.append(torch.from_numpy(out_np))
 
-        return (torch.stack(results, dim=0),)
+        final_images = torch.stack(results, dim=0)
+
+        out_pipe = pipe
+        if out_pipe is not None:
+            from .pipe_bus_node import ZombiehausPipe
+            if isinstance(out_pipe, dict):
+                d = dict(out_pipe)
+                d["image"] = final_images
+                out_pipe = d
+            elif isinstance(out_pipe, (tuple, list)):
+                out_pipe = ZombiehausPipe((
+                    out_pipe[0] if len(out_pipe) > 0 else None,
+                    out_pipe[1] if len(out_pipe) > 1 else None,
+                    out_pipe[2] if len(out_pipe) > 2 else None,
+                    out_pipe[3] if len(out_pipe) > 3 else None,
+                    out_pipe[4] if len(out_pipe) > 4 else None,
+                    out_pipe[5] if len(out_pipe) > 5 else None,
+                    out_pipe[6] if len(out_pipe) > 6 else None,
+                    final_images
+                ))
+
+        return (final_images, out_pipe)
 
 
 NODE_CLASS_MAPPINGS = {

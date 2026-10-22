@@ -444,11 +444,57 @@ function findRackContainingNode(node) {
     return null;
 }
 
-function getRackNodes(rack) {
-    if (!rack || !app.graph?._nodes) return [];
-    return app.graph._nodes.filter((n) => (
+function syncRackNodes(rack, draggingNode = null) {
+    if (!rack || !rack.pos || !rack.size || !app.graph?._nodes) return;
+    const railX = rack.pos[0] + 16;
+    const innerW = Math.max(220, rack.size[0] - 32);
+    const startY = rack.pos[1] + 74;
+    const slotPitch = 38;
+
+    const nodes = app.graph._nodes.filter((n) => (
         n && n.flags?.collapsed && n._equipment_rack === rack
     ));
+    if (nodes.length === 0) return;
+
+    nodes.sort((a, b) => {
+        const slotA = (typeof a._rack_slot === "number") ? a._rack_slot : ((a.pos?.[1] || 0) - startY) / slotPitch;
+        const slotB = (typeof b._rack_slot === "number") ? b._rack_slot : ((b.pos?.[1] || 0) - startY) / slotPitch;
+        return slotA - slotB;
+    });
+
+    nodes.forEach((n, idx) => {
+        n._rack_slot = idx;
+        n._in_equipment_rack = true;
+        n._equipment_rack = rack;
+        n._collapsed_width = innerW;
+        if (n.size) n.size[0] = innerW;
+
+        if (n !== draggingNode && !n._is_unlatched_from_rack && n.pos) {
+            n.pos[0] = railX;
+            n.pos[1] = startY + idx * slotPitch;
+        }
+    });
+
+    const minH = Math.max(240, 74 + nodes.length * slotPitch + 20);
+    if ((rack.size[1] || 0) < minH) {
+        rack.size[1] = minH;
+    }
+    rack._nodes = nodes;
+}
+
+function getRackNodes(rack) {
+    if (!rack || !app.graph?._nodes) return [];
+    const nodes = app.graph._nodes.filter((n) => (
+        n && n.flags?.collapsed && n._equipment_rack === rack
+    ));
+    const startY = (rack.pos ? rack.pos[1] : 0) + 74;
+    const slotPitch = 38;
+    nodes.sort((a, b) => {
+        const slotA = (typeof a._rack_slot === "number") ? a._rack_slot : ((a.pos?.[1] || 0) - startY) / slotPitch;
+        const slotB = (typeof b._rack_slot === "number") ? b._rack_slot : ((b.pos?.[1] || 0) - startY) / slotPitch;
+        return slotA - slotB;
+    });
+    return nodes;
 }
 
 function resolveCanvasAndCtx(arg1, arg2) {
@@ -492,12 +538,31 @@ function sanitizeGraphGroups(graph) {
         r.is_equipment_rack = true;
     }
 
+    // Auto-unseat any node that was expanded to full size
+    for (const n of graph._nodes) {
+        if (!n) continue;
+        if (n._equipment_rack && !n.flags?.collapsed) {
+            const r = n._equipment_rack;
+            delete n._equipment_rack;
+            n._in_equipment_rack = false;
+            delete n._rack_slot;
+            delete n._is_unlatched_from_rack;
+            n._collapsed_width = null;
+            if (r && r.pos && r.size && n.pos) {
+                n.pos[0] = r.pos[0] + r.size[0] + 30;
+                compactRackNodes(r, app.canvas);
+            }
+        }
+    }
+
     // Clean up stale rack references if rack was removed from graph
     for (const n of graph._nodes) {
         if (!n) continue;
         if (n._equipment_rack && !graph._groups.includes(n._equipment_rack)) {
             delete n._equipment_rack;
             n._in_equipment_rack = false;
+            delete n._rack_slot;
+            delete n._is_unlatched_from_rack;
         }
     }
 
@@ -521,7 +586,7 @@ function sanitizeGraphGroups(graph) {
 
     // Ensure each rack's _nodes strictly contains only its own assigned nodes
     for (const r of racks) {
-        r._nodes = graph._nodes.filter((n) => n && n.flags?.collapsed && n._equipment_rack === r);
+        syncRackNodes(r);
     }
 }
 
@@ -557,47 +622,66 @@ function createEquipmentRack(canvas, pos) {
     return rack;
 }
 
-function slotNodesIntoRack(rack, nodes, canvas) {
-    if (!rack || !nodes) return;
-    const railX = rack.pos[0] + 16;
+function insertNodeIntoRack(rack, node, targetSlot = null, canvas = null) {
+    if (!rack || !node) return;
     const innerW = Math.max(220, rack.size[0] - 32);
-    const startY = rack.pos[1] + 74; // Aligns 1U module top neatly at rack.pos[1] + 44
-    const slotPitch = 38;
+    node.flags = node.flags || {};
+    node.flags.collapsed = true;
+    node._in_equipment_rack = true;
+    node._equipment_rack = rack;
+    node._collapsed_width = innerW;
+    if (node.size) node.size[0] = innerW;
+    delete node._is_unlatched_from_rack;
 
-    // Find all nodes that belong in this rack
-    const existing = (rack._nodes || []).filter((n) => n && n.flags?.collapsed && !nodes.includes(n));
-    const allNodes = [...existing, ...nodes.filter((n) => n && n.pos)];
+    const existing = getRackNodes(rack).filter((n) => n !== node);
+    const clampedSlot = (typeof targetSlot === "number")
+        ? Math.max(0, Math.min(existing.length, targetSlot))
+        : existing.length;
+    existing.splice(clampedSlot, 0, node);
 
-    // Sort by Y coordinate so dragging up/down in rack reorders intuitively
-    allNodes.sort((a, b) => (a.pos[1] || 0) - (b.pos[1] || 0));
-
-    allNodes.forEach((n, idx) => {
-        n.flags = n.flags || {};
-        n.flags.collapsed = true;
-        n._collapsed_width = innerW;
-        n.size[0] = innerW;
-        n.pos[0] = railX;
-        n.pos[1] = startY + idx * slotPitch;
+    existing.forEach((n, idx) => {
+        n._rack_slot = idx;
         n._in_equipment_rack = true;
         n._equipment_rack = rack;
-        if (n.setDirtyCanvas) n.setDirtyCanvas(true, true);
+        n._collapsed_width = innerW;
+        if (n.size) n.size[0] = innerW;
     });
 
-    const neededH = Math.max(180, 56 + allNodes.length * slotPitch);
-    if (rack.size[1] < neededH) {
-        rack.size[1] = neededH;
-    }
+    syncRackNodes(rack);
+    if (canvas) canvas.setDirty(true, true);
+}
 
-    rack.recomputeInsideNodes?.();
+function slotNodesIntoRack(rack, nodes, canvas) {
+    if (!rack || !nodes || nodes.length === 0) return;
+    const innerW = Math.max(220, rack.size[0] - 32);
+    const existing = getRackNodes(rack).filter((n) => !nodes.includes(n));
+    const all = [...existing, ...nodes.filter((n) => n && n.pos)];
+    all.sort((a, b) => (a.pos[1] || 0) - (b.pos[1] || 0));
+
+    all.forEach((n, idx) => {
+        n.flags = n.flags || {};
+        n.flags.collapsed = true;
+        n._rack_slot = idx;
+        n._in_equipment_rack = true;
+        n._equipment_rack = rack;
+        n._collapsed_width = innerW;
+        if (n.size) n.size[0] = innerW;
+        delete n._is_unlatched_from_rack;
+    });
+
+    syncRackNodes(rack);
     if (canvas) canvas.setDirty(true, true);
 }
 
 function compactRackNodes(rack, canvas) {
     if (!rack || !app.graph?._nodes) return;
-    const nodesInside = app.graph._nodes.filter((n) => (
-        n && n.flags?.collapsed && n._equipment_rack === rack
-    ));
-    slotNodesIntoRack(rack, nodesInside, canvas);
+    const nodes = getRackNodes(rack);
+    nodes.forEach((n, idx) => {
+        n._rack_slot = idx;
+        delete n._is_unlatched_from_rack;
+    });
+    syncRackNodes(rack);
+    if (canvas) canvas.setDirty(true, true);
 }
 
 function rackAllMinimizedNodes(canvas) {
@@ -641,7 +725,7 @@ function sendNodeToNearestRack(node, canvas) {
         nearestRack = createEquipmentRack(canvas, [node.pos[0] - 20, node.pos[1] - 50]);
     }
     if (nearestRack) {
-        slotNodesIntoRack(nearestRack, [node], canvas);
+        insertNodeIntoRack(nearestRack, node, null, canvas);
         showDockingToast(`🗄️ Slotted "${node.title || node.type}" into ${nearestRack.title || "Equipment Rack"}`);
     }
 }
@@ -651,6 +735,8 @@ function detachNodeFromRack(node, canvas) {
     const inRack = findRackContainingNode(node);
     delete node._equipment_rack;
     node._in_equipment_rack = false;
+    delete node._rack_slot;
+    delete node._is_unlatched_from_rack;
     node._collapsed_width = null;
     node.pos[0] += (inRack ? inRack.size[0] : 320) + 30;
     if (inRack) {
@@ -1951,9 +2037,7 @@ function setupClassicCanvasDecorator() {
             GC.prototype.recomputeInsideNodes = function () {
                 if (isEquipmentRackGroup(this)) {
                     // Equipment Rack: strictly contains ONLY collapsed nodes assigned to THIS rack
-                    this._nodes = (this.graph?._nodes || []).filter((n) => (
-                        n && n.flags?.collapsed && n._equipment_rack === this
-                    ));
+                    this._nodes = getRackNodes(this);
                     return;
                 }
                 // Normal groups: compute normally, but never drag or steal nodes belonging to an equipment rack
@@ -1970,15 +2054,7 @@ function setupClassicCanvasDecorator() {
                 if (isEquipmentRackGroup(this)) {
                     this.pos[0] += deltax;
                     this.pos[1] += deltay;
-                    if (!ignore_nodes && this.graph?._nodes) {
-                        const railX = this.pos[0] + 16;
-                        for (const n of this.graph._nodes) {
-                            if (n && n.flags?.collapsed && n._equipment_rack === this && n.pos) {
-                                n.pos[0] = railX;
-                                n.pos[1] += deltay;
-                            }
-                        }
-                    }
+                    syncRackNodes(this);
                     return;
                 }
                 return origMove ? origMove.apply(this, arguments) : undefined;
@@ -2023,6 +2099,20 @@ function setupClassicCanvasDecorator() {
                             this._collapsed_width = innerW;
                             this.size[0] = innerW;
                         }
+                    } else {
+                        const rack = findRackContainingNode(this);
+                        if (rack) {
+                            delete this._equipment_rack;
+                            this._in_equipment_rack = false;
+                            delete this._rack_slot;
+                            delete this._is_unlatched_from_rack;
+                            this._collapsed_width = null;
+                            if (rack.pos && rack.size && this.pos) {
+                                this.pos[0] = rack.pos[0] + rack.size[0] + 30;
+                            }
+                            compactRackNodes(rack, app.canvas);
+                            showDockingToast(`🗄️ Unseated "${this.title || this.type}" from Rack (Expanded)`);
+                        }
                     }
                     return res;
                 };
@@ -2035,29 +2125,11 @@ function setupClassicCanvasDecorator() {
         sanitizeGraphGroups(this.graph);
         const { ctx, canvas } = resolveCanvasAndCtx(arg1, arg2);
 
-        // Dynamically fit all slotted collapsed nodes to rack width & rail positions
-        if (this.graph?._groups && this.graph?._nodes) {
+        // Mechanically anchor and lock all slotted collapsed nodes to rack rails
+        if (this.graph?._groups) {
             for (const g of this.graph._groups) {
                 if (isEquipmentRackGroup(g) && g.size && g.pos) {
-                    const gx = g.pos[0];
-                    const gy = g.pos[1];
-                    const gw = g.size[0];
-                    const gh = g.size[1];
-                    const railX = gx + 16;
-                    const innerW = Math.max(220, gw - 32);
-
-                    for (const n of this.graph._nodes) {
-                        if (!n || !n.flags?.collapsed || !n.pos) continue;
-                        if (n._equipment_rack === g) {
-                            const isDraggingNode = (_lastDragPrimary === n) || (this.selected_nodes && this.selected_nodes[n.id]);
-                            if (!isDraggingNode) {
-                                n.pos[0] = railX;
-                            }
-                            n._collapsed_width = innerW;
-                            n.size[0] = innerW;
-                            n._in_equipment_rack = true;
-                        }
-                    }
+                    syncRackNodes(g, _lastDragPrimary);
                 }
             }
         }
@@ -2083,6 +2155,12 @@ function setupClassicCanvasDecorator() {
                 const innerW = Math.max(220, rack.size[0] - 32);
                 node._collapsed_width = innerW;
                 node.size[0] = innerW;
+                if (!node._is_unlatched_from_rack && rack.pos) {
+                    node.pos[0] = rack.pos[0] + 16;
+                    if (node !== _lastDragPrimary && typeof node._rack_slot === "number") {
+                        node.pos[1] = rack.pos[1] + 74 + node._rack_slot * 38;
+                    }
+                }
                 draw1URackModule(node, ctx, innerW, rack);
                 return;
             }
@@ -2105,9 +2183,11 @@ function setupClassicCanvasDecorator() {
                 const innerW = Math.max(220, rack.size[0] - 32);
                 node._collapsed_width = innerW;
                 node.size[0] = innerW;
-                const isDraggingNode = (_lastDragPrimary === node) || (this.selected_nodes && this.selected_nodes[node.id]);
-                if (!isDraggingNode) {
+                if (!node._is_unlatched_from_rack && rack.pos) {
                     node.pos[0] = rack.pos[0] + 16;
+                    if (node !== _lastDragPrimary && typeof node._rack_slot === "number") {
+                        node.pos[1] = rack.pos[1] + 74 + node._rack_slot * 38;
+                    }
                 }
                 draw1URackModule(node, ctx, innerW, rack);
                 return;
@@ -2794,11 +2874,16 @@ function setupNodeEdgeDocking() {
         if (this.selected_group) {
             _draggedNodeFromRack = null;
             _lastDragPrimary = null;
+            if (isEquipmentRackGroup(this.selected_group)) {
+                syncRackNodes(this.selected_group);
+            }
         } else {
             const draggedNodes = Object.values(this.selected_nodes || {});
             const primary = draggedNodes[0] || this.current_node;
             if (primary && primary.flags?.collapsed) {
                 _draggedNodeFromRack = findRackContainingNode(primary);
+                _lastDragPrimary = primary;
+                primary._is_unlatched_from_rack = false;
             } else {
                 _draggedNodeFromRack = null;
             }
@@ -2992,15 +3077,22 @@ function setupNodeEdgeDocking() {
             _dragCluster.clear();
             _clusterOffsets = new Map();
 
+            const group = this.selected_group;
+            if (isEquipmentRackGroup(group)) {
+                syncRackNodes(group);
+            }
+
             if (e.altKey || _dockingMode === "off") {
                 if (_activeSnapGuides.length > 0) {
                     _activeSnapGuides = [];
                     this.setDirty(true, true);
                 }
+                if (isEquipmentRackGroup(group)) {
+                    syncRackNodes(group);
+                }
                 return res;
             }
 
-            const group = this.selected_group;
             if (!group.pos || !group.size) return res;
 
             const pBounds = getGroupVisualBounds(group);
@@ -3170,6 +3262,9 @@ function setupNodeEdgeDocking() {
             if (moveDeltaX !== 0 || moveDeltaY !== 0) {
                 group.move(moveDeltaX, moveDeltaY);
             }
+            if (isEquipmentRackGroup(group)) {
+                syncRackNodes(group);
+            }
             if (moveDeltaX !== 0 && snapGuideX) newGuides.push(snapGuideX);
             if (moveDeltaY !== 0 && snapGuideY) newGuides.push(snapGuideY);
 
@@ -3187,24 +3282,75 @@ function setupNodeEdgeDocking() {
             return res;
         }
 
-        // Equipment Rack drag-and-snap preview for collapsed nodes
+        // ── Equipment Rack Module Sliding & External Snap Preview ─────────
         if (primary.flags?.collapsed) {
-            const hRack = findRackUnderPoint(primary.pos[0] + (primary.size[0] || 80) / 2, primary.pos[1] - 15);
-            if (hRack) {
-                const railX = hRack.pos[0] + 16;
-                const innerW = Math.max(220, hRack.size[0] - 32);
-                const currentRackNodes = (hRack._nodes || []).filter((n) => n && n.flags?.collapsed && n !== primary);
-                const slotIdx = Math.max(0, Math.min(currentRackNodes.length, Math.round((primary.pos[1] - (hRack.pos[1] + 74)) / 38)));
-                const targetY = hRack.pos[1] + 74 + slotIdx * 38;
-                _activeSnapGuides = [{
-                    type: "rack_slot",
-                    x1: railX,
-                    x2: railX + innerW,
-                    y: targetY - 30,
-                    rack: hRack
-                }];
-                this.setDirty(true, true);
-                return res;
+            const currentRack = findRackContainingNode(primary);
+
+            if (currentRack && currentRack.pos && currentRack.size) {
+                const rx = currentRack.pos[0];
+                const ry = currentRack.pos[1];
+                const rw = currentRack.size[0];
+                const mouseX = this.graph_mouse[0];
+                const mouseY = this.graph_mouse[1];
+                const isPulledOutside = (mouseX < rx - 55 || mouseX > rx + rw + 55);
+
+                if (!isPulledOutside) {
+                    // Slotted module stays engaged on rails: lock X, slide Y along rails
+                    primary._is_unlatched_from_rack = false;
+                    primary.pos[0] = rx + 16;
+                    const innerW = Math.max(220, rw - 32);
+                    primary._collapsed_width = innerW;
+                    primary.size[0] = innerW;
+
+                    // Real-time slot reordering along vertical rack rails
+                    const startY = ry + 74;
+                    const slotPitch = 38;
+                    const rackNodes = getRackNodes(currentRack);
+                    const currentSlot = (typeof primary._rack_slot === "number") ? primary._rack_slot : rackNodes.indexOf(primary);
+                    const targetSlot = Math.max(0, Math.min(rackNodes.length - 1, Math.round((mouseY - startY) / slotPitch)));
+
+                    if (targetSlot !== currentSlot && currentSlot >= 0) {
+                        rackNodes.splice(currentSlot, 1);
+                        rackNodes.splice(targetSlot, 0, primary);
+                        rackNodes.forEach((n, idx) => {
+                            n._rack_slot = idx;
+                        });
+                        syncRackNodes(currentRack, primary);
+                    }
+
+                    _activeSnapGuides = [{
+                        type: "rack_slot",
+                        x1: rx + 16,
+                        x2: rx + rw - 16,
+                        y: startY + targetSlot * slotPitch - 30,
+                        rack: currentRack
+                    }];
+                    this.setDirty(true, true);
+                    return res;
+                } else {
+                    // Node is intentionally pulled far outside the rack chassis (unlatched)
+                    primary._is_unlatched_from_rack = true;
+                    syncRackNodes(currentRack, primary);
+                }
+            } else {
+                // Dragging a collapsed node from outside over a rack
+                const hRack = findRackUnderPoint(primary.pos[0] + (primary.size[0] || 80) / 2, primary.pos[1] - 15);
+                if (hRack) {
+                    const railX = hRack.pos[0] + 16;
+                    const innerW = Math.max(220, hRack.size[0] - 32);
+                    const currentRackNodes = getRackNodes(hRack).filter((n) => n !== primary);
+                    const slotIdx = Math.max(0, Math.min(currentRackNodes.length, Math.round((primary.pos[1] - (hRack.pos[1] + 74)) / 38)));
+                    const targetY = hRack.pos[1] + 74 + slotIdx * 38;
+                    _activeSnapGuides = [{
+                        type: "rack_slot",
+                        x1: railX,
+                        x2: railX + innerW,
+                        y: targetY - 30,
+                        rack: hRack
+                    }];
+                    this.setDirty(true, true);
+                    return res;
+                }
             }
         }
 
@@ -3455,16 +3601,26 @@ function setupNodeEdgeDocking() {
         if (!wasDraggingGroup && draggedPrimary && draggedPrimary.flags?.collapsed) {
             const targetRack = findRackUnderPoint(draggedPrimary.pos[0] + (draggedPrimary.size[0] || 80) / 2, draggedPrimary.pos[1] - 15);
             if (targetRack) {
-                slotNodesIntoRack(targetRack, [draggedPrimary], this);
+                const startY = targetRack.pos[1] + 74;
+                const slotPitch = 38;
+                const targetSlot = Math.max(0, Math.round((draggedPrimary.pos[1] - startY) / slotPitch));
+                insertNodeIntoRack(targetRack, draggedPrimary, targetSlot, this);
                 if (fromRack && fromRack !== targetRack) {
                     compactRackNodes(fromRack, this);
                 }
             } else if (fromRack) {
-                draggedPrimary._in_equipment_rack = false;
-                delete draggedPrimary._equipment_rack;
-                draggedPrimary._collapsed_width = null;
-                compactRackNodes(fromRack, this);
-                showDockingToast(`🗄️ Detached "${draggedPrimary.title || draggedPrimary.type}" from Rack`);
+                if (draggedPrimary._is_unlatched_from_rack || !findRackContainingNode(draggedPrimary)) {
+                    draggedPrimary._in_equipment_rack = false;
+                    delete draggedPrimary._equipment_rack;
+                    delete draggedPrimary._rack_slot;
+                    delete draggedPrimary._is_unlatched_from_rack;
+                    draggedPrimary._collapsed_width = null;
+                    compactRackNodes(fromRack, this);
+                    showDockingToast(`🗄️ Detached "${draggedPrimary.title || draggedPrimary.type}" from Rack`);
+                } else {
+                    delete draggedPrimary._is_unlatched_from_rack;
+                    syncRackNodes(fromRack);
+                }
             }
         }
 

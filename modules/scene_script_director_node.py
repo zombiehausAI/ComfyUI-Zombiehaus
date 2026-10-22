@@ -54,6 +54,8 @@ class ZombiehausSceneScriptDirector:
     """
     Screenplay-Style Multi-Persona Scene Director.
     Parses [SCENE], [PERSONA N], and [INTERACTION] sections into a unified regional diffusion pipe.
+    Fully integrated with ZombiehausTextEditor for syntax-highlighted screenplay editing,
+    preset saving/loading, and automatic upstream LoRA parsing.
     """
 
     @classmethod
@@ -69,6 +71,7 @@ class ZombiehausSceneScriptDirector:
                 "default_overlap_blend": ("FLOAT", {"default": 0.25, "min": 0.05, "max": 0.60, "step": 0.05}),
             },
             "optional": {
+                "script_input": ("STRING", {"forceInput": True, "multiline": True}),
                 "mask_width": ("INT", {"default": 128, "min": 64, "max": 256, "step": 8}),
                 "mask_height": ("INT", {"default": 128, "min": 64, "max": 256, "step": 8}),
             }
@@ -111,9 +114,27 @@ class ZombiehausSceneScriptDirector:
             kv = {}
             freeform = []
             for l in raw_lines:
+                # 1. Check for embedded <lora:name:strength> tags
+                lora_tag_match = re.search(r'<lora:([^>]+)>', l, flags=re.IGNORECASE)
+                if lora_tag_match:
+                    kv["lora"] = lora_tag_match.group(1).strip()
+                    # Remove the tag from the line so it doesn't pollute prompts
+                    l = re.sub(r'<lora:[^>]+>', '', l).strip()
+
+                if not l:
+                    continue
+
                 if ":" in l:
                     k, v = l.split(":", 1)
-                    kv[k.strip().lower()] = v.strip()
+                    k_clean = k.strip().lower()
+                    v_clean = v.strip()
+                    # Clean any brackets from lora value (e.g. lora: <lora:AudraMiller:0.85>)
+                    if k_clean == "lora":
+                        v_clean = re.sub(r'^<lora:|>|\'$|"$|^[\'"]', '', v_clean).strip()
+                        if v_clean:
+                            kv[k_clean] = v_clean
+                    else:
+                        kv[k_clean] = v_clean
                 else:
                     freeform.append(l)
 
@@ -196,7 +217,8 @@ class ZombiehausSceneScriptDirector:
         return torch.from_numpy(mask).unsqueeze(0)
 
     def direct_scene_script(self, pipe, script, default_lora_strength=0.85,
-                            default_overlap_blend=0.25, mask_width=128, mask_height=128):
+                            default_overlap_blend=0.25, mask_width=128, mask_height=128,
+                            script_input=None):
         # 1. Unpack base pipe
         if isinstance(pipe, dict):
             model = pipe.get("model")
@@ -214,8 +236,42 @@ class ZombiehausSceneScriptDirector:
         if model is None or clip is None:
             raise ValueError("[ZombiehausSceneScriptDirector] Pipe is missing model or clip.")
 
-        # 2. Parse script
-        parsed = self._parse_script(script)
+        # 2. Extract upstream LoRA metadata and clean prompt from pipe conditioning if available
+        upstream_prompt_loras = []
+        upstream_clean_prompt = ""
+        cond_source = []
+        if isinstance(pipe, dict) and "positive" in pipe:
+            cond_source = pipe["positive"]
+        elif isinstance(pipe, (tuple, list)) and len(pipe) > 3 and isinstance(pipe[3], list):
+            cond_source = pipe[3]
+
+        if cond_source and isinstance(cond_source, list):
+            for chunk in cond_source:
+                if len(chunk) > 1 and isinstance(chunk[1], dict):
+                    if not upstream_prompt_loras:
+                        pl = chunk[1].get("zombiehaus_prompt_loras")
+                        if pl and isinstance(pl, list):
+                            upstream_prompt_loras = list(pl)
+                    if not upstream_clean_prompt:
+                        cp = chunk[1].get("clean_prompt")
+                        if cp and isinstance(cp, str):
+                            upstream_clean_prompt = cp
+
+        # Determine effective screenplay script (priority: script_input > script widget > clean_prompt from pipe)
+        effective_script = ""
+        if script_input and isinstance(script_input, str) and script_input.strip():
+            effective_script = script_input.strip()
+        elif script and isinstance(script, str) and script.strip() and script.strip() != DEFAULT_SCRIPT_TEMPLATE.strip():
+            effective_script = script.strip()
+        elif upstream_clean_prompt and ("[" in upstream_clean_prompt and "]" in upstream_clean_prompt):
+            effective_script = upstream_clean_prompt.strip()
+        elif script and isinstance(script, str) and script.strip():
+            effective_script = script.strip()
+        else:
+            effective_script = DEFAULT_SCRIPT_TEMPLATE.strip()
+
+        # 3. Parse script
+        parsed = self._parse_script(effective_script)
         personas = parsed.get("personas", [])
         scene = parsed.get("scene", {})
         interaction = parsed.get("interaction", {})
@@ -237,12 +293,37 @@ class ZombiehausSceneScriptDirector:
         loras_in_models = folder_paths.get_filename_list("loras")
         loaded_lora_logs = []
 
-        # 3. Dynamic LoRA Stacking for N Personas
+        # 4. Dynamic LoRA Stacking for N Personas & Global Scene
+        # Check scene-wide LoRA first if specified
+        scene_lora_spec = scene.get("lora", "")
+        if scene_lora_spec and scene_lora_spec.lower() not in ("none", "null", ""):
+            s_name = scene_lora_spec
+            s_str = default_lora_strength
+            if ":" in scene_lora_spec:
+                sparts = scene_lora_spec.split(":")
+                s_name = sparts[0].strip()
+                try:
+                    s_str = float(sparts[1].strip())
+                except ValueError:
+                    pass
+            s_path = ZombiehausLoraLoader.find_lora_path(s_name, loras_in_models)
+            if s_path:
+                try:
+                    active_model, active_clip = core_loader.load_lora(
+                        active_model, active_clip, s_path, s_str, s_str
+                    )
+                    loaded_lora_logs.append(f"Scene (Global): {os.path.basename(s_path)} ({s_str})")
+                except Exception as e:
+                    print(f"[ZombiehausSceneScriptDirector] Error loading Scene LoRA ({s_path}): {e}")
+
+        # Resolve LoRAs for each persona (explicit tag > upstream_prompt_loras by index)
         for i, p_data in enumerate(personas):
+            lora_name = ""
+            lora_str = default_lora_strength
+
             lora_spec = p_data.get("lora", "")
             if lora_spec and lora_spec.lower() not in ("none", "null", ""):
                 lora_name = lora_spec
-                lora_str = default_lora_strength
                 if ":" in lora_spec:
                     parts = lora_spec.split(":")
                     lora_name = parts[0].strip()
@@ -250,20 +331,34 @@ class ZombiehausSceneScriptDirector:
                         lora_str = float(parts[1].strip())
                     except ValueError:
                         pass
+            elif i < len(upstream_prompt_loras):
+                # Auto-matched from ZombiehausTextEditor prompt LoRAs
+                u_item = upstream_prompt_loras[i]
+                lora_name = u_item.get("name", "")
+                lora_str = float(u_item.get("model_strength", default_lora_strength))
+                p_data["lora"] = f"{lora_name}:{lora_str}"
 
+            if lora_name and lora_name.lower() not in ("none", "null", ""):
                 found_path = ZombiehausLoraLoader.find_lora_path(lora_name, loras_in_models)
                 if found_path:
                     try:
                         active_model, active_clip = core_loader.load_lora(
                             active_model, active_clip, found_path, lora_str, lora_str
                         )
-                        loaded_lora_logs.append(f"{p_data['name']}: {found_path} ({lora_str})")
+                        loaded_lora_logs.append(f"{p_data['name']}: {os.path.basename(found_path)} ({lora_str})")
+                        # Auto-discover trigger words and inject into persona description if missing
+                        try:
+                            tw_list = ZombiehausLoraLoader.extract_lora_trigger_words(found_path)
+                            if tw_list:
+                                p_data["trigger_words"] = ", ".join(tw_list[:3])
+                        except Exception:
+                            pass
                     except Exception as e:
                         print(f"[ZombiehausSceneScriptDirector] Error loading LoRA ({found_path}): {e}")
                 else:
                     print(f"[ZombiehausSceneScriptDirector] LoRA not found: {lora_name}")
 
-        # 4. Compile Spatial Conditioning for N Personas
+        # 5. Compile Spatial Conditioning for N Personas
         encoder = CLIPTextEncode()
         regional_conditionings = []
         mask_tensors = []
@@ -272,9 +367,13 @@ class ZombiehausSceneScriptDirector:
         for idx, p_data in enumerate(personas):
             # Assemble Persona Text
             parts = []
+            if "trigger_words" in p_data and p_data["trigger_words"]:
+                parts.append(p_data["trigger_words"])
             for k in ("appearance", "clothing", "pose", "action", "freeform"):
                 if k in p_data and p_data[k]:
-                    parts.append(p_data[k])
+                    clean_val = re.sub(r'<lora:[^>]+>', '', p_data[k]).strip()
+                    if clean_val:
+                        parts.append(clean_val)
             p_text = ", ".join(parts) if parts else "1person, authentic photo, high quality"
 
             # Create Spatial Mask
@@ -290,16 +389,20 @@ class ZombiehausSceneScriptDirector:
                 n[1]["mask_strength"] = 1.0
                 regional_conditionings.append(n)
 
-        # 5. Global Scene & Interaction Conditioning (Applies across all characters)
+        # 6. Global Scene & Interaction Conditioning (Applies across all characters)
         scene_parts = []
         for k in ("location", "camera", "style", "description"):
             if k in scene and scene[k]:
-                scene_parts.append(scene[k])
+                clean_s = re.sub(r'<lora:[^>]+>', '', scene[k]).strip()
+                if clean_s:
+                    scene_parts.append(clean_s)
 
         inter_parts = []
         for k in ("action", "description"):
             if k in interaction and interaction[k]:
-                inter_parts.append(interaction[k])
+                clean_i = re.sub(r'<lora:[^>]+>', '', interaction[k]).strip()
+                if clean_i:
+                    inter_parts.append(clean_i)
 
         global_prompt_elements = []
         if scene_parts:
@@ -315,9 +418,10 @@ class ZombiehausSceneScriptDirector:
 
         # Negative Conditioning
         neg_text = scene.get("negative", "deformed, distorted, extra limbs, bad anatomy, bad hands, plastic skin, blur, watermark")
+        neg_text = re.sub(r'<lora:[^>]+>', '', neg_text).strip()
         negative = encoder.encode(active_clip, neg_text)[0]
 
-        # 6. Build Output Pipe
+        # 7. Build Output Pipe
         output_pipe = (active_model, active_clip, vae, positive, negative, seed)
 
         # Combined batch mask [N, H, W]

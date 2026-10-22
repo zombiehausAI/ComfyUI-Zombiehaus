@@ -480,7 +480,7 @@ class ZombiehausLoraLoader:
                                 model, clip, lora_sd, strength_model=strength, strength_clip=strength
                             )
                             if hasattr(m_model, "set_hook_mode"):
-                                m_model.set_hook_mode(comfy.hooks.EnumHookMode.MaxSpeed)
+                                m_model.set_hook_mode(comfy.hooks.EnumHookMode.MinVram)
                             kfg = self._create_hook_keyframes(start_pct, end_pct, strength, end_str, decay_prof)
                             if kfg:
                                 for h in hook_group.hooks:
@@ -568,7 +568,7 @@ class ZombiehausLoraLoader:
                                 model, clip, lora_sd, strength_model=m_strength, strength_clip=c_strength
                             )
                             if hasattr(m_model, "set_hook_mode"):
-                                m_model.set_hook_mode(comfy.hooks.EnumHookMode.MaxSpeed)
+                                m_model.set_hook_mode(comfy.hooks.EnumHookMode.MinVram)
                             kfg = self._create_hook_keyframes(start_pct, end_pct, m_strength, end_str, decay_prof)
                             if kfg:
                                 for h in hook_group.hooks:

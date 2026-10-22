@@ -147,9 +147,7 @@ function isNodeActiveExecuting(node) {
     const nid = String(node.id);
     return (
         (_zh_executingNodeId != null && String(_zh_executingNodeId) === nid) ||
-        (window._zh_executingNodeId != null && String(window._zh_executingNodeId) === nid) ||
-        (typeof app !== "undefined" && app.runningNodeId != null && String(app.runningNodeId) === nid) ||
-        node.executing === true
+        (window._zh_executingNodeId != null && String(window._zh_executingNodeId) === nid)
     );
 }
 
@@ -159,8 +157,7 @@ function triggerExecutionAnimationLoop() {
     function tick() {
         const hasActive = (
             _zh_executingNodeId != null ||
-            (window._zh_executingNodeId != null) ||
-            (typeof app !== "undefined" && app.runningNodeId != null)
+            (window._zh_executingNodeId != null)
         );
         if (hasActive) {
             if (typeof app !== "undefined" && app.canvas) {
@@ -1062,9 +1059,6 @@ function draw1URackModule(node, ctx, nodeW, rack) {
     const plateY = -titleH + 5;
 
     const isExecuting = isNodeActiveExecuting(node);
-    if (isExecuting) {
-        triggerExecutionAnimationLoop();
-    }
     const th = getActiveTheme();
     const glowColor = th.border_glow || "#00f0ff";
     const now = (typeof performance !== "undefined") ? performance.now() : Date.now();
@@ -1460,9 +1454,6 @@ function drawCollapsedNodeJackPorts(node, ctx) {
     if (inRack) return; // Handled exclusively by draw1URackModule
 
     const isExecuting = isNodeActiveExecuting(node);
-    if (isExecuting) {
-        triggerExecutionAnimationLoop();
-    }
 
     const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
     const nodeW = node._collapsed_width || (node.size ? node.size[0] : 180);
@@ -1766,9 +1757,6 @@ function drawEquipmentRackChassis(group, ctx, canvas) {
         const uCount = nodesInRack.length;
         const activeNode = nodesInRack.find(isNodeActiveExecuting);
         const hasActiveModule = Boolean(activeNode);
-        if (hasActiveModule) {
-            triggerExecutionAnimationLoop();
-        }
 
         const th = getActiveTheme();
         const glowColor = th.border_glow || "#00f0ff";
@@ -2175,7 +2163,6 @@ function setupClassicCanvasDecorator() {
             const isExecuting = isNodeActiveExecuting(node);
 
             if (isExecuting) {
-                triggerExecutionAnimationLoop();
                 const now = (typeof performance !== "undefined") ? performance.now() : Date.now();
                 const pulse = 0.5 + 0.5 * Math.sin(now / 220);
                 ctx.shadowColor = th.border_glow || "#89b4fa";

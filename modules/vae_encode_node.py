@@ -274,15 +274,6 @@ class ZombiehausVAEEncode:
     """
     @classmethod
     def INPUT_TYPES(cls):
-        input_dir = folder_paths.get_input_directory()
-        files = []
-        if os.path.isdir(input_dir):
-            files = [
-                f for f in os.listdir(input_dir)
-                if os.path.isfile(os.path.join(input_dir, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff'))
-            ]
-            files.sort()
-
         alignment_options = [
             "Auto (16px for Flux/Chroma, 8px for SD)",
             "Divisible by 16 (Flux / Chroma)",
@@ -298,7 +289,6 @@ class ZombiehausVAEEncode:
             },
             "optional": {
                 "image": ("IMAGE",),
-                "image_upload": (files if files else ["none"], {"image_upload": True}),
                 "vae": ("VAE",),
                 "pipe": ("PIPE",),
                 "mask": ("MASK",),
@@ -310,7 +300,7 @@ class ZombiehausVAEEncode:
     RETURN_NAMES = ("latent", "image", "width", "height", "pipe")
     FUNCTION = "encode"
 
-    def encode(self, alignment, resize_mode, image=None, image_upload="none", vae=None, pipe=None, mask=None):
+    def encode(self, alignment, resize_mode, image=None, vae=None, pipe=None, mask=None, image_upload="none", **kwargs):
         # Resolve VAE from input or pipe
         resolved_vae = vae
         if resolved_vae is None and pipe is not None and len(pipe) > 2:
@@ -330,7 +320,7 @@ class ZombiehausVAEEncode:
                 img_tensor = torch.from_numpy(img_np)[None,]
 
         if img_tensor is None:
-            raise ValueError("[Zombiehaus VAE Encode] IMAGE is required (connect 'image' or choose an uploaded file).")
+            raise ValueError("[Zombiehaus VAE Encode] IMAGE is required (connect 'image' input).")
 
         # Detect model alignment if Auto
         target_align = alignment

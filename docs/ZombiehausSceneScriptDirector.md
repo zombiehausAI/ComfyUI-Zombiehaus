@@ -95,7 +95,7 @@ You no longer need to write `negative:` inside the script text! The Director aut
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| **`pipe`** | `PIPE` | Required | Incoming Zombiehaus PIPE from `ZombiehausTextEditor` (containing model, clip, vae, and global negative conditioning). |
+| **`pipe`** | `PIPE` | Required | Incoming Zombiehaus PIPE (from `ZombiehausModelLoader`, pipeline loader, or upstream pipe chain) carrying base MODEL, CLIP, VAE, and optional negative conditioning. |
 | **`script`** | `STRING` | Required (ForceInput) | Screenplay script input connected from `ZombiehausTextEditor.positive`. No redundant textarea on the node! |
 | **`default_lora_strength`** | `FLOAT` | `0.85` | Default strength used when a persona specifies a LoRA without an explicit `:strength` suffix. |
 | **`default_overlap_blend`** | `FLOAT` | `0.25` | Overlap percentage between adjacent personas allowing arms to wrap and bodies to touch naturally. |
@@ -117,7 +117,7 @@ You no longer need to write `negative:` inside the script text! The Director aut
 
 ```
 [Pipeline Loader] ──> [pipe] ──> [ZombiehausTextEditor] ──> [pipe] ─────────> [ZombiehausSceneScriptDirector] ──> [pipe] ──> [KSampler] ──> [SaveImage]
-                                        |                   [positive] ───> [script_input]                    |
+                                        |                   [positive] ───> [script]                          |
                                         |                                                                      └──> [ShowText]
                                   (Screenplay Script + Syntax Highlighting)
 ```

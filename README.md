@@ -66,6 +66,7 @@ ComfyUI-Zombiehaus by zombiehaus provides custom nodes organized into six catego
 - Conditioning Concat - Encode text and concatenate onto existing conditioning
 
 **🛠️ Utilities & Prompting**
+- [Zombiehaus Pipe Bus (Distribution)](docs/ZombiehausPipeBus.md) - Global pipeline distribution, bus unbundling, and mid-stream component overrides (pipe, model, clip, vae, positive, negative, latent, image, seed)
 - Master Seed - Centralized master seed generator and synchronizer (randomize, fixed, increment, decrement)
 - [Smart Resizer & Image Scale Down By](docs/smart-resizer.md) - Aspect ratio optimization, smart cropping/padding, and high-quality Lanczos downscaling (drop-in replacement for `easy imageScaleDownBy`)
 - Show Text - Simple text display for prompts, LoRA logs, and debugging
@@ -263,6 +264,7 @@ Edit `config.json` to configure:
 - [Conditioning Concat](docs/conditioning-concat.md)
 
 **Utilities**
+- [Zombiehaus Pipe Bus (Distribution)](docs/ZombiehausPipeBus.md) (Global Bus Routing, Component Overrides & Unified Unbundling)
 - [Model Scryer (WeightScryer)](docs/ModelScryer.md) (Automated Triggers, Safetensors Census & Interactive Tag Board)
 - [Show Text](docs/show-text.md)
 - [Text Editor](docs/text-editor.md) (with Weight Translation, Dynamic Prompts & Wildcards)

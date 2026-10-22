@@ -54,6 +54,7 @@ from .modules.person_inpaint_node import ZombiehausPersonInpaint
 from .modules.persona_interact_node import ZombiehausPersonaInteract
 from .modules.dual_persona_director_node import ZombiehausDualPersonaDirector
 from .modules.scene_script_director_node import ZombiehausSceneScriptDirector
+from .modules.pipe_bus_node import ZombiehausPipeBus
 from .modules.model_scryer_node import (
     ZombiehausModelScryer,
     inspect_safetensors_file,
@@ -1865,6 +1866,7 @@ NODE_CLASS_MAPPINGS = {
     "ZombiehausPersonaInteract": ZombiehausPersonaInteract,
     "ZombiehausDualPersonaDirector": ZombiehausDualPersonaDirector,
     "ZombiehausSceneScriptDirector": ZombiehausSceneScriptDirector,
+    "ZombiehausPipeBus": ZombiehausPipeBus,
     "ZombiehausModelScryer": ZombiehausModelScryer,
 }
 
@@ -1929,6 +1931,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZombiehausPersonaInteract": "Zombiehaus Persona Interact & Duo Director",
     "ZombiehausDualPersonaDirector": "Zombiehaus Dual Persona Director (Regional LoRA)",
     "ZombiehausSceneScriptDirector": "Zombiehaus Scene Script Director (N-Persona)",
+    "ZombiehausPipeBus": "Zombiehaus Pipe Bus (Distribution)",
     "ZombiehausModelScryer": "Zombiehaus Model Scryer (WeightScryer)",
 }
 

@@ -849,102 +849,124 @@ async function triggerGenerate() {
     if (currentMode === "screenplay") {
         promptGraph = {
             "1": {
-                "class_type": "ZombiehausScriptStudio",
+                "class_type": "ZombiehausModelLoader",
                 "inputs": {
-                    "profile": el.profileSelect?.value || "Chroma 1-HD Photoreal",
-                    "checkpoint_name": el.checkpoint?.value || "None",
                     "unet_name": el.unet?.value || "None",
                     "weight_dtype": el.dtype?.value || "default",
-                    "clip_name": el.clipName?.value || "disabled",
-                    "clip_type": el.clipType?.value || "flux2",
-                    "vae_name": el.vae?.value || "None",
-                    "architecture": el.architecture?.value || "chroma",
-                    "script_text": el.scriptEditor?.value || "",
-                    "chroma_shift": parseFloat(el.chromaShift?.value || "3.0"),
-                    "guidance": parseFloat(el.guidance?.value || "3.5"),
-                    "width": parseInt(el.width?.value || "1024", 10),
-                    "height": parseInt(el.height?.value || "1024", 10),
+                    "checkpoint_name": el.checkpoint?.value || "None",
+                    "clip1_name": el.clipName?.value || "disabled",
+                    "clip1_type": el.clipType?.value || "flux2",
+                    "vae_name": el.vae?.value || "None"
+                }
+            },
+            "2": {
+                "class_type": "ZombiehausLoraLoader",
+                "inputs": {
+                    "pipe": ["1", 0],
+                    "lora_1_name": el.lora1Name?.value || "None",
+                    "lora_1_strength": parseFloat(el.lora1Strength?.value || "1.0"),
+                    "lora_2_name": el.lora2Name?.value || "None",
+                    "lora_2_strength": parseFloat(el.lora2Strength?.value || "1.0")
+                }
+            },
+            "3": {
+                "class_type": "ZombiehausLatentPreset",
+                "inputs": {
+                    "pipe": ["2", 0],
+                    "preset": "Manual",
+                    "custom_width": parseInt(el.width?.value || "1024", 10),
+                    "custom_height": parseInt(el.height?.value || "1024", 10),
                     "batch_size": parseInt(el.batch?.value || "1", 10),
+                    "architecture": el.architecture?.value === "sdxl" || el.architecture?.value === "pony" || el.architecture?.value === "sd15" ? "SDXL / Pony (4-channel)" : "Chroma / Flux (16-channel)"
+                }
+            },
+            "4": {
+                "class_type": "ZombiehausSceneScriptDirector",
+                "inputs": {
+                    "pipe": ["3", 0],
+                    "script_text": el.scriptEditor?.value || ""
+                }
+            },
+            "5": {
+                "class_type": "ZombiehausKSampler",
+                "inputs": {
+                    "pipe": ["4", 0],
                     "seed": actualSeed,
                     "steps": parseInt(el.steps?.value || "30", 10),
                     "cfg": parseFloat(el.cfg?.value || "3.5"),
                     "sampler_name": el.sampler?.value || "euler_ancestral",
                     "scheduler": el.scheduler?.value || "simple",
-                    "denoise": 1.0,
-                    "enable_hires_fix": Boolean(el.enableHires?.checked),
-                    "hires_scale_factor": parseFloat(el.hiresScale?.value || "1.5"),
-                    "hires_denoise": parseFloat(el.hiresDenoise?.value || "0.45"),
-                    "enable_detailer": Boolean(el.enableDetailer?.checked),
-                    "detail_face": Boolean(el.detailFace?.checked),
-                    "detail_eyes": Boolean(el.detailEyes?.checked),
-                    "detail_hands": Boolean(el.detailHands?.checked),
-                    "enable_dewax": Boolean(el.enableDewax?.checked),
-                    "dewax_grain": parseFloat(el.dewaxGrain?.value || "0.05"),
-                    "dewax_micro_texture": 0.35,
-                    "enable_restormer": Boolean(el.enableRestormer?.checked),
-                    "restormer_task": el.restormerTask?.value || "Real-World Image Restoration (Denoising)",
-                    "enable_upscale": Boolean(el.enableUpscale?.checked),
-                    "upscale_model": el.upscaleModel?.value || "None",
-                    "upscale_factor": 2.0
+                    "denoise": 1.0
                 }
             },
-            "2": {
-                "class_type": "SaveImage",
+            "6": {
+                "class_type": "ZombiehausSaveImage",
                 "inputs": {
-                    "filename_prefix": "Zombiehaus_Director",
-                    "images": ["1", 0]
+                    "pipe": ["5", 0],
+                    "filename_prefix": "Zombiehaus_Director"
                 }
             }
         };
     } else if (currentMode === "prompt") {
         promptGraph = {
             "1": {
-                "class_type": "ZombiehausStudio",
+                "class_type": "ZombiehausModelLoader",
                 "inputs": {
-                    "profile": el.profileSelect?.value || "Chroma 1-HD Photoreal",
-                    "checkpoint_name": el.checkpoint?.value || "None",
                     "unet_name": el.unet?.value || "None",
                     "weight_dtype": el.dtype?.value || "default",
-                    "clip_name": el.clipName?.value || "disabled",
-                    "clip_type": el.clipType?.value || "flux2",
-                    "vae_name": el.vae?.value || "None",
-                    "architecture": el.architecture?.value || "chroma",
+                    "checkpoint_name": el.checkpoint?.value || "None",
+                    "clip1_name": el.clipName?.value || "disabled",
+                    "clip1_type": el.clipType?.value || "flux2",
+                    "vae_name": el.vae?.value || "None"
+                }
+            },
+            "2": {
+                "class_type": "ZombiehausLoraLoader",
+                "inputs": {
+                    "pipe": ["1", 0],
+                    "lora_1_name": el.lora1Name?.value || "None",
+                    "lora_1_strength": parseFloat(el.lora1Strength?.value || "1.0"),
+                    "lora_2_name": el.lora2Name?.value || "None",
+                    "lora_2_strength": parseFloat(el.lora2Strength?.value || "1.0")
+                }
+            },
+            "3": {
+                "class_type": "ZombiehausLatentPreset",
+                "inputs": {
+                    "pipe": ["2", 0],
+                    "preset": "Manual",
+                    "custom_width": parseInt(el.width?.value || "1024", 10),
+                    "custom_height": parseInt(el.height?.value || "1024", 10),
+                    "batch_size": parseInt(el.batch?.value || "1", 10),
+                    "architecture": el.architecture?.value === "sdxl" || el.architecture?.value === "pony" || el.architecture?.value === "sd15" ? "SDXL / Pony (4-channel)" : "Chroma / Flux (16-channel)"
+                }
+            },
+            "4": {
+                "class_type": "ZombiehausTextEditor",
+                "inputs": {
+                    "pipe": ["3", 0],
                     "positive": el.positiveEditor?.value || "",
                     "negative": el.negativeEditor?.value || "",
-                    "prompt_style": el.promptStyle?.value || "Natural Prose (FLUX / SD3)",
-                    "chroma_shift": parseFloat(el.chromaShift?.value || "3.0"),
-                    "guidance": parseFloat(el.guidance?.value || "3.5"),
-                    "width": parseInt(el.width?.value || "1024", 10),
-                    "height": parseInt(el.height?.value || "1024", 10),
-                    "batch_size": parseInt(el.batch?.value || "1", 10),
+                    "prompt_style": el.promptStyle?.value || "Natural Prose (FLUX / SD3)"
+                }
+            },
+            "5": {
+                "class_type": "ZombiehausKSampler",
+                "inputs": {
+                    "pipe": ["4", 0],
                     "seed": actualSeed,
                     "steps": parseInt(el.steps?.value || "30", 10),
                     "cfg": parseFloat(el.cfg?.value || "3.5"),
                     "sampler_name": el.sampler?.value || "euler_ancestral",
                     "scheduler": el.scheduler?.value || "simple",
-                    "denoise": 1.0,
-                    "enable_hires_fix": Boolean(el.enableHires?.checked),
-                    "hires_scale_factor": parseFloat(el.hiresScale?.value || "1.5"),
-                    "hires_denoise": parseFloat(el.hiresDenoise?.value || "0.45"),
-                    "enable_detailer": Boolean(el.enableDetailer?.checked),
-                    "detail_face": Boolean(el.detailFace?.checked),
-                    "detail_eyes": Boolean(el.detailEyes?.checked),
-                    "detail_hands": Boolean(el.detailHands?.checked),
-                    "enable_dewax": Boolean(el.enableDewax?.checked),
-                    "dewax_grain": parseFloat(el.dewaxGrain?.value || "0.05"),
-                    "dewax_micro_texture": 0.35,
-                    "enable_restormer": Boolean(el.enableRestormer?.checked),
-                    "restormer_task": el.restormerTask?.value || "Real-World Image Restoration (Denoising)",
-                    "enable_upscale": Boolean(el.enableUpscale?.checked),
-                    "upscale_model": el.upscaleModel?.value || "None",
-                    "upscale_factor": 2.0
+                    "denoise": 1.0
                 }
             },
-            "2": {
-                "class_type": "SaveImage",
+            "6": {
+                "class_type": "ZombiehausSaveImage",
                 "inputs": {
-                    "filename_prefix": "Zombiehaus_Studio",
-                    "images": ["1", 0]
+                    "pipe": ["5", 0],
+                    "filename_prefix": "Zombiehaus_Studio"
                 }
             }
         };

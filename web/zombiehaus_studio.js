@@ -102,9 +102,8 @@ app.registerExtension({
     },
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        // Add Studio button widget to all creative Zombiehaus nodes
-        const isStudioNode = nodeData.name === "ZombiehausStudio" || nodeData.name === "ZombiehausScriptStudio";
-        const isCreativeNode = isStudioNode || nodeData.name === "ZombiehausSongWriter" || nodeData.name === "ZombiehausTextEditor";
+        // Add Studio button widget to creative Zombiehaus nodes
+        const isCreativeNode = nodeData.name === "ZombiehausSongWriter" || nodeData.name === "ZombiehausTextEditor";
 
         if (isCreativeNode) {
             ensureStudioStylesheet();
@@ -115,24 +114,11 @@ app.registerExtension({
                 const node = this;
 
                 // Add button widget directly on the node
-                const modeTarget = nodeData.name === "ZombiehausSongWriter" ? "music" : 
-                                  nodeData.name === "ZombiehausScriptStudio" ? "screenplay" : "prompt";
+                const modeTarget = nodeData.name === "ZombiehausSongWriter" ? "music" : "prompt";
 
                 node.addWidget("button", "🧟 Open Studio Workstation", null, () => {
                     openStudioWindow(modeTarget);
                 }, { serialize: false });
-
-                if (isStudioNode) {
-                    // Suppress 2500px LiteGraph canvas tower for studio mega nodes
-                    if (node.widgets) {
-                        for (const w of node.widgets) {
-                            if (w.name !== "button") {
-                                w.computeSize = () => [0, -4];
-                            }
-                        }
-                    }
-                    node.setSize([440, 240]);
-                }
 
                 return r;
             };

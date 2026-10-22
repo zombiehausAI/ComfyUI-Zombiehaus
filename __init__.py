@@ -55,8 +55,7 @@ from .modules.persona_interact_node import ZombiehausPersonaInteract
 from .modules.dual_persona_director_node import ZombiehausDualPersonaDirector
 from .modules.scene_script_director_node import ZombiehausSceneScriptDirector
 from .modules.pipe_bus_node import ZombiehausPipeBus
-from .modules.studio_node import ZombiehausStudio
-from .modules.script_studio_node import ZombiehausScriptStudio
+from .modules.studio_node import list_studio_profiles, load_profile_data, get_studio_profiles_dir
 from .modules.model_scryer_node import (
     ZombiehausModelScryer,
     inspect_safetensors_file,
@@ -1980,9 +1979,6 @@ NODE_CLASS_MAPPINGS = {
     "ZombiehausSceneScriptDirector": ZombiehausSceneScriptDirector,
     "ZombiehausPipeBus": ZombiehausPipeBus,
     "ZombiehausModelScryer": ZombiehausModelScryer,
-    "ZombiehausStudio": ZombiehausStudio,
-    "ZombiehausChromaStudio": ZombiehausStudio,
-    "ZombiehausScriptStudio": ZombiehausScriptStudio,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -2048,9 +2044,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZombiehausSceneScriptDirector": "Zombiehaus Scene Script Director (N-Persona)",
     "ZombiehausPipeBus": "Zombiehaus Pipe Bus (Distribution)",
     "ZombiehausModelScryer": "Zombiehaus Model Scryer (WeightScryer)",
-    "ZombiehausStudio": "Zombiehaus Studio",
-    "ZombiehausChromaStudio": "Zombiehaus Studio (Legacy)",
-    "ZombiehausScriptStudio": "Zombiehaus Script Studio",
 }
 
 WEB_DIRECTORY = "./web"

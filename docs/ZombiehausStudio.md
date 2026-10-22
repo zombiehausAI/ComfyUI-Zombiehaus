@@ -1,135 +1,80 @@
-# Zombiehaus Studio Nodes
+# Zombiehaus Studio — Unified Creative Workstation
 
-The **Zombiehaus Studio** family delivers all-in-one, zero-wiring flagship studio nodes designed to eliminate canvas spaghetti in ComfyUI while providing a tactile, tabbed modern UI and modular stage toggles across every generation and refinement step.
-
----
-
-## The Studio Nodes
-
-1. **`Zombiehaus Studio`** (`ZombiehausStudio`):
-   - Universal all-in-one generation and refinement studio for **any** model architecture (Chroma, Flux, SDXL, Pony, SD 1.5, SD3.5).
-   - Features in-node Model Profiles to instantly switch between model setups with a single click.
-2. **`Zombiehaus Script Studio`** (`ZombiehausScriptStudio`):
-   - Consolidates the complete multi-character screenplay director workflow into a single node.
-   - Features in-node screenplay editing (`[SCENE]`, `[PERSONA 1..N]`, `[INTERACTION]`), regional spatial attention masks, and character-specific LoRA management with zero concept bleeding.
+The **Zombiehaus Studio** is a standalone, full-screen creative suite served directly by ComfyUI, providing a professional workstation environment for screenplay direction, high-definition image generation, video DiT synthesis, and Suno-grade vocal songwriting & music production.
 
 ---
 
-## Key Features
+## Accessing the Studio
 
-### 1. In-Node Model Profiles & Selection
-- **Model Profiles**: Save and load complete model configurations (Checkpoint/UNet, CLIP, VAE, LoRAs, flow shift, and default sampler settings) stored in the user's ComfyUI profile directory (`user/default/zombiehaus/profiles/`).
-- **One-Click Presets**: Instantly switch between setups like `Chroma 1-HD Photoreal`, `Flux.1 Dev Standard`, and `SDXL / Pony Anime`.
-- **Universal Architecture**: Load monolithic checkpoints directly or configure standalone UNet diffusion models with precision `weight_dtype` (e.g. `fp8_e4m3fn`, `bf16`), dedicated CLIP text encoders (`t5xxl`, `clip_l`), and custom VAEs.
-- **Dual LoRA Slots**: Dedicated dropdown slots for model LoRAs with independent strength sliders.
-- **Inline `<lora:...>` Support**: Directly type `<lora:name:strength>` tags anywhere in your prompt or screenplay. They are parsed dynamically with automatic trigger-word injection.
-- **External Overrides**: Optional `pipe`, `model`, `clip`, `vae`, and `latent_image` input connections allow seamless integration with existing upstream nodes whenever desired.
+You can launch Zombiehaus Studio through any of the following convenient entry points:
 
-### 2. Dedicated Web Workstation & Canvas Integration
-- **Standalone Studio Web Cockpit (`/zombiehaus/studio`)**:
-  - Full-screen responsive 3-column creative workstation built for single-screen or dual-monitor setups.
-  - Access via `http://127.0.0.1:8188/zombiehaus/studio`, the ComfyUI top menu bar (`🧟 Studio`), or the desktop launcher `Zombiehaus Studio.bat`.
-  - **Unified Mode Switcher**:
-    - **`🎬 Screenplay Director`**: Multi-character story script editor with `[SCENE]`, `[PERSONA 1..N]`, `[INTERACTION]`, variable autocomplete, persona LoRA isolation, and visual regional layout split preview.
-    - **`✍️ Prompt Studio`**: Standard single-prompt generation with style tags, positive/negative editors, AI enhancement (`✨ Enhance` via Ollama), and one-click quality/anatomy guards.
-- **Shared Model Engine & Modular Stages**:
-  - Model Rack: Profiles, Checkpoint/UNet, VAE, CLIP, dual LoRAs, flow shift.
-  - Modular Stages: Hi-Res Fix, Face/Eye Detailer, De-Wax, Restormer, and Upscale.
-  - Real-time ComfyUI WebSocket connection with progress bars and live preview gallery.
-- **Sleek On-Canvas Node Card**:
-  - Raw LiteGraph canvas widgets are suppressed to eliminate 2,500px tall vertical widget towers on the graph.
-  - Renders as a compact 440×240px card with active profile selector, status badges, quick `Queue Generation` button, and a prominent `🗖 OPEN STUDIO WORKSTATION` launcher.
-
-### 3. Native 16-Channel Chroma Latents & Flow Matching
-- **16-Channel Latent Creation**: Native support for 16-channel Chroma / Flux latents and 4-channel SDXL / Pony latents across all standard aspect ratios.
-- **Resolution Timestep Shift**: Resolution-dependent flow-matching timestep scheduling for crisp convergence and fine micro-texture.
-- **Dynamic Guidance**: Adaptive CFG scale decay curve across diffusion timesteps to eliminate plastic skin tones and oversaturation.
-
-### 4. Modular Stage Toggles (Zero Overhead When Disabled)
-Every post-generation stage features a dedicated boolean switch. When toggled off, that stage is completely bypassed with zero memory or compute penalty:
-- **`enable_hires_fix`**: 2nd-pass latent upscale and resample with configurable scale, denoise, and steps.
-- **`enable_detailer`**: Automatic multi-pass YOLO detection and regional inpainting for face, eyes, and hands.
-- **`enable_dewax`**: High-pass frequency separation texture recovery and sensor grain injection to combat synthetic plastic look.
-- **`enable_restormer`**: Neural restoration pass for real-world denoising and deblurring.
-- **`enable_upscale`**: High-resolution model-based super-resolution upscale.
+1. **Top Action Bar Button**: Click the **`🧟 Zombiehaus Studio`** button on ComfyUI's top navigation bar right next to the "Queue" / "Run" button (exactly like Plenio Player).
+2. **Persistent Floating Launcher**: A glowing pill (`🧟 Zombiehaus Studio`) fixed at the top-right of your screen, always accessible across all UI themes.
+3. **Canvas Context Menu**: Right-click anywhere on the empty ComfyUI canvas and select **`🧟 Open Zombiehaus Studio`**.
+4. **Desktop Launcher**: Double-click [`Zombiehaus Studio.bat`](file:///d:/repos/ComfyUI-Zombiehaus/Zombiehaus%20Studio.bat) in the repository root.
+5. **Direct Browser URL**: Navigate to `http://127.0.0.1:8188/zombiehaus/studio` in any browser or second monitor.
+6. **On-Node Button**: Click the `[ 🧟 Open Studio Workstation ]` button widget on any creative Zombiehaus node.
 
 ---
 
-## Inputs & Outputs
+## The 4 Creative Modes
 
-### `Zombiehaus Studio`
+Zombiehaus Studio features a seamless mode switcher in the top header bar:
 
-#### Inputs
-| Input | Type | Description |
-|---|---|---|
-| `profile` | COMBO | Saved model profile preset (`Chroma`, `Flux`, `Pony`, or custom) |
-| `checkpoint_name` | COMBO | Monolithic checkpoint loader (or `"None"`) |
-| `unet_name` | COMBO | Standalone diffusion model UNet (or `"None"`) |
-| `weight_dtype` | COMBO | UNet precision (`default`, `fp8_e4m3fn`, `bf16`, etc.) |
-| `clip_name` | COMBO | Standalone text encoder (or `"disabled"`) |
-| `vae_name` | COMBO | Standalone VAE model (or `"None"`) |
-| `lora_1_name` / `lora_2_name` | COMBO | LoRA models from your `models/loras/` directory |
-| `positive` / `negative` | STRING | Multiline prompt inputs with full Text Studio syntax |
-| `resolution` | COMBO | Aspect ratio preset (`Square`, `Portrait`, `Landscape`, etc.) |
-| `steps` / `cfg` / `sampler_name` / `scheduler` | INT/FLOAT/COMBO | Core KSampler parameters |
-| `chroma_shift` | FLOAT | Flow-matching timestep shift factor |
-| `dynamic_guidance` | BOOLEAN | Enable adaptive CFG decay curve |
-| `enable_hires_fix` | BOOLEAN | Toggle 2nd-pass hires latent upscale |
-| `enable_detailer` | BOOLEAN | Toggle YOLO face/eyes/hands refinement |
-| `enable_dewax` | BOOLEAN | Toggle De-Wax skin micro-texture & film grain |
-| `enable_restormer` | BOOLEAN | Toggle Restormer restoration pass |
-| `enable_upscale` | BOOLEAN | Toggle final model super-resolution |
+### 1. 🎬 Screenplay Director Mode
+- **Multi-Persona Scripting**: Write screenplays with explicit blocks: `[SCENE]`, `[PERSONA 1: Left]`, `[PERSONA 2: Right]`, and `[INTERACTION]`.
+- **Regional Spatial Masks**: Live visual preview of Left / Center / Right split regions ensuring zero concept leakage across characters.
+- **Variable Autocomplete**: Live resolution of persona tags (`$women.Amanda`, `$amanda.lora`, `$men.John`).
+- **LoRA Isolation**: Persona LoRAs apply strictly to their regional masks without polluting the global background.
 
-#### Outputs
-| Output | Type | Description |
-|---|---|---|
-| `image` | IMAGE | Final decoded, detailed, and post-processed image tensor |
-| `latent` | LATENT | Generated diffusion latent |
-| `pipe` | PIPE | Standard Zombiehaus / ComfyUI distribution pipe tuple |
-| `resolved_prompt` | STRING | Fully expanded prompt string with all variables and wildcards |
-| `summary` | STRING | Step-by-step console summary of all executed studio stages |
+### 2. ✍️ Image Prompt Studio Mode
+- **Natural Prose & Tag Modes**: Instant switching between natural conversational descriptions (for FLUX / SD3) and structured Danbooru tags (for SDXL / Pony).
+- **One-Click Guards**: Quality, Anatomy, Anti-3D CGI, and Clean Background guards.
+- **Ollama AI Enhancement**: Click `✨ Enhance` to enrich prompts with sensory and atmospheric nuance via your local LLM.
+- **Aspect Ratio Buttons**: Instant 1-click presets for `1:1 Square`, `16:9 Cinema`, `9:16 Portrait/Shorts`, and `2:3 Classic`.
+- **Modular Refinement Stages**: Toggleable Hi-Res Fix, Face/Eye Detailer, De-Wax Film Grain, Restormer, and Model Upscaler.
 
----
+### 3. 🎥 Video Studio Mode
+- **Video DiT Architecture Support**: Generate dynamic videos using **Wan 2.1**, **LTX-Video**, **CogVideoX-5B**, **HunyuanVideo**, or **SVD-XT**.
+- **Camera Trajectory Chips**: One-click camera dynamics (`Static Smooth`, `Dolly In`, `Pan Left`, `Pan Right`, `Orbit 360`).
+- **Temporal Controls**: Duration slider (2s–10s), FPS selector (24, 30, 60 FPS), Codec selection (H.264 MP4, HEVC H.265, VP9 WebM), and motion flow sliders.
+- **Looping Video Viewport**: Embedded HTML5 looping video player with real-time frame scrubber.
 
-### `Zombiehaus Script Studio`
-
-#### Screenplay Inputs
-In addition to the model, sampler, and stage toggles above:
-- **`positive`**: Contains the full screenplay script:
-  ```ini
-  [SCENE]
-  location: a sunlit luxury bedroom, warm morning sunlight, 35mm film photography, 8k
-  lora: <lora:Chroma/sultry-chroma:1.0>
-  negative: low quality, blurry, deformed
-
-  [PERSONA 1]
-  lora: $amanda.lora
-  position: left
-  A caucasian woman with blue eyes and brunette hair.
-
-  [PERSONA 2]
-  lora: $amber.lora
-  position: right
-  A caucasian woman with brown eyes and jet black hair.
-
-  [INTERACTION]
-  action: two women interacting intimately, bodies close, natural skin contact
-  contact_blend: 0.25
-  ```
-- **`default_lora_strength`**: Fallback strength for persona LoRAs when not specified in script.
-- **`default_overlap_blend`**: Spatial blend feathering between adjacent character attention masks.
-
-#### Outputs
-- `image`: Final rendered multi-character scene.
-- `persona_masks`: Spatial attention masks generated for each persona.
-- `pipe`: Full distribution pipe.
-- `resolved_script`: Expanded screenplay with all dynamic prompts resolved.
-- `summary`: Screenplay parsing breakdown and stage logs.
+### 4. 🎵 Suno-Grade Music & Songwriting Studio Mode
+Built for radio-ready, high-fidelity vocal songs and complete musical accompaniment:
+- **Multiple Model Engines**:
+  - **`DiffRhythm`**: State-of-the-art diffusion-based singing voice synthesis with full multi-instrument accompaniment aligned to verse and chorus lyrics.
+  - **`MMAudio`**: Tencent's high-definition 44.1kHz stereo audio model for ultra-crisp film scoring, sound design, and rich audio generation.
+  - **`ACE-Step Audio 1.5`**: Fast multi-track audio generation engine.
+  - **`AudioCraft / MusicGen`**: Meta's stereo music foundation models.
+- **Vocal Production & Delivery**: Choose between *Female Belter (Powerful Pop)*, *Male Raspy Rock Lead*, *Female Breathy Intimate*, *Male Smooth R&B*, *Choir & Harmonies*, or *Instrumental Only*.
+- **Musical Attributes**: Key & scale selectors (*A minor*, *C major*, *D minor*, etc.), Time Signatures (*4/4*, *3/4*, *6/8*), and live BPM slider (60–200 BPM).
+- **Structured Section Chips**: Quick-insert buttons for `[Intro]`, `[Verse 1]`, `[Pre-Chorus]`, `[Chorus]`, `[Verse 2]`, `[Bridge]`, `[Solo]`, and `[Outro]`.
+- **`✨ Write Hit Lyrics (AI Ollama)`**: Generates complete, radio-ready lyrics formatted with musical structure tags tailored to your chosen genre and vibe.
+- **Interactive Waveform Player**: Instant playback with dynamic audio waveform canvas visualization.
 
 ---
 
-## Troubleshooting
+## Model Profiles
 
-- **No image rendered / Model error**: Ensure either `checkpoint_name` or `unet_name` + `clip_name` + `vae_name` is selected (or provided via an external `pipe` connection).
-- **LoRA not applying**: Verify that the LoRA filename matches the file in `models/loras/`. If using `$persona.lora`, ensure the persona wildcard file includes the LoRA path (e.g. `lora: "<lora:Chroma/Amanda_Chroma_V6:1.0>"`).
-- **YOLO detailer skipped**: If `enable_detailer` is active but YOLO models are not downloaded, the detailer logs a warning in the `summary` output and safely passes the image through to the next stage without aborting the run.
+- Complete setups (Checkpoint/UNet, VAE, CLIP, LoRAs, flow shift, sampler settings) can be saved as named profiles (`💾 Save Profile`).
+- Saved profiles persist in `ComfyUI/user/default/zombiehaus/profiles/` as clean JSON files.
+- Built-in presets include:
+  - `Chroma 1-HD Photoreal`
+  - `Flux.1 Dev Standard`
+  - `SDXL / Pony Anime`
+
+---
+
+## Headless Modular Execution
+
+Zombiehaus Studio operates via ComfyUI's REST and WebSocket API (`/prompt`, `/ws`, `/history`, `/view`). It constructs clean, modular graphs using the registered modular pipeline nodes:
+- `ZombiehausModelLoader`
+- `ZombiehausLoraLoader`
+- `ZombiehausLatentPreset`
+- `ZombiehausTextEditor` / `ZombiehausSceneScriptDirector`
+- `ZombiehausKSampler`
+- `ZombiehausSaveImage` / `ZombiehausSaveVideo` / `ZombiehausSaveAudio`
+- `DiffRhythmRun` / `MMAudioSampler`
+
+No cumbersome monolithic "mega nodes" are needed on the LiteGraph canvas, leaving your ComfyUI workspace clean and lightweight.

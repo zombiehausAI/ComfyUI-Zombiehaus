@@ -32,11 +32,11 @@ The **Zombiehaus Person Inpaint & Interaction Director** (`ZombiehausPersonInpai
 |---|---|---|---|
 | **`image`** | `IMAGE` | Required | Base image containing Person 1. |
 | **`pipe`** | `PIPE` | Required | Zombiehaus PIPE containing Model, CLIP, VAE, Positive, and Negative. |
-| **`staging_mode`** | Combo | `Manual Mask (From Painted Image)` | `Manual Mask`, Auto modes for Masturbation (Versatile, Sitting Beside, Kneeling, Lying Beside), Multi-Action Combos (Kiss & Finger, Kiss & Stroke, Kiss & Breast Fondle, Paizuri & Kiss, Full Frontal), Oral, Cunnilingus, Paizuri, Intercourse, Kissing, Holding Hands, Spooning, Lap Sitting, Beside, etc. |
-| **`interaction_preset`**| Combo | `Partner Masturbation / Handjob - Sitting Beside (Denoise 0.88)` | Interaction style preset mapping to recommended denoise levels and rich prompt suggestions. |
+| **`staging_mode`** | Combo | `Auto (Match Interaction Preset)` | `Auto (Match Interaction Preset)`, `Manual Mask (From Painted Image)`, or specific Auto modes for Masturbation (Versatile, Sitting Beside, Kneeling, Lying Beside), Multi-Action Combos (Kiss & Finger, Kiss & Stroke, Kiss & Breast Fondle, Paizuri & Kiss, Full Frontal), Oral, Cunnilingus, Paizuri, Intercourse, Kissing, Holding Hands, Spooning, Lap Sitting, Beside, etc. |
+| **`interaction_preset`**| Combo | `Partner Masturbation / Handjob - Sitting Beside (Denoise 1.0)` | Interaction style preset mapping to rich prompt suggestions. |
 | **`contact_overlap_px`**| `INT` | `24` (-64 to 128) | Pixels to expand the mask into Person 1 to enable physical touch/contact (knuckles, palms, hands wrapping). |
 | **`edge_feather_px`** | `INT` | `14` (0 to 64) | Gaussian blur feathering radius for seamless boundary blending. |
-| **`denoise`** | `FLOAT` | `0.88` (0.1 to 1.0) | Inpainting denoise strength. (Kissing/Combos ~0.85; Intercourse ~0.86; Paizuri ~0.87; Masturbation/Handjob ~0.88; Holding hands ~0.90; Standing beside 1.0). |
+| **`denoise`** | `FLOAT` | `1.0` (0.1 to 1.0) | Inpainting denoise strength. Set to `1.0` for full generation of Person 2 from scratch. Lower (e.g. 0.85-0.90) for subtle blending. |
 | **`steps`** | `INT` | `30` (5 to 100) | Diffusion sampling steps. |
 | **`cfg`** | `FLOAT` | `4.5` (1.0 to 20.0) | CFG guidance scale (4.0–4.5 recommended for ChromaHD / Flux). |
 | **`sampler_name`** | Combo | `euler` | KSampler sampler algorithm. |

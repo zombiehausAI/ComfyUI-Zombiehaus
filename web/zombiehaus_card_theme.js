@@ -138,6 +138,46 @@ function getActiveTheme() {
     return CARD_THEME_PRESETS[_activeThemeName] || CARD_THEME_PRESETS["Zombiehaus Neon (Default)"];
 }
 
+// ── Active Node Execution Tracking & Pulse Loop ──────────────────────────────
+let _zh_executingNodeId = null;
+let _zh_animatingExecution = false;
+
+function isNodeActiveExecuting(node) {
+    if (!node || node.id == null) return false;
+    const nid = String(node.id);
+    return (
+        (_zh_executingNodeId != null && String(_zh_executingNodeId) === nid) ||
+        (window._zh_executingNodeId != null && String(window._zh_executingNodeId) === nid) ||
+        (typeof app !== "undefined" && app.runningNodeId != null && String(app.runningNodeId) === nid) ||
+        (typeof app !== "undefined" && app.graph?._current_node && String(app.graph._current_node.id) === nid) ||
+        node.executing === true
+    );
+}
+
+function triggerExecutionAnimationLoop() {
+    if (_zh_animatingExecution) return;
+    _zh_animatingExecution = true;
+    function tick() {
+        const hasActive = (
+            _zh_executingNodeId != null ||
+            (window._zh_executingNodeId != null) ||
+            (typeof app !== "undefined" && (app.runningNodeId != null || (app.graph?._current_node != null)))
+        );
+        if (hasActive) {
+            if (typeof app !== "undefined" && app.canvas) {
+                app.canvas.setDirty(true, true);
+            }
+            requestAnimationFrame(tick);
+        } else {
+            _zh_animatingExecution = false;
+            if (typeof app !== "undefined" && app.canvas) {
+                app.canvas.setDirty(true, true);
+            }
+        }
+    }
+    requestAnimationFrame(tick);
+}
+
 // ── Docking & Magnetized Link Highlight Color Resolver ────────────────────────
 function getDockingHighlightColors(theme) {
     const th = theme || getActiveTheme();
@@ -1022,6 +1062,15 @@ function draw1URackModule(node, ctx, nodeW, rack) {
     const plateH = Math.max(18, titleH - 10);
     const plateY = -titleH + 5;
 
+    const isExecuting = isNodeActiveExecuting(node);
+    if (isExecuting) {
+        triggerExecutionAnimationLoop();
+    }
+    const th = getActiveTheme();
+    const glowColor = th.border_glow || "#00f0ff";
+    const now = (typeof performance !== "undefined") ? performance.now() : Date.now();
+    const pulse = isExecuting ? (0.5 + 0.5 * Math.sin(now / 180)) : 0;
+
     ctx.save();
 
     // ── 1. Recessed Rack Shelf Separator Channel (Between Slots) ───────────
@@ -1029,16 +1078,22 @@ function draw1URackModule(node, ctx, nodeW, rack) {
     ctx.fillStyle = "#0b0c13";
     ctx.fillRect(0, 0, nodeW, 7);
 
-    // Subtle horizontal brushed metal divider rail
-    ctx.strokeStyle = "rgba(137, 180, 250, 0.22)";
-    ctx.lineWidth = 1;
+    // Subtle horizontal brushed metal divider rail (glowing under active module)
+    ctx.strokeStyle = isExecuting ? glowColor : "rgba(137, 180, 250, 0.22)";
+    ctx.lineWidth = isExecuting ? 1.5 : 1;
+    if (isExecuting) {
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 6 * pulse;
+    }
     ctx.beginPath();
     ctx.moveTo(2, 3.5);
     ctx.lineTo(nodeW - 2, 3.5);
     ctx.stroke();
+    ctx.shadowBlur = 0;
 
     // Deep shadow groove under rail
     ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(2, 4.5);
     ctx.lineTo(nodeW - 2, 4.5);
@@ -1047,7 +1102,7 @@ function draw1URackModule(node, ctx, nodeW, rack) {
     // Ventilation cooling slots in center of separator channel
     const ventW = 28;
     const ventStartX = (nodeW - ventW * 3) / 2;
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.09)";
+    ctx.strokeStyle = isExecuting ? "rgba(0, 240, 255, 0.25)" : "rgba(255, 255, 255, 0.09)";
     ctx.lineWidth = 1.2;
     for (let i = 0; i < 3; i++) {
         const vx = ventStartX + i * ventW;
@@ -1058,11 +1113,19 @@ function draw1URackModule(node, ctx, nodeW, rack) {
     }
 
     // ── 2. 1U Solid Chassis Faceplate Panel ────────────────────────────────
-    // Sleek brushed matte anodized panel background (100% opaque to block background text)
-    const grad = ctx.createLinearGradient(0, -titleH, 0, 0);
-    grad.addColorStop(0, "#222538");
-    grad.addColorStop(0.5, "#1a1c2a");
-    grad.addColorStop(1, "#141622");
+    // Electrified energized gradient when active, brushed matte anodized panel when idle
+    let grad;
+    if (isExecuting) {
+        grad = ctx.createLinearGradient(0, -titleH, 0, 0);
+        grad.addColorStop(0, "#1f2e4c");
+        grad.addColorStop(0.5, "#162238");
+        grad.addColorStop(1, "#10192a");
+    } else {
+        grad = ctx.createLinearGradient(0, -titleH, 0, 0);
+        grad.addColorStop(0, "#222538");
+        grad.addColorStop(0.5, "#1a1c2a");
+        grad.addColorStop(1, "#141622");
+    }
     ctx.fillStyle = grad;
 
     if (typeof ctx.roundRect === "function") {
@@ -1073,9 +1136,26 @@ function draw1URackModule(node, ctx, nodeW, rack) {
         ctx.fillRect(0, -titleH, nodeW, titleH);
     }
 
+    // High-intensity energized breathing glow aura around active rack module
+    if (isExecuting) {
+        ctx.save();
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 14 + 10 * pulse;
+        ctx.strokeStyle = glowColor;
+        ctx.lineWidth = 2 + 1.2 * pulse;
+        if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(-1, -titleH - 1, nodeW + 2, titleH + 2, 5);
+            ctx.stroke();
+        } else {
+            ctx.strokeRect(-1, -titleH - 1, nodeW + 2, titleH + 2);
+        }
+        ctx.restore();
+    }
+
     // Crisp metallic chassis outer bevel border
-    ctx.strokeStyle = "rgba(137, 180, 250, 0.32)";
-    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = isExecuting ? glowColor : "rgba(137, 180, 250, 0.32)";
+    ctx.lineWidth = isExecuting ? 1.6 : 1.2;
     if (typeof ctx.roundRect === "function") {
         ctx.beginPath();
         ctx.roundRect(0, -titleH, nodeW, titleH, 4);
@@ -1085,7 +1165,7 @@ function draw1URackModule(node, ctx, nodeW, rack) {
     }
 
     // Top milled aluminum highlight edge
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+    ctx.strokeStyle = isExecuting ? "rgba(255, 255, 255, 0.35)" : "rgba(255, 255, 255, 0.18)";
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(2, -titleH + 1);
@@ -1101,7 +1181,7 @@ function draw1URackModule(node, ctx, nodeW, rack) {
 
     // ── 3. Left & Right 1U Rack Ears & Mounting Screws ─────────────────────
     // Seams at left & right rack mount brackets
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+    ctx.strokeStyle = isExecuting ? "rgba(0, 240, 255, 0.2)" : "rgba(255, 255, 255, 0.08)";
     ctx.beginPath();
     ctx.moveTo(12, -titleH + 2);
     ctx.lineTo(12, -2);
@@ -1110,7 +1190,7 @@ function draw1URackModule(node, ctx, nodeW, rack) {
     ctx.stroke();
 
     // Left Rack Ear Screw
-    ctx.fillStyle = "#282a3c";
+    ctx.fillStyle = isExecuting ? "#24324c" : "#282a3c";
     ctx.beginPath();
     ctx.arc(6, midY, 3.5, 0, Math.PI * 2);
     ctx.fill();
@@ -1118,7 +1198,7 @@ function draw1URackModule(node, ctx, nodeW, rack) {
     ctx.beginPath();
     ctx.arc(6, midY, 2, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = "rgba(137, 180, 250, 0.5)";
+    ctx.strokeStyle = isExecuting ? glowColor : "rgba(137, 180, 250, 0.5)";
     ctx.lineWidth = 0.8;
     ctx.beginPath();
     ctx.moveTo(4.5, midY); ctx.lineTo(7.5, midY);
@@ -1126,7 +1206,7 @@ function draw1URackModule(node, ctx, nodeW, rack) {
     ctx.stroke();
 
     // Right Rack Ear Screw
-    ctx.fillStyle = "#282a3c";
+    ctx.fillStyle = isExecuting ? "#24324c" : "#282a3c";
     ctx.beginPath();
     ctx.arc(nodeW - 6, midY, 3.5, 0, Math.PI * 2);
     ctx.fill();
@@ -1134,7 +1214,7 @@ function draw1URackModule(node, ctx, nodeW, rack) {
     ctx.beginPath();
     ctx.arc(nodeW - 6, midY, 2, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = "rgba(137, 180, 250, 0.5)";
+    ctx.strokeStyle = isExecuting ? glowColor : "rgba(137, 180, 250, 0.5)";
     ctx.lineWidth = 0.8;
     ctx.beginPath();
     ctx.moveTo(nodeW - 7.5, midY); ctx.lineTo(nodeW - 4.5, midY);
@@ -1148,7 +1228,7 @@ function draw1URackModule(node, ctx, nodeW, rack) {
         const hasConnectedInput = node.inputs.some((i) => i && i.link != null);
         const inputCount = node.inputs.length;
 
-        ctx.fillStyle = "#12131e";
+        ctx.fillStyle = isExecuting ? "#0e1526" : "#12131e";
         if (typeof ctx.roundRect === "function") {
             ctx.beginPath();
             ctx.roundRect(inPlateX, plateY, plateW, plateH, 4);
@@ -1159,9 +1239,9 @@ function draw1URackModule(node, ctx, nodeW, rack) {
 
         ctx.strokeStyle = hasConnectedInput ? "#00f0ff" : "rgba(137, 180, 250, 0.4)";
         ctx.lineWidth = 1.2;
-        if (hasConnectedInput) {
-            ctx.shadowColor = "#00f0ff";
-            ctx.shadowBlur = 6;
+        if (hasConnectedInput || isExecuting) {
+            ctx.shadowColor = hasConnectedInput ? "#00f0ff" : glowColor;
+            ctx.shadowBlur = (isExecuting && hasConnectedInput) ? (8 + 4 * pulse) : 6;
         }
         if (typeof ctx.roundRect === "function") {
             ctx.beginPath();
@@ -1219,7 +1299,7 @@ function draw1URackModule(node, ctx, nodeW, rack) {
         const hasConnectedOutput = node.outputs.some((o) => o && o.links && o.links.length > 0);
         const outputCount = node.outputs.length;
 
-        ctx.fillStyle = "#12131e";
+        ctx.fillStyle = isExecuting ? "#0e1526" : "#12131e";
         if (typeof ctx.roundRect === "function") {
             ctx.beginPath();
             ctx.roundRect(outPlateX, plateY, plateW, plateH, 4);
@@ -1230,9 +1310,9 @@ function draw1URackModule(node, ctx, nodeW, rack) {
 
         ctx.strokeStyle = hasConnectedOutput ? "#cba6f7" : "rgba(137, 180, 250, 0.4)";
         ctx.lineWidth = 1.2;
-        if (hasConnectedOutput) {
-            ctx.shadowColor = "#cba6f7";
-            ctx.shadowBlur = 6;
+        if (hasConnectedOutput || isExecuting) {
+            ctx.shadowColor = hasConnectedOutput ? "#cba6f7" : glowColor;
+            ctx.shadowBlur = (isExecuting && hasConnectedOutput) ? (8 + 4 * pulse) : 6;
         }
         if (typeof ctx.roundRect === "function") {
             ctx.beginPath();
@@ -1309,24 +1389,67 @@ function draw1URackModule(node, ctx, nodeW, rack) {
     const titleCenterX = nodeW / 2;
 
     // Jewel Status LED next to title
-    const jewelColor = (node.color && node.color !== "#222" && node.color !== "#333" && !node.color.startsWith("#1") && !node.color.startsWith("#2"))
-        ? node.color
-        : "#89b4fa";
+    let jewelColor = isExecuting
+        ? (th.accent_color || "#00f0ff")
+        : ((node.color && node.color !== "#222" && node.color !== "#333" && !node.color.startsWith("#1") && !node.color.startsWith("#2"))
+            ? node.color
+            : "#89b4fa");
     const jewelX = titleCenterX - titleW / 2 - 10;
     ctx.fillStyle = jewelColor;
     ctx.shadowColor = jewelColor;
-    ctx.shadowBlur = 6;
+    ctx.shadowBlur = isExecuting ? (14 + 10 * pulse) : 6;
     ctx.beginPath();
-    ctx.arc(jewelX, midY, 2.5, 0, Math.PI * 2);
+    ctx.arc(jewelX, midY, isExecuting ? (3.5 + 1.2 * pulse) : 2.5, 0, Math.PI * 2);
     ctx.fill();
+    if (isExecuting) {
+        ctx.fillStyle = "#ffffff";
+        ctx.shadowBlur = 4;
+        ctx.beginPath();
+        ctx.arc(jewelX, midY, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+    }
     ctx.shadowBlur = 0;
 
-    // Razor-sharp bright off-white text with rich shadow
-    ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
-    ctx.shadowBlur = 5;
-    ctx.shadowOffsetY = 1;
-    ctx.fillStyle = "#ffffff";
+    // Razor-sharp bright off-white text with rich shadow (pulsing glow when executing)
+    if (isExecuting) {
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 8 + 6 * pulse;
+        ctx.shadowOffsetY = 0;
+        ctx.fillStyle = "#ffffff";
+    } else {
+        ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
+        ctx.shadowBlur = 5;
+        ctx.shadowOffsetY = 1;
+        ctx.fillStyle = "#ffffff";
+    }
     ctx.fillText(displayTitle, titleCenterX + 4, midY);
+
+    if (isExecuting) {
+        const badgeText = "⚡ RUNNING";
+        ctx.font = "bold 9px monospace, sans-serif";
+        const bW = ctx.measureText(badgeText).width;
+        const bX = titleCenterX + titleW / 2 + 14;
+        if (bX + bW + 4 < outPlateX - 6) {
+            ctx.fillStyle = `rgba(0, 240, 255, ${0.15 + 0.15 * pulse})`;
+            ctx.strokeStyle = glowColor;
+            ctx.lineWidth = 1;
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = 6 * pulse;
+            if (typeof ctx.roundRect === "function") {
+                ctx.beginPath();
+                ctx.roundRect(bX, midY - 7, bW + 8, 14, 3);
+                ctx.fill();
+                ctx.stroke();
+            } else {
+                ctx.fillRect(bX, midY - 7, bW + 8, 14);
+                ctx.strokeRect(bX, midY - 7, bW + 8, 14);
+            }
+            ctx.fillStyle = "#ffffff";
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = 4;
+            ctx.fillText(badgeText, bX + bW / 2 + 4, midY);
+        }
+    }
     ctx.restore();
 
     ctx.restore();
@@ -1337,6 +1460,11 @@ function drawCollapsedNodeJackPorts(node, ctx) {
     const inRack = findRackContainingNode(node);
     if (inRack) return; // Handled exclusively by draw1URackModule
 
+    const isExecuting = isNodeActiveExecuting(node);
+    if (isExecuting) {
+        triggerExecutionAnimationLoop();
+    }
+
     const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
     const nodeW = node._collapsed_width || (node.size ? node.size[0] : 180);
     const midY = -titleH * 0.5;
@@ -1344,6 +1472,28 @@ function drawCollapsedNodeJackPorts(node, ctx) {
     const plateY = -titleH + 5;
 
     ctx.save();
+
+    // Active execution breathing glow on standalone minimized node
+    if (isExecuting) {
+        const th = getActiveTheme();
+        const glowColor = th.border_glow || "#00f0ff";
+        const now = (typeof performance !== "undefined") ? performance.now() : Date.now();
+        const pulse = 0.5 + 0.5 * Math.sin(now / 200);
+
+        ctx.save();
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 14 + 10 * pulse;
+        ctx.strokeStyle = glowColor;
+        ctx.lineWidth = 2.5 + pulse;
+        if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(-2, -titleH - 2, nodeW + 4, titleH + 4, 8);
+            ctx.stroke();
+        } else {
+            ctx.strokeRect(-2, -titleH - 2, nodeW + 4, titleH + 4);
+        }
+        ctx.restore();
+    }
 
     // ── 1. Left Input Jack Module ──────────────────────────────────────────
     if (node.inputs && node.inputs.length > 0) {
@@ -1613,15 +1763,34 @@ function drawEquipmentRackChassis(group, ctx, canvas) {
         const h = Number(group.size?.[1] ?? (group._size?.[1] ?? 240));
         if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) return;
 
+        const nodesInRack = getRackNodes(group);
+        const uCount = nodesInRack.length;
+        const activeNode = nodesInRack.find(isNodeActiveExecuting);
+        const hasActiveModule = Boolean(activeNode);
+        if (hasActiveModule) {
+            triggerExecutionAnimationLoop();
+        }
+
+        const th = getActiveTheme();
+        const glowColor = th.border_glow || "#00f0ff";
+        const now = (typeof performance !== "undefined") ? performance.now() : Date.now();
+        const pulse = hasActiveModule ? (0.5 + 0.5 * Math.sin(now / 180)) : 0;
+
         ctx.save();
 
         // 1. Chassis Outer Shadow
-        ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
-        ctx.shadowBlur = 18;
-        ctx.shadowOffsetY = 6;
+        if (hasActiveModule) {
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = 18 + 12 * pulse;
+            ctx.shadowOffsetY = 6;
+        } else {
+            ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
+            ctx.shadowBlur = 18;
+            ctx.shadowOffsetY = 6;
+        }
 
         // 2. Chassis Background (Dark Matte Metallic)
-        ctx.fillStyle = "rgba(18, 19, 28, 0.96)";
+        ctx.fillStyle = hasActiveModule ? "rgba(17, 21, 34, 0.98)" : "rgba(18, 19, 28, 0.96)";
         if (typeof ctx.roundRect === "function") {
             ctx.beginPath();
             ctx.roundRect(x, y, w, h, 10);
@@ -1634,8 +1803,8 @@ function drawEquipmentRackChassis(group, ctx, canvas) {
         ctx.shadowOffsetY = 0;
 
         // 3. Chassis Bevel Border
-        ctx.strokeStyle = "rgba(137, 180, 250, 0.35)";
-        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = hasActiveModule ? glowColor : "rgba(137, 180, 250, 0.35)";
+        ctx.lineWidth = hasActiveModule ? (2 + pulse) : 1.5;
         if (typeof ctx.roundRect === "function") {
             ctx.beginPath();
             ctx.roundRect(x, y, w, h, 10);
@@ -1651,7 +1820,7 @@ function drawEquipmentRackChassis(group, ctx, canvas) {
         ctx.fillRect(x + w - railW - 1, y + 1, railW, h - 2);
 
         // Rail Divider Lines
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+        ctx.strokeStyle = hasActiveModule ? "rgba(0, 240, 255, 0.3)" : "rgba(255, 255, 255, 0.12)";
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x + railW + 1, y + 1);
@@ -1697,24 +1866,32 @@ function drawEquipmentRackChassis(group, ctx, canvas) {
 
         // 5. Header Bar (Tactile Faceplate)
         const headerH = 34;
-        ctx.fillStyle = "rgba(26, 28, 42, 0.98)";
+        ctx.fillStyle = hasActiveModule ? "rgba(22, 32, 54, 0.98)" : "rgba(26, 28, 42, 0.98)";
         ctx.fillRect(x + railW + 1, y + 1, w - 2 * railW - 2, headerH);
 
-        ctx.strokeStyle = "rgba(137, 180, 250, 0.22)";
+        ctx.strokeStyle = hasActiveModule ? glowColor : "rgba(137, 180, 250, 0.22)";
         ctx.beginPath();
         ctx.moveTo(x + 1, y + headerH);
         ctx.lineTo(x + w - 1, y + headerH);
         ctx.stroke();
 
-        // 6. LED Power Dot (Teal / Neon)
+        // 6. LED Power Dot (Pulsing high-intensity strobe when active)
         const ledX = x + railW + 14;
         const ledY = y + headerH / 2 + 1;
-        ctx.fillStyle = "#00f0ff";
-        ctx.shadowColor = "#00f0ff";
-        ctx.shadowBlur = 8;
+        const ledColor = hasActiveModule ? "#50fa7b" : "#00f0ff";
+        ctx.fillStyle = ledColor;
+        ctx.shadowColor = ledColor;
+        ctx.shadowBlur = hasActiveModule ? (16 + 12 * pulse) : 8;
         ctx.beginPath();
-        ctx.arc(ledX, ledY, 3.5, 0, Math.PI * 2);
+        ctx.arc(ledX, ledY, hasActiveModule ? (4 + 1.2 * pulse) : 3.5, 0, Math.PI * 2);
         ctx.fill();
+        if (hasActiveModule) {
+            ctx.fillStyle = "#ffffff";
+            ctx.shadowBlur = 4;
+            ctx.beginPath();
+            ctx.arc(ledX, ledY, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+        }
         ctx.shadowBlur = 0;
 
         // 7. Rack Title Text
@@ -1722,14 +1899,23 @@ function drawEquipmentRackChassis(group, ctx, canvas) {
         ctx.fillStyle = "#cdd6f4";
         ctx.fillText(group.title || "EQUIPMENT RACK", ledX + 12, ledY + 4);
 
-        // 8. Units count badge
-        const nodesInRack = getRackNodes(group);
-        const uCount = nodesInRack.length;
-        const badgeText = uCount > 0 ? `[ ${uCount}U • ${uCount} MODULES ]` : "[ EMPTY RACK ]";
-        ctx.font = "10px monospace, sans-serif";
-        ctx.fillStyle = uCount > 0 ? "rgba(137, 220, 235, 0.85)" : "rgba(108, 112, 134, 0.8)";
+        // 8. Units count / Live Active execution badge
+        let badgeText;
+        if (hasActiveModule) {
+            const activeTitle = (activeNode.getTitle ? activeNode.getTitle() : (activeNode.title || activeNode.type)) || "MODULE";
+            badgeText = `[ ⚡ ACTIVE: ${String(activeTitle).toUpperCase().slice(0, 18)} ]`;
+        } else {
+            badgeText = uCount > 0 ? `[ ${uCount}U • ${uCount} MODULES ]` : "[ EMPTY RACK ]";
+        }
+        ctx.font = "bold 10px monospace, sans-serif";
+        ctx.fillStyle = hasActiveModule ? (th.accent_color || "#00f0ff") : (uCount > 0 ? "rgba(137, 220, 235, 0.85)" : "rgba(108, 112, 134, 0.8)");
+        if (hasActiveModule) {
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = 8 + 6 * pulse;
+        }
         const badgeW = ctx.measureText(badgeText).width;
         ctx.fillText(badgeText, x + w - railW - badgeW - 12, ledY + 4);
+        ctx.shadowBlur = 0;
 
         // 9. Watermark if empty
         if (uCount === 0) {
@@ -1913,7 +2099,11 @@ function setupClassicCanvasDecorator() {
                 draw1URackModule(node, ctx, innerW, rack);
                 return;
             }
-            return origDrawNodeCollapsed ? origDrawNodeCollapsed.apply(this, arguments) : undefined;
+            const res = origDrawNodeCollapsed ? origDrawNodeCollapsed.apply(this, arguments) : undefined;
+            if (_themeEnabled && node && node.flags?.collapsed && ctx) {
+                drawCollapsedNodeJackPorts(node, ctx);
+            }
+            return res;
         };
     }
 
@@ -1983,13 +2173,10 @@ function setupClassicCanvasDecorator() {
             }
 
             // 2. Active Execution Breathing Glow Pulse on Classic Canvas
-            const isExecuting = (
-                (app.runningNodeId != null && String(app.runningNodeId) === String(node.id)) ||
-                (app.graph?._current_node && String(app.graph._current_node.id) === String(node.id)) ||
-                node.executing === true
-            );
+            const isExecuting = isNodeActiveExecuting(node);
 
             if (isExecuting) {
+                triggerExecutionAnimationLoop();
                 const now = (typeof performance !== "undefined") ? performance.now() : Date.now();
                 const pulse = 0.5 + 0.5 * Math.sin(now / 220);
                 ctx.shadowColor = th.border_glow || "#89b4fa";
@@ -3857,6 +4044,42 @@ app.registerExtension({
 
         setupNodeEdgeDocking();
         sanitizeGraphGroups(app.graph);
+
+        // Active node execution event tracking for real-time glowing animation
+        const comfyApi = (typeof api !== "undefined" && api) || app.api || window.api;
+        if (comfyApi && typeof comfyApi.addEventListener === "function") {
+            comfyApi.addEventListener("executing", (event) => {
+                const nodeId = event?.detail;
+                _zh_executingNodeId = nodeId != null ? String(nodeId) : null;
+                window._zh_executingNodeId = _zh_executingNodeId;
+                if (_zh_executingNodeId != null) {
+                    triggerExecutionAnimationLoop();
+                } else if (app.canvas) {
+                    app.canvas.setDirty(true, true);
+                }
+            });
+            comfyApi.addEventListener("execution_start", () => {
+                triggerExecutionAnimationLoop();
+            });
+            comfyApi.addEventListener("execution_error", () => {
+                _zh_executingNodeId = null;
+                window._zh_executingNodeId = null;
+                if (app.canvas) app.canvas.setDirty(true, true);
+            });
+            comfyApi.addEventListener("execution_interrupted", () => {
+                _zh_executingNodeId = null;
+                window._zh_executingNodeId = null;
+                if (app.canvas) app.canvas.setDirty(true, true);
+            });
+            comfyApi.addEventListener("status", (event) => {
+                const queueRemaining = event?.detail?.status?.exec_info?.queue_remaining;
+                if (queueRemaining === 0) {
+                    _zh_executingNodeId = null;
+                    window._zh_executingNodeId = null;
+                    if (app.canvas) app.canvas.setDirty(true, true);
+                }
+            });
+        }
 
         // Register ComfyUI Settings
         if (app.ui?.settings) {

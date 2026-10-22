@@ -50,6 +50,7 @@ from .modules.style_picker_node import ZombiehausStylePicker
 from .modules.hires_fix_node import ZombiehausHiresFix
 from .modules.export_card_node import ZombiehausExportCard
 from .modules.wardrobe_inpaint_node import ZombiehausWardrobeInpaint
+from .modules.person_inpaint_node import ZombiehausPersonInpaint
 from .modules.model_scryer_node import (
     ZombiehausModelScryer,
     inspect_safetensors_file,
@@ -1857,6 +1858,7 @@ NODE_CLASS_MAPPINGS = {
     "ZombiehausHiresFix": ZombiehausHiresFix,
     "ZombiehausExportCard": ZombiehausExportCard,
     "ZombiehausWardrobeInpaint": ZombiehausWardrobeInpaint,
+    "ZombiehausPersonInpaint": ZombiehausPersonInpaint,
     "ZombiehausModelScryer": ZombiehausModelScryer,
 }
 
@@ -1917,6 +1919,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZombiehausHiresFix": "Zombiehaus All-in-One Hires Fix",
     "ZombiehausExportCard": "Zombiehaus Social Export Card",
     "ZombiehausWardrobeInpaint": "Zombiehaus Wardrobe Inpaint",
+    "ZombiehausPersonInpaint": "Zombiehaus Person Inpaint & Interaction Director",
     "ZombiehausModelScryer": "Zombiehaus Model Scryer (WeightScryer)",
 }
 

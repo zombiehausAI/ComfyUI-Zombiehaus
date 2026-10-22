@@ -321,6 +321,14 @@ Text → Ollama Prompt Refiner → CLIP Text Encode → Generation
 KSampler → image → All-in-One Detailer → Upscaler → Save Image
 ```
 
+### Two-Person Interaction & Add-Person Inpainting
+Add a second person into an existing picture with complete interaction freedom (holding hands, kissing, embrace, sitting beside) using LoRA separation and zero identity bleed:
+```
+[Load Base Picture] ── IMAGE ──► [Zombiehaus Person Inpaint & Interaction Director] ── IMAGE ──► [Save Image]
+[Model / LoRA Deck] ── PIPE  ──►
+```
+- See **[Zombiehaus Person Inpaint Documentation](docs/ZombiehausPersonInpaint.md)** for detailed interaction guides, YOLO auto-staging, and contact overlap controls.
+
 ---
 
 ## 🔧 Requirements

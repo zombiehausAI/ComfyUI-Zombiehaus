@@ -104,6 +104,7 @@ let _lastPrimaryPos = null;
 let _dragCluster = new Set();
 let _clusterOffsets = new Map();
 let _draggedNodeFromRack = null;
+let _rackResizing = null;
 
 try {
     const savedName = localStorage.getItem("zombiehaus_card_theme_name");
@@ -475,7 +476,7 @@ function syncRackNodes(rack, draggingNode = null) {
         }
     });
 
-    const minH = Math.max(240, 74 + nodes.length * slotPitch + 20);
+    const minH = Math.max(100, 74 + nodes.length * slotPitch + 14);
     if ((rack.size[1] || 0) < minH) {
         rack.size[1] = minH;
     }
@@ -684,6 +685,16 @@ function compactRackNodes(rack, canvas) {
     if (canvas) canvas.setDirty(true, true);
 }
 
+function setRackHeight(rack, targetH, canvas) {
+    if (!rack || !rack.size) return;
+    const nodes = getRackNodes(rack);
+    const minH = Math.max(100, 74 + nodes.length * 38 + 14);
+    rack.size[1] = Math.max(minH, targetH);
+    syncRackNodes(rack);
+    if (canvas) canvas.setDirty(true, true);
+    showDockingToast(`📏 Set rack height to ${rack.size[1]}px`);
+}
+
 function rackAllMinimizedNodes(canvas) {
     if (!app.graph || !app.graph._nodes) return;
     const collapsedNodes = app.graph._nodes.filter((n) => n && n.flags?.collapsed && !n.flags?.pinned);
@@ -742,8 +753,351 @@ function detachNodeFromRack(node, canvas) {
     if (inRack) {
         compactRackNodes(inRack, canvas);
     }
+function applyRackOrder(rack, orderedNodes, canvas = null) {
+    if (!rack || !orderedNodes) return;
+    const innerW = Math.max(220, rack.size[0] - 32);
+    orderedNodes.forEach((n, idx) => {
+        n._rack_slot = idx;
+        n._in_equipment_rack = true;
+        n._equipment_rack = rack;
+        n._collapsed_width = innerW;
+        if (n.size) n.size[0] = innerW;
+        delete n._is_unlatched_from_rack;
+    });
+    syncRackNodes(rack);
     if (canvas) canvas.setDirty(true, true);
-    showDockingToast(`🗄️ Detached "${node.title || node.type}" from Rack`);
+    if (app.graph?.change) app.graph.change();
+}
+
+function moveNodeInRack(rack, node, delta, canvas = null) {
+    if (!rack || !node) return;
+    const nodes = getRackNodes(rack);
+    const curIdx = nodes.indexOf(node);
+    if (curIdx < 0) return;
+    const targetIdx = curIdx + delta;
+    if (targetIdx < 0 || targetIdx >= nodes.length) return;
+
+    nodes.splice(curIdx, 1);
+    nodes.splice(targetIdx, 0, node);
+    applyRackOrder(rack, nodes, canvas);
+    const label = node.getTitle ? node.getTitle() : (node.title || node.type);
+    showDockingToast(`🗄️ Moved "${label}" to slot ${targetIdx + 1}`);
+}
+
+function moveNodeToRackExtreme(rack, node, position, canvas = null) {
+    if (!rack || !node) return;
+    const nodes = getRackNodes(rack);
+    const curIdx = nodes.indexOf(node);
+    if (curIdx < 0) return;
+
+    nodes.splice(curIdx, 1);
+    if (position === "top") {
+        nodes.unshift(node);
+    } else {
+        nodes.push(node);
+    }
+    applyRackOrder(rack, nodes, canvas);
+    const label = node.getTitle ? node.getTitle() : (node.title || node.type);
+    showDockingToast(`🗄️ Moved "${label}" to ${position === "top" ? "top" : "bottom"} of rack`);
+}
+
+function promptSetNodeSlot(rack, node, canvas = null) {
+    if (!rack || !node) return;
+    const nodes = getRackNodes(rack);
+    const curIdx = nodes.indexOf(node);
+    const total = nodes.length;
+    const label = node.getTitle ? node.getTitle() : (node.title || node.type);
+
+    const input = prompt(`Enter new slot number for "${label}" (1 to ${total}):`, String(curIdx + 1));
+    if (input === null) return;
+    const slotNum = parseInt(input.trim(), 10);
+    if (isNaN(slotNum) || slotNum < 1 || slotNum > total) {
+        showDockingToast(`⚠️ Invalid slot number (must be 1 to ${total})`);
+        return;
+    }
+    const targetIdx = slotNum - 1;
+    nodes.splice(curIdx, 1);
+    nodes.splice(targetIdx, 0, node);
+    applyRackOrder(rack, nodes, canvas);
+    showDockingToast(`🗄️ Moved "${label}" to slot ${slotNum}`);
+}
+
+function sortRackNodesAlphabetical(rack, descending = false, canvas = null) {
+    if (!rack) return;
+    const nodes = getRackNodes(rack);
+    nodes.sort((a, b) => {
+        const tA = (a.getTitle ? a.getTitle() : (a.title || a.type || "")).toLowerCase();
+        const tB = (b.getTitle ? b.getTitle() : (b.title || b.type || "")).toLowerCase();
+        return descending ? tB.localeCompare(tA) : tA.localeCompare(tB);
+    });
+    applyRackOrder(rack, nodes, canvas);
+    showDockingToast(`🗄️ Sorted rack modules ${descending ? "Z to A" : "A to Z"}`);
+}
+
+function reverseRackNodes(rack, canvas = null) {
+    if (!rack) return;
+    const nodes = getRackNodes(rack);
+    nodes.reverse();
+    applyRackOrder(rack, nodes, canvas);
+    showDockingToast("🗄️ Reversed rack module order");
+}
+
+function openRackOrganizerModal(rack, canvas) {
+    if (!rack) return;
+    const existing = document.getElementById("zombiehaus-rack-organizer-modal");
+    if (existing) existing.remove();
+
+    let rackNodes = [...getRackNodes(rack)];
+    const rackTitle = rack.title || "Equipment Rack";
+
+    const overlay = document.createElement("div");
+    overlay.id = "zombiehaus-rack-organizer-modal";
+    overlay.style.cssText = `
+        position: fixed; inset: 0; background: rgba(0, 0, 0, 0.82);
+        display: flex; align-items: center; justify-content: center;
+        z-index: 10010; backdrop-filter: blur(6px);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    `;
+
+    const dialog = document.createElement("div");
+    dialog.style.cssText = `
+        background: #181825; border: 1px solid rgba(137, 180, 250, 0.35);
+        border-radius: 14px; width: 620px; max-width: 95vw; max-height: 85vh;
+        display: flex; flex-direction: column; overflow: hidden;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.85); color: #cdd6f4;
+    `;
+
+    // Header
+    const head = document.createElement("div");
+    head.style.cssText = `
+        padding: 14px 18px; border-bottom: 1px solid #313244;
+        display: flex; justify-content: space-between; align-items: center;
+        background: #1e1e2e;
+    `;
+    head.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 18px;">🗄️</span>
+            <div>
+                <div style="font-size: 15px; font-weight: 700; color: #89b4fa;">Arrange Equipment Rack Modules</div>
+                <div style="font-size: 11px; color: #a6adc8;">${rackTitle} (${rackNodes.length} slotted 1U modules)</div>
+            </div>
+        </div>
+    `;
+
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "✕";
+    closeBtn.style.cssText = "background: none; border: none; color: #6c7086; font-size: 18px; cursor: pointer; padding: 2px 8px;";
+    closeBtn.onclick = () => overlay.remove();
+    head.appendChild(closeBtn);
+    dialog.appendChild(head);
+
+    // Toolbar (Quick Sort Buttons)
+    const toolbar = document.createElement("div");
+    toolbar.style.cssText = "display: flex; align-items: center; gap: 8px; padding: 10px 18px; background: rgba(22, 22, 34, 0.95); border-bottom: 1px solid rgba(255, 255, 255, 0.06); flex-wrap: wrap;";
+    
+    toolbar.innerHTML = `
+        <span style="font-size: 11px; font-weight: 700; color: #bac2de; margin-right: 4px;">Quick Actions:</span>
+        <button id="zh-ro-sort-az" type="button" style="background: rgba(137, 180, 250, 0.12); border: 1px solid rgba(137, 180, 250, 0.35); border-radius: 6px; padding: 4px 10px; color: #89b4fa; font-size: 11px; font-weight: 600; cursor: pointer;">🔤 Sort A-Z</button>
+        <button id="zh-ro-sort-za" type="button" style="background: rgba(137, 180, 250, 0.12); border: 1px solid rgba(137, 180, 250, 0.35); border-radius: 6px; padding: 4px 10px; color: #89b4fa; font-size: 11px; font-weight: 600; cursor: pointer;">🔤 Sort Z-A</button>
+        <button id="zh-ro-reverse" type="button" style="background: rgba(203, 166, 247, 0.12); border: 1px solid rgba(203, 166, 247, 0.35); border-radius: 6px; padding: 4px 10px; color: #cba6f7; font-size: 11px; font-weight: 600; cursor: pointer;">🔄 Reverse</button>
+        <button id="zh-ro-clean" type="button" style="background: rgba(166, 227, 161, 0.12); border: 1px solid rgba(166, 227, 161, 0.35); border-radius: 6px; padding: 4px 10px; color: #a6e3a1; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: auto;">🗄️ Reset to Canvas</button>
+    `;
+    dialog.appendChild(toolbar);
+
+    // List container
+    const listContainer = document.createElement("div");
+    listContainer.style.cssText = "flex: 1; overflow-y: auto; padding: 12px 18px; display: flex; flex-direction: column; gap: 6px;";
+    dialog.appendChild(listContainer);
+
+    let draggedItemIdx = null;
+
+    function renderList() {
+        listContainer.innerHTML = "";
+        if (rackNodes.length === 0) {
+            listContainer.innerHTML = `<div style="text-align: center; padding: 40px; color: #6c7086; font-size: 13px;">No modules slotted in this rack.<br>Collapse nodes (Alt+C) and drag them into the rack!</div>`;
+            return;
+        }
+
+        rackNodes.forEach((node, idx) => {
+            const rawTitle = (node.getTitle ? node.getTitle() : (node.title || node.type)) || "Node";
+            const row = document.createElement("div");
+            row.draggable = true;
+            row.dataset.idx = idx;
+            row.style.cssText = `
+                display: flex; align-items: center; justify-content: space-between;
+                padding: 8px 12px; background: rgba(30, 30, 46, 0.85);
+                border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;
+                cursor: grab; user-select: none; transition: background 0.15s, border-color 0.15s;
+            `;
+
+            row.ondragstart = (e) => {
+                draggedItemIdx = idx;
+                e.dataTransfer.effectAllowed = "move";
+                row.style.opacity = "0.4";
+            };
+
+            row.ondragend = () => {
+                draggedItemIdx = null;
+                row.style.opacity = "1";
+                renderList();
+            };
+
+            row.ondragover = (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                row.style.borderColor = "#00f0ff";
+                row.style.background = "rgba(0, 240, 255, 0.1)";
+            };
+
+            row.ondragleave = () => {
+                row.style.borderColor = "rgba(255, 255, 255, 0.08)";
+                row.style.background = "rgba(30, 30, 46, 0.85)";
+            };
+
+            row.ondrop = (e) => {
+                e.preventDefault();
+                row.style.borderColor = "rgba(255, 255, 255, 0.08)";
+                row.style.background = "rgba(30, 30, 46, 0.85)";
+                if (draggedItemIdx !== null && draggedItemIdx !== idx) {
+                    const movedItem = rackNodes.splice(draggedItemIdx, 1)[0];
+                    rackNodes.splice(idx, 0, movedItem);
+                    renderList();
+                }
+            };
+
+            const inCount = node.inputs ? node.inputs.length : 0;
+            const outCount = node.outputs ? node.outputs.length : 0;
+
+            row.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                    <span style="font-size: 15px; color: #6c7086; cursor: grab; font-weight: 700;">⠿</span>
+                    <span style="display: inline-block; width: 24px; height: 24px; line-height: 24px; text-align: center; border-radius: 6px; background: rgba(137, 180, 250, 0.15); color: #89b4fa; font-weight: 800; font-size: 11px; flex-shrink: 0;">${idx + 1}</span>
+                    <div style="min-width: 0;">
+                        <div style="font-size: 12px; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px;">${rawTitle}</div>
+                        <div style="font-size: 10px; color: #a6adc8; display: flex; gap: 8px;">
+                            <span>${node.type || "Node"}</span>
+                            <span>•</span>
+                            <span style="color: #89b4fa;">${inCount} in</span>
+                            <span>•</span>
+                            <span style="color: #cba6f7;">${outCount} out</span>
+                        </div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                    <button class="zh-ro-btn-top" title="Move to Top" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #cdd6f4; border-radius: 4px; padding: 4px 6px; font-size: 10px; cursor: pointer;" ${idx === 0 ? "disabled style='opacity:0.3; cursor:default;'" : ""}>🔝</button>
+                    <button class="zh-ro-btn-up" title="Move Up" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #cdd6f4; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer;" ${idx === 0 ? "disabled style='opacity:0.3; cursor:default;'" : ""}>▲</button>
+                    <button class="zh-ro-btn-down" title="Move Down" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #cdd6f4; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer;" ${idx === rackNodes.length - 1 ? "disabled style='opacity:0.3; cursor:default;'" : ""}>▼</button>
+                    <button class="zh-ro-btn-bot" title="Move to Bottom" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #cdd6f4; border-radius: 4px; padding: 4px 6px; font-size: 10px; cursor: pointer;" ${idx === rackNodes.length - 1 ? "disabled style='opacity:0.3; cursor:default;'" : ""}>🔚</button>
+                    <button class="zh-ro-btn-del" title="Detach from Rack" style="background: rgba(243, 139, 168, 0.12); border: 1px solid rgba(243, 139, 168, 0.35); color: #f38ba8; border-radius: 4px; padding: 4px 6px; font-size: 10px; cursor: pointer; margin-left: 6px;">✕</button>
+                </div>
+            `;
+
+            row.querySelector(".zh-ro-btn-top")?.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (idx > 0) {
+                    const item = rackNodes.splice(idx, 1)[0];
+                    rackNodes.unshift(item);
+                    renderList();
+                }
+            });
+
+            row.querySelector(".zh-ro-btn-up")?.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (idx > 0) {
+                    const item = rackNodes.splice(idx, 1)[0];
+                    rackNodes.splice(idx - 1, 0, item);
+                    renderList();
+                }
+            });
+
+            row.querySelector(".zh-ro-btn-down")?.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (idx < rackNodes.length - 1) {
+                    const item = rackNodes.splice(idx, 1)[0];
+                    rackNodes.splice(idx + 1, 0, item);
+                    renderList();
+                }
+            });
+
+            row.querySelector(".zh-ro-btn-bot")?.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (idx < rackNodes.length - 1) {
+                    const item = rackNodes.splice(idx, 1)[0];
+                    rackNodes.push(item);
+                    renderList();
+                }
+            });
+
+            row.querySelector(".zh-ro-btn-del")?.addEventListener("click", (e) => {
+                e.stopPropagation();
+                detachNodeFromRack(node, canvas);
+                rackNodes = getRackNodes(rack);
+                renderList();
+            });
+
+            listContainer.appendChild(row);
+        });
+    }
+
+    renderList();
+
+    // Toolbar button listeners
+    toolbar.querySelector("#zh-ro-sort-az")?.addEventListener("click", () => {
+        rackNodes.sort((a, b) => {
+            const tA = (a.getTitle ? a.getTitle() : (a.title || a.type || "")).toLowerCase();
+            const tB = (b.getTitle ? b.getTitle() : (b.title || b.type || "")).toLowerCase();
+            return tA.localeCompare(tB);
+        });
+        renderList();
+    });
+
+    toolbar.querySelector("#zh-ro-sort-za")?.addEventListener("click", () => {
+        rackNodes.sort((a, b) => {
+            const tA = (a.getTitle ? a.getTitle() : (a.title || a.type || "")).toLowerCase();
+            const tB = (b.getTitle ? b.getTitle() : (b.title || b.type || "")).toLowerCase();
+            return tB.localeCompare(tA);
+        });
+        renderList();
+    });
+
+    toolbar.querySelector("#zh-ro-reverse")?.addEventListener("click", () => {
+        rackNodes.reverse();
+        renderList();
+    });
+
+    toolbar.querySelector("#zh-ro-clean")?.addEventListener("click", () => {
+        rackNodes = [...getRackNodes(rack)];
+        renderList();
+    });
+
+    // Footer with Save / Apply and Cancel
+    const footer = document.createElement("div");
+    footer.style.cssText = `
+        padding: 12px 18px; border-top: 1px solid #313244;
+        display: flex; justify-content: flex-end; gap: 10px;
+        background: #1e1e2e;
+    `;
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.style.cssText = "background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #cdd6f4; border-radius: 6px; padding: 6px 14px; font-size: 12px; cursor: pointer;";
+    cancelBtn.onclick = () => overlay.remove();
+
+    const applyBtn = document.createElement("button");
+    applyBtn.textContent = "✓ Apply Rack Order";
+    applyBtn.style.cssText = "background: #89b4fa; border: none; color: #11111b; font-weight: 700; border-radius: 6px; padding: 6px 16px; font-size: 12px; cursor: pointer; box-shadow: 0 2px 8px rgba(137, 180, 250, 0.4);";
+    applyBtn.onclick = () => {
+        applyRackOrder(rack, rackNodes, canvas);
+        overlay.remove();
+        showDockingToast(`🗄️ Applied new order for ${rackNodes.length} modules in ${rackTitle}`);
+    };
+
+    footer.appendChild(cancelBtn);
+    footer.appendChild(applyBtn);
+    dialog.appendChild(footer);
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
 }
 
 // ── Coordinate Converter (Graph Space ➔ Client Screen DOM Space) ─────────────
@@ -1999,6 +2353,44 @@ function drawEquipmentRackChassis(group, ctx, canvas) {
             ctx.fillText(hint, x + (w - hintW) / 2, y + h / 2 + 6);
         }
 
+        // 10. Bottom Vertical Resize Grip Bar (Tactile Center Chin)
+        const gripW = Math.min(100, Math.max(48, w * 0.28));
+        const gripX = x + (w - gripW) / 2;
+        const gripY = y + h - 5;
+        ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
+        if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(gripX, gripY - 2, gripW, 5, 2);
+            ctx.fill();
+        }
+        ctx.strokeStyle = hasActiveModule ? "rgba(0, 240, 255, 0.55)" : "rgba(205, 214, 244, 0.45)";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(gripX + 6, gripY - 1);
+        ctx.lineTo(gripX + gripW - 6, gripY - 1);
+        ctx.moveTo(gripX + 12, gripY + 2);
+        ctx.lineTo(gripX + gripW - 12, gripY + 2);
+        ctx.stroke();
+
+        // 11. Bottom-Right Corner Resize Bracket (Knurled Metal Triangle)
+        const crSize = 18;
+        ctx.fillStyle = hasActiveModule ? "rgba(0, 240, 255, 0.22)" : "rgba(137, 180, 250, 0.2)";
+        ctx.beginPath();
+        ctx.moveTo(x + w - 1, y + h - crSize);
+        ctx.lineTo(x + w - 1, y + h - 1);
+        ctx.lineTo(x + w - crSize, y + h - 1);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = hasActiveModule ? (th.accent_color || "#00f0ff") : "rgba(205, 214, 244, 0.7)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x + w - 12, y + h - 2);
+        ctx.lineTo(x + w - 2, y + h - 12);
+        ctx.moveTo(x + w - 7, y + h - 2);
+        ctx.lineTo(x + w - 2, y + h - 7);
+        ctx.stroke();
+
         ctx.restore();
     } catch (err) {
         console.error("Zombiehaus: drawEquipmentRackChassis error:", err);
@@ -2058,6 +2450,20 @@ function setupClassicCanvasDecorator() {
                     return;
                 }
                 return origMove ? origMove.apply(this, arguments) : undefined;
+            };
+
+            const origIsPointInCorner = GC.prototype.isPointInCorner;
+            GC.prototype.isPointInCorner = function (x, y) {
+                if (isEquipmentRackGroup(this) && this.pos && this.size) {
+                    const gx = this.pos[0];
+                    const gy = this.pos[1];
+                    const gw = this.size[0];
+                    const gh = this.size[1];
+                    if (x >= gx + gw - 26 && x <= gx + gw + 8 && y >= gy + gh - 26 && y <= gy + gh + 8) {
+                        return true;
+                    }
+                }
+                return origIsPointInCorner ? origIsPointInCorner.apply(this, arguments) : false;
             };
         }
     }
@@ -2397,6 +2803,30 @@ function setupClassicCanvasDecorator() {
         if (group && isEquipmentRackGroup(group)) {
             options.push(null);
             options.push({
+                content: "📋 Arrange Rack Modules...",
+                callback: () => {
+                    openRackOrganizerModal(group, this);
+                }
+            });
+            options.push({
+                content: "🔤 Sort Modules (A to Z)",
+                callback: () => {
+                    sortRackNodesAlphabetical(group, false, this);
+                }
+            });
+            options.push({
+                content: "🔤 Sort Modules (Z to A)",
+                callback: () => {
+                    sortRackNodesAlphabetical(group, true, this);
+                }
+            });
+            options.push({
+                content: "🔄 Reverse Module Order",
+                callback: () => {
+                    reverseRackNodes(group, this);
+                }
+            });
+            options.push({
                 content: "🗄️ Clean & Re-slot Rack",
                 callback: () => {
                     compactRackNodes(group, this);
@@ -2411,6 +2841,68 @@ function setupClassicCanvasDecorator() {
                         detachNodeFromRack(n, this);
                     }
                     showDockingToast(`🗄️ Detached all nodes from ${group.title || "Equipment Rack"}`);
+                }
+            });
+            options.push(null);
+            options.push({
+                content: "↕️ Compact Height to Fit Modules",
+                callback: () => {
+                    const nodes = getRackNodes(group);
+                    const fitH = Math.max(100, 74 + nodes.length * 38 + 14);
+                    group.size[1] = fitH;
+                    syncRackNodes(group);
+                    this.setDirty(true, true);
+                    showDockingToast(`↕️ Compacted ${group.title || "Rack"} height to ${fitH}px`);
+                }
+            });
+            options.push({
+                content: "📐 Set Rack Dimensions...",
+                callback: () => {
+                    const curW = Math.round(group.size[0] || 320);
+                    const curH = Math.round(group.size[1] || 240);
+                    const input = prompt("Enter Rack Dimensions (Width x Height) in pixels:", `${curW}x${curH}`);
+                    if (!input) return;
+                    const parts = input.toLowerCase().split(/[x,\s]+/).map((v) => parseInt(v.trim(), 10)).filter(Number.isFinite);
+                    if (parts.length >= 2) {
+                        const nodes = getRackNodes(group);
+                        const minH = Math.max(100, 74 + nodes.length * 38 + 14);
+                        group.size[0] = Math.max(260, parts[0]);
+                        group.size[1] = Math.max(minH, parts[1]);
+                        syncRackNodes(group);
+                        this.setDirty(true, true);
+                        showDockingToast(`📐 Rack resized to ${group.size[0]} × ${group.size[1]}px`);
+                    } else if (parts.length === 1) {
+                        const nodes = getRackNodes(group);
+                        const minH = Math.max(100, 74 + nodes.length * 38 + 14);
+                        group.size[1] = Math.max(minH, parts[0]);
+                        syncRackNodes(group);
+                        this.setDirty(true, true);
+                        showDockingToast(`📐 Rack height set to ${group.size[1]}px`);
+                    }
+                }
+            });
+            options.push({
+                content: "📏 Set Height: 4U Compact (240px)",
+                callback: () => {
+                    setRackHeight(group, 240, this);
+                }
+            });
+            options.push({
+                content: "📏 Set Height: 8U Standard (390px)",
+                callback: () => {
+                    setRackHeight(group, 390, this);
+                }
+            });
+            options.push({
+                content: "📏 Set Height: 12U Extended (545px)",
+                callback: () => {
+                    setRackHeight(group, 545, this);
+                }
+            });
+            options.push({
+                content: "📏 Set Height: 16U Studio (700px)",
+                callback: () => {
+                    setRackHeight(group, 700, this);
                 }
             });
         }
@@ -2432,6 +2924,48 @@ function setupClassicCanvasDecorator() {
         if (node.flags?.collapsed) {
             const inRack = findRackContainingNode(node);
             if (inRack) {
+                const rackNodes = getRackNodes(inRack);
+                const curIdx = rackNodes.indexOf(node);
+                const total = rackNodes.length;
+
+                options.push({
+                    content: "🗄️ Rack Ordering...",
+                    has_submenu: true,
+                    callback: () => {},
+                    submenu: {
+                        options: [
+                            {
+                                content: `⬆️ Move Up in Rack${curIdx > 0 ? "" : " (Top)"}`,
+                                disabled: curIdx <= 0,
+                                callback: () => moveNodeInRack(inRack, node, -1, this)
+                            },
+                            {
+                                content: `⬇️ Move Down in Rack${curIdx < total - 1 ? "" : " (Bottom)"}`,
+                                disabled: curIdx >= total - 1,
+                                callback: () => moveNodeInRack(inRack, node, 1, this)
+                            },
+                            {
+                                content: "🔝 Move to Top of Rack",
+                                disabled: curIdx <= 0,
+                                callback: () => moveNodeToRackExtreme(inRack, node, "top", this)
+                            },
+                            {
+                                content: "🔚 Move to Bottom of Rack",
+                                disabled: curIdx >= total - 1,
+                                callback: () => moveNodeToRackExtreme(inRack, node, "bottom", this)
+                            },
+                            {
+                                content: "🔢 Set Slot Number...",
+                                callback: () => promptSetNodeSlot(inRack, node, this)
+                            },
+                            {
+                                content: "📋 Open Rack Organizer...",
+                                callback: () => openRackOrganizerModal(inRack, this)
+                            }
+                        ]
+                    }
+                });
+
                 options.push({
                     content: "🗄️ Detach from Equipment Rack",
                     callback: () => {
@@ -2871,6 +3405,50 @@ function setupNodeEdgeDocking() {
         _lastDragPrimary = null;
         _lastPrimaryPos = null;
 
+        // Detect click on Equipment Rack resize handles (corner, bottom edge, right edge)
+        if ((e.buttons & 1) === 1 && this.graph?._groups) {
+            const mx = this.graph_mouse[0];
+            const my = this.graph_mouse[1];
+            for (let i = this.graph._groups.length - 1; i >= 0; i--) {
+                const g = this.graph._groups[i];
+                if (!isEquipmentRackGroup(g) || !g.pos || !g.size) continue;
+                const gx = g.pos[0];
+                const gy = g.pos[1];
+                const gw = g.size[0];
+                const gh = g.size[1];
+
+                // 1. Bottom-Right Corner (26x26px)
+                if (mx >= gx + gw - 26 && mx <= gx + gw + 8 && my >= gy + gh - 26 && my <= gy + gh + 8) {
+                    _rackResizing = { rack: g, mode: "corner", startW: gw, startH: gh, startX: gx, startY: gy, startMouseX: mx, startMouseY: my };
+                    this.selected_group = null;
+                    this.resizing_group = g;
+                    _lastDragPrimary = null;
+                    _draggedNodeFromRack = null;
+                    return true;
+                }
+
+                // 2. Bottom Edge (pure vertical resize! Height only)
+                if (mx >= gx + 10 && mx <= gx + gw - 26 && my >= gy + gh - 12 && my <= gy + gh + 12) {
+                    _rackResizing = { rack: g, mode: "bottom", startW: gw, startH: gh, startX: gx, startY: gy, startMouseX: mx, startMouseY: my };
+                    this.selected_group = null;
+                    this.resizing_group = g;
+                    _lastDragPrimary = null;
+                    _draggedNodeFromRack = null;
+                    return true;
+                }
+
+                // 3. Right Edge (pure horizontal resize! Width only)
+                if (mx >= gx + gw - 12 && mx <= gx + gw + 12 && my >= gy + 36 && my <= gy + gh - 26) {
+                    _rackResizing = { rack: g, mode: "right", startW: gw, startH: gh, startX: gx, startY: gy, startMouseX: mx, startMouseY: my };
+                    this.selected_group = null;
+                    this.resizing_group = g;
+                    _lastDragPrimary = null;
+                    _draggedNodeFromRack = null;
+                    return true;
+                }
+            }
+        }
+
         if (this.selected_group) {
             _draggedNodeFromRack = null;
             _lastDragPrimary = null;
@@ -2878,8 +3456,9 @@ function setupNodeEdgeDocking() {
                 syncRackNodes(this.selected_group);
             }
         } else {
+            const cNode = findCollapsedNodeUnderPoint(this.graph, this.graph_mouse[0], this.graph_mouse[1]);
             const draggedNodes = Object.values(this.selected_nodes || {});
-            const primary = draggedNodes[0] || this.current_node;
+            const primary = cNode || draggedNodes[0] || this.current_node;
             if (primary && primary.flags?.collapsed) {
                 _draggedNodeFromRack = findRackContainingNode(primary);
                 _lastDragPrimary = primary;
@@ -2985,6 +3564,67 @@ function setupNodeEdgeDocking() {
     // 1. Process Mouse Move for Magnetic Edge Snapping & Sticky Dragging
     const origProcessMouseMove = LGraphCanvas.prototype.processMouseMove;
     LGraphCanvas.prototype.processMouseMove = function (e) {
+        // Equipment Rack interactive edge & corner dragging
+        if (_rackResizing) {
+            if ((e.buttons & 1) !== 1) {
+                const r = _rackResizing.rack;
+                _rackResizing = null;
+                if (r) syncRackNodes(r);
+                this.setDirty(true, true);
+                return;
+            }
+            const { rack, mode, startW, startH, startMouseX, startMouseY } = _rackResizing;
+            const mx = this.graph_mouse[0];
+            const my = this.graph_mouse[1];
+            const nodes = getRackNodes(rack);
+            const slotPitch = 38;
+            const minH = Math.max(100, 74 + nodes.length * slotPitch + 14);
+            const minW = 280;
+
+            if (mode === "bottom" || mode === "corner") {
+                const newH = Math.max(minH, Math.round(startH + (my - startMouseY)));
+                rack.size[1] = newH;
+            }
+            if (mode === "right" || mode === "corner") {
+                const newW = Math.max(minW, Math.round(startW + (mx - startMouseX)));
+                rack.size[0] = newW;
+            }
+            syncRackNodes(rack);
+            this.setDirty(true, true);
+            return true;
+        }
+
+        // Equipment Rack resize cursor hints on hover
+        if ((e.buttons & 1) === 0 && this.graph?._groups && !this.dragging_canvas) {
+            const mx = this.graph_mouse[0];
+            const my = this.graph_mouse[1];
+            let rackCursor = null;
+            for (let i = this.graph._groups.length - 1; i >= 0; i--) {
+                const g = this.graph._groups[i];
+                if (!isEquipmentRackGroup(g) || !g.pos || !g.size) continue;
+                const gx = g.pos[0];
+                const gy = g.pos[1];
+                const gw = g.size[0];
+                const gh = g.size[1];
+
+                if (mx >= gx + gw - 26 && mx <= gx + gw + 8 && my >= gy + gh - 26 && my <= gy + gh + 8) {
+                    rackCursor = "nwse-resize";
+                    break;
+                }
+                if (mx >= gx + 10 && mx <= gx + gw - 26 && my >= gy + gh - 12 && my <= gy + gh + 12) {
+                    rackCursor = "ns-resize";
+                    break;
+                }
+                if (mx >= gx + gw - 12 && mx <= gx + gw + 12 && my >= gy + 36 && my <= gy + gh - 26) {
+                    rackCursor = "ew-resize";
+                    break;
+                }
+            }
+            if (rackCursor && this.canvas) {
+                this.canvas.style.cursor = rackCursor;
+            }
+        }
+
         // Mini Patchbay Hover & Wire Tracking (runs unconditionally)
         if (_activePatchbay) {
             const pb = _activePatchbay;
@@ -3298,6 +3938,7 @@ function setupNodeEdgeDocking() {
                     // Slotted module stays engaged on rails: lock X, slide Y along rails
                     primary._is_unlatched_from_rack = false;
                     primary.pos[0] = rx + 16;
+                    primary.pos[1] = mouseY + 15;
                     const innerW = Math.max(220, rw - 32);
                     primary._collapsed_width = innerW;
                     primary.size[0] = innerW;
@@ -3307,9 +3948,9 @@ function setupNodeEdgeDocking() {
                     const slotPitch = 38;
                     const rackNodes = getRackNodes(currentRack);
                     const currentSlot = (typeof primary._rack_slot === "number") ? primary._rack_slot : rackNodes.indexOf(primary);
-                    const targetSlot = Math.max(0, Math.min(rackNodes.length - 1, Math.round((mouseY - startY) / slotPitch)));
+                    const targetSlot = Math.max(0, Math.min(rackNodes.length - 1, Math.round((mouseY - (startY - 15)) / slotPitch)));
 
-                    if (targetSlot !== currentSlot && currentSlot >= 0) {
+                    if (targetSlot !== currentSlot && currentSlot >= 0 && currentSlot < rackNodes.length) {
                         rackNodes.splice(currentSlot, 1);
                         rackNodes.splice(targetSlot, 0, primary);
                         rackNodes.forEach((n, idx) => {
@@ -3593,6 +4234,15 @@ function setupNodeEdgeDocking() {
     // 2. Process Mouse Up to finalize snap
     const origProcessMouseUp = LGraphCanvas.prototype.processMouseUp;
     LGraphCanvas.prototype.processMouseUp = function (e) {
+        if (_rackResizing) {
+            const r = _rackResizing.rack;
+            _rackResizing = null;
+            if (r) {
+                syncRackNodes(r);
+                this.setDirty(true, true);
+            }
+        }
+
         const draggedPrimary = _lastDragPrimary;
         const fromRack = _draggedNodeFromRack;
         const wasDraggingGroup = !!this.selected_group;
@@ -3601,9 +4251,9 @@ function setupNodeEdgeDocking() {
         if (!wasDraggingGroup && draggedPrimary && draggedPrimary.flags?.collapsed) {
             const targetRack = findRackUnderPoint(draggedPrimary.pos[0] + (draggedPrimary.size[0] || 80) / 2, draggedPrimary.pos[1] - 15);
             if (targetRack) {
-                const startY = targetRack.pos[1] + 74;
-                const slotPitch = 38;
-                const targetSlot = Math.max(0, Math.round((draggedPrimary.pos[1] - startY) / slotPitch));
+                const targetSlot = (typeof draggedPrimary._rack_slot === "number")
+                    ? draggedPrimary._rack_slot
+                    : Math.max(0, Math.round((draggedPrimary.pos[1] - (targetRack.pos[1] + 74 - 15)) / 38));
                 insertNodeIntoRack(targetRack, draggedPrimary, targetSlot, this);
                 if (fromRack && fromRack !== targetRack) {
                     compactRackNodes(fromRack, this);

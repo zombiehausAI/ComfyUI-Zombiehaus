@@ -60,6 +60,37 @@ The main processing node. Accepts a pipe carrying model/clip/vae/conditioning pl
 
 ---
 
+### Dynamic Slot Management & Reordering
+
+`ZombiehausAllInOneDetailer` provides interactive tools to organize, reorder, and identify detailer passes directly on the node without manual rewiring:
+
+* **Auto-Recognition of Slot Names**: When a `Detailer Slot` is connected, the slot label automatically displays the pass number and model/title (e.g. `1: face_yolov8m` or `1: Face Detailer`). If the connected node is disabled, it reflects `[off]`.
+* **Insert Slot at #1 (Shift Down)**: Available via node context menu (`Detailer Slots` → `➕ Insert Slot at #1`) or by right-clicking on `slot_1`. All existing wire connections and labels automatically shift down by one slot (`slot_1` → `slot_2`, `slot_2` → `slot_3`), immediately freeing up `slot_1` for a new pass.
+* **Drag-and-Drop Slot Reordering**: Click and drag the subtle `≡` grip handle next to any slot to move it up or down. A green indicator bar highlights the target position, and wires automatically re-route when dropped.
+* **Slot Context Menu**: Right-click any slot socket to access:
+  * `➕ Insert Empty Slot Here (Shift Down)`
+  * `▲ Move Slot Up` / `▼ Move Slot Down`
+  * `✏️ Rename Display Label...` (set a custom alias that persists with workflow saves)
+  * `Reset to Auto-Detected Name`
+  * `❌ Remove & Shift Up`
+* **Node Context Menu**: Right-click the node body → `Detailer Slots` to access bulk management options (Insert above any slot, Move Up/Down submenus, and Refresh Auto-Detected Names).
+
+---
+
+### Real-Time Execution Highlighting
+
+When generation runs, the detailer pipeline provides live visual feedback across both nodes:
+
+1. **Active Slot Row Highlighting (on All-in-One Detailer)**:
+   - The slot row currently being processed lights up with a pulsing neon green background and glowing accent bar.
+   - A real-time status pill displays current progress (e.g. `🔍 DETECTING`, `⚡ INPAINT 1/2`, or `✓ DONE`), including image batch progress (`[1/4]`).
+2. **Active Detailer Slot Node Highlighting (across the Canvas)**:
+   - The specific `ZombiehausDetailerSlot` node that is computing is illuminated with an animated, breathing green outer halo/glow.
+   - A floating status badge appears directly above the slot node (e.g. `⚡ INPAINTING (1/2) (SLOT #1)`), letting you see at a glance from anywhere on the canvas which detailer is currently running.
+   - When processing completes or moves to the next pass, the highlight seamlessly transitions or turns off automatically.
+
+---
+
 ### Batch Processing
 
 `ZombiehausAllInOneDetailer` supports batched input tensors (`[B, H, W, 3]`). When a batch is supplied, the node iterates sequentially through each image in the batch:

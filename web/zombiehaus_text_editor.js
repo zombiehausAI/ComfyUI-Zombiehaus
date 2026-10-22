@@ -223,6 +223,31 @@ function fetchThemes(callback) {
 }
 
 function injectSyntaxStyles() {
+    if (!window._zombiehausGlobalEditorFocusHook) {
+        window._zombiehausGlobalEditorFocusHook = true;
+        document.addEventListener("focusin", (e) => {
+            const target = e.target;
+            if (target && target.tagName === "TEXTAREA") {
+                const nodeEl = target.closest?.("[data-node-id]");
+                if (nodeEl && window.app?.graph?._nodes) {
+                    const nodeId = nodeEl.getAttribute("data-node-id");
+                    const graphNode = window.app.graph._nodes.find(n => String(n.id) === String(nodeId));
+                    if (graphNode && graphNode.type === "ZombiehausTextEditor") {
+                        const pw = graphNode.widgets?.find(w => w.name === "positive");
+                        const nw = graphNode.widgets?.find(w => w.name === "negative");
+                        if (pw) {
+                            attachSyntaxHighlighter(pw, graphNode);
+                            attachAutocomplete(pw, graphNode);
+                        }
+                        if (nw) {
+                            attachSyntaxHighlighter(nw, graphNode);
+                            attachAutocomplete(nw, graphNode);
+                        }
+                    }
+                }
+            }
+        }, true);
+    }
     if (document.getElementById("zombiehaus-syntax-style")) return;
     const styleEl = document.createElement("style");
     styleEl.id = "zombiehaus-syntax-style";
@@ -235,13 +260,56 @@ function injectSyntaxStyles() {
             background: rgba(56, 189, 248, 0.35) !important;
             color: transparent !important;
         }
-        .zombiehaus-syntax-ta {
+        .zombiehaus-syntax-ta,
+        .comfy-multiline-input,
+        .litegraph textarea,
+        [data-node-id] textarea {
+            resize: none !important;
+        }
+        /* ── Compact Negative Prompt for Zombiehaus Text Editor ── */
+        .zombiehaus-negative-prompt-ta,
+        textarea.zombiehaus-negative-prompt-ta,
+        .litegraph textarea.zombiehaus-negative-prompt-ta,
+        .comfy-multiline-input.zombiehaus-negative-prompt-ta,
+        [data-node-id] textarea.zombiehaus-negative-prompt-ta {
+            height: 56px !important;
+            min-height: 56px !important;
+            max-height: 56px !important;
+            flex: 0 0 56px !important;
+            resize: none !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            box-sizing: border-box !important;
+            padding-bottom: 24px !important;
+        }
+        .zombiehaus-negative-container,
+        [data-node-id] .zombiehaus-negative-container {
+            display: flex !important;
+            flex-direction: column !important;
+            height: 84px !important;
+            min-height: 84px !important;
+            max-height: 84px !important;
+            flex: 0 0 84px !important;
+            overflow: hidden !important;
+            box-sizing: border-box !important;
+            margin-bottom: 6px !important;
+        }
+        .zombiehaus-syntax-ta,
+        textarea.zombiehaus-syntax-ta,
+        .litegraph textarea.zombiehaus-syntax-ta,
+        .comfy-multiline-input.zombiehaus-syntax-ta,
+        [data-node-id] textarea.zombiehaus-syntax-ta {
+            color: transparent !important;
+            -webkit-text-fill-color: transparent !important;
+            background: transparent !important;
+            background-color: transparent !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             scrollbar-width: thin !important;
             scrollbar-color: rgba(137, 180, 250, 0.45) rgba(17, 17, 27, 0.6) !important;
             padding-bottom: 28px !important;
             box-sizing: border-box !important;
+            resize: none !important;
         }
         .zombiehaus-syntax-ta::-webkit-scrollbar {
             width: 8px !important;
@@ -268,6 +336,7 @@ function injectSyntaxStyles() {
             overflow-wrap: break-word;
             user-select: none;
             -webkit-user-select: none;
+            z-index: 0;
         }
         .zombiehaus-editor-status-bar {
             position: absolute;
@@ -348,36 +417,48 @@ function injectSyntaxStyles() {
             to { opacity: 1; transform: translateY(0) scale(1); }
         }
         .zombiehaus-pedal-bar {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            margin-bottom: 5px;
-            user-select: none;
-            flex-wrap: wrap;
+            display: flex !important;
+            align-items: center !important;
+            gap: 4px !important;
+            margin-bottom: 4px !important;
+            user-select: none !important;
+            flex-wrap: nowrap !important;
+            flex-shrink: 0 !important;
+            flex: 0 0 24px !important;
+            height: 24px !important;
+            min-height: 24px !important;
+            max-height: 24px !important;
+            box-sizing: border-box !important;
+            z-index: 5 !important;
+            overflow: hidden !important;
+            width: 100% !important;
         }
         .zombiehaus-pedal-btn {
-            background: rgba(30, 30, 46, 0.75);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            border-radius: 5px;
-            padding: 2px 8px;
+            background: rgba(30, 30, 46, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+            padding: 1px 7px;
             font-size: 11px;
+            font-weight: 500;
             color: #a6adc8;
             cursor: pointer;
             transition: all 0.15s ease;
             font-family: inherit;
-            line-height: 1.3;
+            line-height: 1.4;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
         .zombiehaus-pedal-btn:hover {
             border-color: #89b4fa;
             color: #cdd6f4;
-            background: rgba(30, 30, 46, 0.95);
+            background: rgba(45, 45, 68, 0.95);
         }
         .zombiehaus-pedal-btn.active {
-            background: rgba(137, 180, 250, 0.22);
+            background: rgba(137, 180, 250, 0.25);
             border-color: #89b4fa;
             color: #89b4fa;
             font-weight: 600;
-            box-shadow: 0 0 8px rgba(137, 180, 250, 0.3);
+            box-shadow: 0 0 8px rgba(137, 180, 250, 0.35);
         }
         /* ── Section Banners ── */
         .zombiehaus-section-banner {
@@ -761,44 +842,51 @@ function injectSyntaxStyles() {
             overflow: visible;
             background: #181825;
         }
-        .zombiehaus-popout-ta {
-            width: 100%;
-            height: 100%;
-            box-sizing: border-box;
-            background: transparent;
-            color: transparent;
-            caret-color: #ffffff;
-            font-family: var(--mf-popout-font-family, ui-monospace, SFMono-Regular, monospace);
-            font-size: var(--mf-popout-font-size, 14px);
-            line-height: 1.5;
-            padding: 12px 12px 34px 12px;
-            border: none;
-            outline: none;
-            resize: none;
-            position: relative;
-            z-index: 1;
-            tab-size: 4;
-            white-space: pre-wrap;
-            word-wrap: break-word;
+        .zombiehaus-popout-ta,
+        textarea.zombiehaus-popout-ta {
+            width: 100% !important;
+            height: 100% !important;
+            box-sizing: border-box !important;
+            background: transparent !important;
+            background-color: transparent !important;
+            color: transparent !important;
+            -webkit-text-fill-color: transparent !important;
+            caret-color: #ffffff !important;
+            font-family: var(--mf-popout-font-family, ui-monospace, SFMono-Regular, monospace) !important;
+            font-size: var(--mf-popout-font-size, 14px) !important;
+            line-height: 1.5 !important;
+            padding: 12px 12px 34px 12px !important;
+            border: none !important;
+            outline: none !important;
+            resize: none !important;
+            position: relative !important;
+            z-index: 1 !important;
+            tab-size: 4 !important;
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
         }
-        .zombiehaus-popout-backdrop {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            padding: 12px;
-            font-family: var(--mf-popout-font-family, ui-monospace, SFMono-Regular, monospace);
-            font-size: var(--mf-popout-font-size, 14px);
-            line-height: 1.5;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            pointer-events: none;
-            user-select: none;
-            tab-size: 4;
-            overflow: hidden;
-            color: #cdd6f4;
-            box-sizing: border-box;
+        .zombiehaus-popout-backdrop,
+        div.zombiehaus-popout-backdrop {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            padding: 12px 12px 34px 12px !important;
+            font-family: var(--mf-popout-font-family, ui-monospace, SFMono-Regular, monospace) !important;
+            font-size: var(--mf-popout-font-size, 14px) !important;
+            line-height: 1.5 !important;
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            pointer-events: none !important;
+            user-select: none !important;
+            tab-size: 4 !important;
+            overflow: hidden !important;
+            color: #cdd6f4 !important;
+            box-sizing: border-box !important;
+            z-index: 0 !important;
         }
 
         /* ── Color Spectrum Studio & Sliders ── */
@@ -1641,18 +1729,179 @@ function detectPromptHealth(text) {
     return { duplicates, heavyWeights };
 }
 
+// ── Universal Widget Input Resolver (Supports Classic Canvas & Modern Vue Nodes 2.0) ──
+function resolveWidgetInputEl(widget, node) {
+    if (!widget) return null;
+    if (widget._cachedInputEl && widget._cachedInputEl.isConnected) {
+        return widget._cachedInputEl;
+    }
+    if (widget.element && widget.element.isConnected) {
+        const ta = widget.element.tagName === "TEXTAREA" ? widget.element : widget.element.querySelector?.("textarea");
+        if (ta && ta.isConnected) {
+            widget._cachedInputEl = ta;
+            return ta;
+        }
+    }
+
+    const nodeId = node?.id != null ? String(node.id) : null;
+    let nodeEl = null;
+    if (nodeId != null) {
+        try {
+            nodeEl = document.querySelector(`[data-node-id="${CSS.escape(nodeId)}"]`) ||
+                     document.querySelector(`[data-testid="node-body-${CSS.escape(nodeId)}"]`)?.closest?.("[data-node-id]") ||
+                     document.querySelector(`[data-node-id="${nodeId}"]`);
+        } catch (_) {
+            nodeEl = document.querySelector(`[data-node-id="${nodeId}"]`);
+        }
+    }
+    if (!nodeEl && node?.domElement && node.domElement.isConnected) {
+        nodeEl = node.domElement;
+    }
+    if (!nodeEl && node?.element && node.element.isConnected) {
+        nodeEl = node.element;
+    }
+
+    if (nodeEl) {
+        const targetLabel = (widget.label || widget.name || "").trim().toLowerCase();
+        if (targetLabel) {
+            const labels = nodeEl.querySelectorAll("label");
+            for (const lbl of labels) {
+                if (lbl.textContent.trim().toLowerCase() === targetLabel) {
+                    const forId = lbl.getAttribute("for");
+                    if (forId) {
+                        try {
+                            const byId = nodeEl.querySelector("#" + CSS.escape(forId)) || document.getElementById(forId);
+                            if (byId && byId.tagName === "TEXTAREA" && byId.isConnected) {
+                                widget._cachedInputEl = byId;
+                                return byId;
+                            }
+                        } catch (_) {}
+                    }
+                    const parentTa = lbl.parentElement?.querySelector("textarea");
+                    if (parentTa && parentTa.isConnected) {
+                        widget._cachedInputEl = parentTa;
+                        return parentTa;
+                    }
+                }
+            }
+        }
+
+        const allTextareas = Array.from(nodeEl.querySelectorAll("textarea"));
+        if (allTextareas.length > 0) {
+            const multilineWidgets = (node?.widgets || []).filter(w =>
+                w.name === "positive" ||
+                w.name === "negative" ||
+                w.type === "customtext" ||
+                w.type === "textarea" ||
+                w.options?.multiline
+            );
+            const wIdx = multilineWidgets.indexOf(widget);
+            if (wIdx >= 0 && allTextareas[wIdx] && allTextareas[wIdx].isConnected) {
+                widget._cachedInputEl = allTextareas[wIdx];
+                return allTextareas[wIdx];
+            }
+            if (widget.name === "positive" && allTextareas[0] && allTextareas[0].isConnected) {
+                widget._cachedInputEl = allTextareas[0];
+                return allTextareas[0];
+            }
+            if (widget.name === "negative" && allTextareas[1] && allTextareas[1].isConnected) {
+                widget._cachedInputEl = allTextareas[1];
+                return allTextareas[1];
+            }
+        }
+    }
+
+    return null;
+}
+
+function hookTextAreaReactivity(ta, widget) {
+    // Intentionally no-op. Overriding HTMLTextAreaElement.prototype.value triggers an infinite
+    // recursive setter loop with ComfyUI's reactive Pinia/Vue DOMWidgetImpl proxy, causing
+    // RangeError: Maximum call stack size exceeded, state rollbacks, and cascading autocomplete re-renders.
+}
+
+function ensureWidgetInputElProxy(widget, node) {
+    if (!widget || widget._hasInputElProxy) return;
+    widget._hasInputElProxy = true;
+    let _cachedEl = widget._cachedInputEl || (widget.element ? (widget.element.tagName === "TEXTAREA" ? widget.element : widget.element.querySelector?.("textarea") || widget.element) : null) || null;
+    if (!_cachedEl && "inputEl" in widget) {
+        try {
+            _cachedEl = widget.inputEl;
+        } catch (_) {}
+    }
+    widget._cachedInputEl = _cachedEl;
+
+    Object.defineProperty(widget, "inputEl", {
+        configurable: true,
+        enumerable: true,
+        get() {
+            if (_cachedEl && _cachedEl.isConnected) {
+                return _cachedEl;
+            }
+            if (widget._isResolvingInputEl) return _cachedEl;
+            widget._isResolvingInputEl = true;
+            try {
+                const found = resolveWidgetInputEl(widget, node);
+                if (found) {
+                    _cachedEl = found;
+                    widget._cachedInputEl = found;
+                    hookTextAreaReactivity(found, widget);
+                    if (widget.name === "negative") {
+                        applyNegativeContainerStyles(found);
+                        attachNegativePedalboard(widget, node);
+                        found._ensurePedalboardMounted?.();
+                    }
+                    return found;
+                }
+            } finally {
+                widget._isResolvingInputEl = false;
+            }
+            return _cachedEl;
+        },
+        set(val) {
+            _cachedEl = val;
+            widget._cachedInputEl = val;
+            if (val && val instanceof HTMLElement) {
+                hookTextAreaReactivity(val, widget);
+                if (widget.name === "negative") {
+                    applyNegativeContainerStyles(val);
+                    attachNegativePedalboard(widget, node);
+                    val._ensurePedalboardMounted?.();
+                }
+            }
+        }
+    });
+}
+
 function attachSyntaxHighlighter(widget, node) {
     if (!widget) return;
     injectSyntaxStyles();
+    ensureWidgetInputElProxy(widget, node);
 
     let attempts = 0;
     const bind = () => {
-        const ta = widget.inputEl || widget.element;
-        if (!ta || !ta.parentElement) {
-            if (attempts++ < 30) requestAnimationFrame(bind);
+        const ta = (widget instanceof HTMLElement && widget.tagName === "TEXTAREA")
+            ? widget
+            : (resolveWidgetInputEl(widget, node) || (widget?.element?.tagName === "TEXTAREA" ? widget.element : widget?.element?.querySelector?.("textarea")) || widget?.inputEl);
+        if (!ta || !ta.parentElement || !ta.isConnected) {
+            if (attempts++ < 120) {
+                requestAnimationFrame(bind);
+            } else if (attempts < 300) {
+                attempts += 5;
+                setTimeout(bind, 250);
+            } else if (attempts < 400) {
+                attempts += 10;
+                setTimeout(bind, 1000);
+            }
             return;
         }
-        if (ta._hasSyntaxHighlighter) return;
+
+        hookTextAreaReactivity(ta, widget);
+
+        if (ta._hasSyntaxHighlighter && ta._syntaxBackdrop && ta._syntaxBackdrop.isConnected) {
+            ta._syntaxBackdropRender?.();
+            return;
+        }
         ta._hasSyntaxHighlighter = true;
 
         const parent = ta.parentElement;
@@ -1661,9 +1910,13 @@ function attachSyntaxHighlighter(widget, node) {
             parent.style.position = "relative";
         }
 
-        const backdrop = document.createElement("div");
-        backdrop.className = "zombiehaus-syntax-backdrop";
-        parent.insertBefore(backdrop, ta);
+        let backdrop = ta._syntaxBackdrop;
+        if (!backdrop || !backdrop.isConnected) {
+            backdrop = document.createElement("div");
+            backdrop.className = "zombiehaus-syntax-backdrop";
+            parent.insertBefore(backdrop, ta);
+            ta._syntaxBackdrop = backdrop;
+        }
 
         ta.classList.add("zombiehaus-syntax-ta");
         ta.style.position = "relative";
@@ -1680,9 +1933,16 @@ function attachSyntaxHighlighter(widget, node) {
         ta.style.letterSpacing = "normal";
         ta.style.paddingBottom = "28px";
         ta.style.boxSizing = "border-box";
+        ta.style.setProperty("color", "transparent", "important");
+        ta.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+        ta.style.setProperty("background", "transparent", "important");
+        ta.style.setProperty("background-color", "transparent", "important");
 
         function syncGeometry() {
             if (!ta || !backdrop) return;
+            if (widget.name === "negative" && ta._ensurePedalboardMounted) {
+                ta._ensurePedalboardMounted();
+            }
             backdrop.style.top = ta.offsetTop + "px";
             backdrop.style.left = ta.offsetLeft + "px";
             backdrop.style.width = ta.offsetWidth + "px";
@@ -1693,7 +1953,7 @@ function attachSyntaxHighlighter(widget, node) {
             const borderRight = parseFloat(cs.borderRightWidth) || 0;
             const scrollbarWidth = Math.max(0, ta.offsetWidth - ta.clientWidth - borderLeft - borderRight);
 
-            backdrop.style.fontFamily = MONOSPACE_FONT;
+            backdrop.style.fontFamily = cs.fontFamily || MONOSPACE_FONT;
             backdrop.style.fontSize = cs.fontSize || "13px";
             backdrop.style.lineHeight = cs.lineHeight || "1.45";
             backdrop.style.letterSpacing = cs.letterSpacing || "normal";
@@ -1732,37 +1992,52 @@ function attachSyntaxHighlighter(widget, node) {
             }
         }
 
-        const statusBar = document.createElement("div");
-        statusBar.className = "zombiehaus-editor-status-bar";
-        statusBar.addEventListener("click", (e) => {
-            if (e.target === statusBar) {
-                ta.focus();
-            }
-        });
-        parent.appendChild(statusBar);
-
-        const healthBadge = document.createElement("div");
-        healthBadge.className = "zombiehaus-health-badge";
-        healthBadge.title = "Prompt Health & Deduplication";
-        statusBar.appendChild(healthBadge);
-
-        const tokenBadge = document.createElement("div");
-        tokenBadge.className = "zombiehaus-token-badge";
-        tokenBadge.title = "Estimated words / CLIP tokens (75-token chunks)";
-        statusBar.appendChild(tokenBadge);
-
-        const waveformStrip = document.createElement("div");
-        waveformStrip.className = "zombiehaus-waveform-strip";
-        waveformStrip.title = "CLIP 75-token Chunk Attention Waveform";
-        for (let c = 0; c < 3; c++) {
-            const chunkEl = document.createElement("div");
-            chunkEl.className = "zombiehaus-waveform-chunk";
-            const fill = document.createElement("div");
-            fill.className = "zombiehaus-waveform-fill";
-            chunkEl.appendChild(fill);
-            waveformStrip.appendChild(chunkEl);
+        let statusBar = ta._syntaxStatusBar;
+        if (!statusBar || !statusBar.isConnected) {
+            statusBar = document.createElement("div");
+            statusBar.className = "zombiehaus-editor-status-bar";
+            statusBar.addEventListener("pointerdown", (e) => e.stopPropagation());
+            statusBar.addEventListener("click", (e) => {
+                if (e.target === statusBar) {
+                    ta.focus();
+                }
+            });
+            parent.appendChild(statusBar);
+            ta._syntaxStatusBar = statusBar;
         }
-        parent.appendChild(waveformStrip);
+
+        let healthBadge = statusBar.querySelector(".zombiehaus-health-badge");
+        if (!healthBadge) {
+            healthBadge = document.createElement("div");
+            healthBadge.className = "zombiehaus-health-badge";
+            healthBadge.title = "Prompt Health & Deduplication";
+            statusBar.appendChild(healthBadge);
+        }
+
+        let tokenBadge = statusBar.querySelector(".zombiehaus-token-badge");
+        if (!tokenBadge) {
+            tokenBadge = document.createElement("div");
+            tokenBadge.className = "zombiehaus-token-badge";
+            tokenBadge.title = "Estimated words / CLIP tokens (75-token chunks)";
+            statusBar.appendChild(tokenBadge);
+        }
+
+        let waveformStrip = ta._syntaxWaveformStrip;
+        if (!waveformStrip || !waveformStrip.isConnected) {
+            waveformStrip = document.createElement("div");
+            waveformStrip.className = "zombiehaus-waveform-strip";
+            waveformStrip.title = "CLIP 75-token Chunk Attention Waveform";
+            for (let c = 0; c < 3; c++) {
+                const chunkEl = document.createElement("div");
+                chunkEl.className = "zombiehaus-waveform-chunk";
+                const fill = document.createElement("div");
+                fill.className = "zombiehaus-waveform-fill";
+                chunkEl.appendChild(fill);
+                waveformStrip.appendChild(chunkEl);
+            }
+            parent.appendChild(waveformStrip);
+            ta._syntaxWaveformStrip = waveformStrip;
+        }
 
         function render() {
             const stats = estimateTokens(ta.value || "");
@@ -1841,40 +2116,59 @@ function attachSyntaxHighlighter(widget, node) {
                 healthBadge.onclick = null;
             }
 
-            const currentThemeName = node._currentSyntaxTheme ||
+            const themeWidget = node.widgets?.find(w => w.name === "syntax_theme");
+            let currentThemeName = themeWidget?.value ||
+                                    node._currentSyntaxTheme ||
                                     (node.properties && node.properties.syntax_theme) ||
                                     (typeof localStorage !== "undefined" && localStorage.getItem("zombiehaus_syntax_theme")) ||
                                     "Zombiehaus Neon (Default)";
 
+            if (!THEMES[currentThemeName] && currentThemeName !== "Off (Plain Text)") {
+                currentThemeName = "Zombiehaus Neon (Default)";
+            }
+
             if (currentThemeName === "Off (Plain Text)") {
-                ta.style.color = "";
-                ta.style.background = "";
-                ta.style.caretColor = "";
+                ta.classList.remove("zombiehaus-syntax-ta");
+                ta.style.removeProperty("color");
+                ta.style.removeProperty("-webkit-text-fill-color");
+                ta.style.removeProperty("background");
+                ta.style.removeProperty("background-color");
+                ta.style.removeProperty("caret-color");
                 backdrop.style.display = "none";
                 return;
             }
 
             const theme = getThemeByName(currentThemeName);
+            ta.classList.add("zombiehaus-syntax-ta");
             backdrop.style.display = "block";
-            ta.style.color = "transparent";
-            ta.style.background = "transparent";
-            ta.style.caretColor = theme.caret_color || "#ffffff";
+            ta.style.setProperty("color", "transparent", "important");
+            ta.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+            ta.style.setProperty("background", "transparent", "important");
+            ta.style.setProperty("background-color", "transparent", "important");
+            ta.style.setProperty("caret-color", theme.caret_color || "#ffffff", "important");
             backdrop.style.backgroundColor = theme.bg_color || "#181825";
 
             backdrop.innerHTML = tokenizeAndHighlight(ta.value || "", theme);
             syncGeometry();
+            ta._ensurePedalboardMounted?.();
         }
 
         widget._updateSyntaxHighlight = render;
         widget._applyTheme = render;
+        ta._syntaxBackdropRender = render;
 
         attachTabPasteNormalization(ta, () => {
-            widget.value = ta.value;
+            if (widget && widget.value !== ta.value) {
+                widget.value = ta.value;
+            }
             render();
         });
 
         ta.addEventListener("input", () => {
             normalizeRawTabs(ta);
+            if (widget && widget.value !== ta.value) {
+                widget.value = ta.value;
+            }
             render();
             reportCanvasNode(node, true);
         });
@@ -1899,6 +2193,18 @@ function attachSyntaxHighlighter(widget, node) {
                 syncGeometry();
             });
             ro.observe(ta);
+            if (parent) ro.observe(parent);
+        }
+
+        if (window.MutationObserver && !widget._hasSyntaxDomObserver) {
+            widget._hasSyntaxDomObserver = true;
+            const mo = new MutationObserver(() => {
+                if (!ta.isConnected) {
+                    bind();
+                }
+            });
+            const rootTarget = parent.closest?.("[data-node-id]") || parent.parentElement || document.body;
+            mo.observe(rootTarget, { childList: true, subtree: true });
         }
 
         render();
@@ -1982,7 +2288,8 @@ function fetchLoraList(force = false) {
 
 // ── Property / Dictionary Autocomplete Cache & Helpers ───────────────────────
 const _wildcardKeysCache = new Map();
-const _fetchingWildcardKeys = new Set();
+const _wildcardObjectsCache = new Map();
+const _wildcardKeysPromises = new Map();
 
 function extractKeysFromDictString(str, keysSet) {
     if (!str || typeof str !== "string") return;
@@ -2071,57 +2378,171 @@ function extractKeysFromDictString(str, keysSet) {
     }
 }
 
-function extractKeysFromWildcardContent(content) {
-    const keys = new Set();
-    if (!content || typeof content !== "string") return [];
+function parseWildcardData(content) {
+    const itemKeys = new Set();
+    const byItem = new Map();
+    const allProps = new Set();
+
+    if (!content || typeof content !== "string") {
+        return { itemKeys: [], byItem: new Map(), allProps: [] };
+    }
 
     const trimmed = content.trim();
     if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
         try {
             const parsed = JSON.parse(trimmed);
             if (Array.isArray(parsed)) {
-                for (const item of parsed) {
-                    if (item && typeof item === "object") {
-                        Object.keys(item).forEach(k => {
-                            if (/^[a-zA-Z0-9_]+$/.test(k)) keys.add(k);
-                        });
+                for (const elem of parsed) {
+                    if (typeof elem === "string" && /^[a-zA-Z0-9_-]+$/.test(elem.trim())) {
+                        itemKeys.add(elem.trim());
+                    } else if (elem && typeof elem === "object") {
+                        const idKey = elem.name || elem.id || elem.key || elem.title;
+                        if (idKey && typeof idKey === "string") {
+                            itemKeys.add(idKey);
+                            const pSet = new Set();
+                            for (const k of Object.keys(elem)) {
+                                if (k !== "name" && k !== "id" && k !== "key" && /^[a-zA-Z0-9_]+$/.test(k)) {
+                                    pSet.add(k);
+                                    allProps.add(k);
+                                }
+                            }
+                            byItem.set(idKey.toLowerCase(), pSet);
+                        } else {
+                            for (const k of Object.keys(elem)) {
+                                if (/^[a-zA-Z0-9_]+$/.test(k)) {
+                                    itemKeys.add(k);
+                                    allProps.add(k);
+                                }
+                            }
+                        }
                     }
                 }
             } else if (parsed && typeof parsed === "object") {
-                Object.keys(parsed).forEach(k => {
-                    if (/^[a-zA-Z0-9_]+$/.test(k)) keys.add(k);
-                });
+                for (const [k, val] of Object.entries(parsed)) {
+                    if (/^[a-zA-Z0-9_]+$/.test(k)) {
+                        itemKeys.add(k);
+                        if (val && typeof val === "object" && !Array.isArray(val)) {
+                            const pSet = new Set();
+                            for (const pk of Object.keys(val)) {
+                                if (/^[a-zA-Z0-9_]+$/.test(pk)) {
+                                    pSet.add(pk);
+                                    allProps.add(pk);
+                                }
+                            }
+                            byItem.set(k.toLowerCase(), pSet);
+                        }
+                    }
+                }
             }
         } catch (_) {}
     }
 
     const lines = content.split(/\r?\n/);
-    for (const line of lines) {
-        const l = line.trim();
-        if (!l || l.startsWith("#") || l.startsWith("//")) continue;
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith("#") || line.startsWith("//")) continue;
 
-        if (l.startsWith("{") && l.endsWith("}")) {
-            extractKeysFromDictString(l.slice(1, -1), keys);
-        } else {
-            extractKeysFromDictString(l, keys);
+        if (line.startsWith("{") && line.endsWith("}")) {
+            try {
+                const obj = JSON.parse(line);
+                if (obj && typeof obj === "object") {
+                    const idKey = obj.name || obj.id || obj.key;
+                    if (idKey && typeof idKey === "string") {
+                        itemKeys.add(idKey);
+                        const pSet = byItem.get(idKey.toLowerCase()) || new Set();
+                        for (const k of Object.keys(obj)) {
+                            if (k !== "name" && k !== "id" && k !== "key" && /^[a-zA-Z0-9_]+$/.test(k)) {
+                                pSet.add(k);
+                                allProps.add(k);
+                            }
+                        }
+                        byItem.set(idKey.toLowerCase(), pSet);
+                        continue;
+                    }
+                }
+            } catch (_) {}
+        }
+
+        const colonOrEqMatch = line.match(/^([a-zA-Z0-9_]+)\s*[:=]\s*(.*)$/);
+        if (colonOrEqMatch) {
+            const itemKey = colonOrEqMatch[1].trim();
+            const remainder = colonOrEqMatch[2].trim();
+            itemKeys.add(itemKey);
+
+            const subProps = new Set();
+            if (remainder.startsWith("{") && remainder.endsWith("}")) {
+                extractKeysFromDictString(remainder.slice(1, -1), subProps);
+            } else {
+                extractKeysFromDictString(remainder, subProps);
+            }
+            if (subProps.size > 0) {
+                const existing = byItem.get(itemKey.toLowerCase()) || new Set();
+                for (const p of subProps) {
+                    existing.add(p);
+                    allProps.add(p);
+                }
+                byItem.set(itemKey.toLowerCase(), existing);
+            }
+            continue;
+        }
+
+        const plainIdentMatch = line.match(/^([a-zA-Z0-9_]+)(?:\s*[,;]|\s*$)/);
+        if (plainIdentMatch) {
+            const candidate = plainIdentMatch[1].trim();
+            if (candidate && !/^(true|false|null|none)$/i.test(candidate)) {
+                itemKeys.add(candidate);
+            }
         }
     }
 
-    return Array.from(keys);
+    return {
+        itemKeys: Array.from(itemKeys),
+        byItem,
+        allProps: Array.from(allProps)
+    };
+}
+
+function extractKeysFromWildcardContent(content) {
+    return parseWildcardData(content).itemKeys;
+}
+
+function findCuratorEntriesForWildcard(wildcardName) {
+    if (!wildcardName || typeof app === "undefined" || !app?.graph?._nodes) return null;
+    const clean = wildcardName.toLowerCase().replace(/^__+|__+$/g, "").replace(/\.txt$/i, "");
+    for (const node of app.graph._nodes) {
+        if (node?.type === "ZombiehausListCurator" || node?.comfyClass === "ZombiehausListCurator") {
+            const listWidget = node.widgets?.find(w => w.name === "wildcard_list");
+            const entriesWidget = node.widgets?.find(w => w.name === "custom_entries");
+            const listVal = String(listWidget?.value || "").toLowerCase().replace(/^__+|__+$/g, "").replace(/\.txt$/i, "");
+            if (listVal === clean && entriesWidget?.value && entriesWidget.value.trim()) {
+                return entriesWidget.value;
+            }
+        }
+    }
+    return null;
 }
 
 function fetchWildcardKeys(filename) {
     if (!filename) return Promise.resolve([]);
-    const cleanName = filename.replace(/^__+|__+$/g, "").trim();
-    if (_wildcardKeysCache.has(cleanName)) {
+    const cleanName = filename.replace(/^__+|__+$/g, "").replace(/\.txt$/i, "").trim().toLowerCase();
+    if (!cleanName) return Promise.resolve([]);
+
+    const liveContent = findCuratorEntriesForWildcard(cleanName);
+    if (liveContent) {
+        const parsed = parseWildcardData(liveContent);
+        _wildcardKeysCache.set(cleanName, parsed.itemKeys);
+        _wildcardObjectsCache.set(cleanName, parsed);
+        return Promise.resolve(parsed.itemKeys);
+    }
+
+    if (_wildcardKeysCache.has(cleanName) && _wildcardKeysCache.get(cleanName).length > 0) {
         return Promise.resolve(_wildcardKeysCache.get(cleanName));
     }
-    if (_fetchingWildcardKeys.has(cleanName)) {
-        return Promise.resolve([]);
+    if (_wildcardKeysPromises.has(cleanName)) {
+        return _wildcardKeysPromises.get(cleanName);
     }
-    _fetchingWildcardKeys.add(cleanName);
 
-    return fetch("/zombiehaus/wildcards/load", {
+    const promise = fetch("/zombiehaus/wildcards/load", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filename: cleanName })
@@ -2129,9 +2550,10 @@ function fetchWildcardKeys(filename) {
         .then(r => r.json())
         .then(data => {
             if (data && data.success && data.data) {
-                const keys = extractKeysFromWildcardContent(data.data);
-                _wildcardKeysCache.set(cleanName, keys);
-                return keys;
+                const parsed = parseWildcardData(data.data);
+                _wildcardKeysCache.set(cleanName, parsed.itemKeys);
+                _wildcardObjectsCache.set(cleanName, parsed);
+                return parsed.itemKeys;
             }
             _wildcardKeysCache.set(cleanName, []);
             return [];
@@ -2142,8 +2564,11 @@ function fetchWildcardKeys(filename) {
             return [];
         })
         .finally(() => {
-            _fetchingWildcardKeys.delete(cleanName);
+            _wildcardKeysPromises.delete(cleanName);
         });
+
+    _wildcardKeysPromises.set(cleanName, promise);
+    return promise;
 }
 
 function extractInlineVariableKeys(varName, contextText) {
@@ -2163,6 +2588,59 @@ function extractInlineVariableKeys(varName, contextText) {
     }
 
     return Array.from(keys);
+}
+
+function resolveVariableOrigin(varName, fullContext, depth = 0) {
+    if (!varName || !fullContext || depth > 5) return null;
+
+    const assignRegex = new RegExp(`(?:^|\\n)\\s*\\$${varName}\\s*=\\s*([^;\\n\\r]+)`, 'i');
+    const m = fullContext.match(assignRegex);
+    let rhs = m ? m[1].trim() : "";
+
+    if (!rhs) {
+        const cleanVar = varName.toLowerCase();
+        if (_cachedWildcards && _cachedWildcards.length > 0) {
+            const foundWc = _cachedWildcards.find(w => {
+                const cw = w.toLowerCase().replace(/^__+|__+$/g, "").replace(/\.txt$/i, "");
+                return cw === cleanVar || cw === cleanVar + "s" || (cleanVar.endsWith("s") && cw === cleanVar.slice(0, -1));
+            });
+            if (foundWc) {
+                const wcClean = foundWc.toLowerCase().replace(/^__+|__+$/g, "").replace(/\.txt$/i, "");
+                return { wildcardName: wcClean, isDirectList: true };
+            }
+        }
+        return null;
+    }
+
+    const wcMatch = rhs.match(/__(?:[-a-zA-Z0-9_*$]+?\$\$)?([a-zA-Z0-9_/-]+)__/i);
+    if (wcMatch) {
+        const wcClean = wcMatch[1].replace(/\.txt$/i, "").trim().toLowerCase();
+        return { wildcardName: wcClean, isDirectList: true };
+    }
+
+    const funcWcMatch = rhs.match(/(?:all|any|one|choose)\s*[\({]\s*['"]?([a-zA-Z0-9_/-]+)['"]?\s*[\)}]/i);
+    if (funcWcMatch && !funcWcMatch[1].startsWith("$")) {
+        const cand = funcWcMatch[1].replace(/\.txt$/i, "").trim().toLowerCase();
+        return { wildcardName: cand, isDirectList: true };
+    }
+
+    const chainMatch = rhs.match(/(?:all|any|one|choose)?\s*[\(\[]?\s*\$([a-zA-Z0-9_]+)(?:\.([a-zA-Z0-9_]+)|\[\s*["']?([a-zA-Z0-9_]+)["']?\s*\])?/i);
+    if (chainMatch) {
+        const parentVar = chainMatch[1];
+        const subItem = chainMatch[2] || chainMatch[3] || null;
+
+        const parentOrigin = resolveVariableOrigin(parentVar, fullContext, depth + 1);
+        if (parentOrigin && parentOrigin.wildcardName) {
+            return {
+                wildcardName: parentOrigin.wildcardName,
+                parentVar: parentVar,
+                subItem: subItem || parentOrigin.subItem || null,
+                isItemProperty: true
+            };
+        }
+    }
+
+    return null;
 }
 
 const BUILTIN_OBJECT_HELPERS = [
@@ -2224,23 +2702,22 @@ function detectTrigger(text, cursor, node) {
     if (cursor <= 0 || !text) return null;
     const sub = text.slice(0, cursor);
 
-    // 0. Property access: $var.prop (e.g. $woman. or $woman.lo)
+    // 0. Property access: $var.prop (e.g. $woman. or $woman.lo or $scenes.rus)
     const propMatch = sub.match(/(?:^|[^\$a-zA-Z0-9_])\$([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]*)$/);
     if (propMatch) {
         const varName = propMatch[1];
         const query = propMatch[2] || "";
 
-        let wildcardName = null;
         const fullContext = (text || "") + (node ? "\n" + (node.widgets?.map(w => w.value || "").join("\n") || "") : "");
-        const wcDef = fullContext.match(new RegExp(`(?:^|\\n)\\s*\\$${varName}\\s*=\\s*__(?:[a-zA-Z0-9_\\-*$]+?\\$\\$)?([a-zA-Z0-9_\\-/]+)__`, 'i'));
-        if (wcDef) {
-            wildcardName = wcDef[1].trim();
-        }
+        const origin = resolveVariableOrigin(varName, fullContext);
 
         return {
             type: "property",
             varName,
-            wildcardName,
+            wildcardName: origin?.wildcardName || null,
+            subItem: origin?.subItem || null,
+            isItemProperty: !!origin?.isItemProperty,
+            isDirectList: !!origin?.isDirectList,
             fullToken: propMatch[0],
             query,
             replaceStart: cursor - query.length,
@@ -2429,17 +2906,58 @@ function getSuggestions(trigger, node) {
         const propSet = new Set();
         const items = [];
 
-        if (trigger.wildcardName && _wildcardKeysCache.has(trigger.wildcardName)) {
-            const wcKeys = _wildcardKeysCache.get(trigger.wildcardName) || [];
-            for (const k of wcKeys) {
-                if (!propSet.has(k)) {
-                    propSet.add(k);
-                    items.push({
-                        name: k,
-                        badge: "PROP",
-                        badgeClass: "badge-property",
-                        desc: `Property (${trigger.wildcardName})`
-                    });
+        if (trigger.wildcardName) {
+            const cleanWc = trigger.wildcardName.toLowerCase();
+
+            const liveContent = findCuratorEntriesForWildcard(cleanWc);
+            if (liveContent) {
+                const parsed = parseWildcardData(liveContent);
+                _wildcardKeysCache.set(cleanWc, parsed.itemKeys);
+                _wildcardObjectsCache.set(cleanWc, parsed);
+            }
+
+            if (trigger.isItemProperty) {
+                const objData = _wildcardObjectsCache.get(cleanWc);
+                const subItemKey = trigger.subItem ? trigger.subItem.toLowerCase() : null;
+                const specificProps = subItemKey && objData?.byItem ? objData.byItem.get(subItemKey) : null;
+
+                if (specificProps && specificProps.size > 0) {
+                    for (const p of specificProps) {
+                        if (!propSet.has(p)) {
+                            propSet.add(p);
+                            items.push({
+                                name: p,
+                                badge: "PROP",
+                                badgeClass: "badge-property",
+                                desc: `Property (${trigger.subItem})`
+                            });
+                        }
+                    }
+                } else if (objData?.allProps && objData.allProps.length > 0) {
+                    for (const p of objData.allProps) {
+                        if (!propSet.has(p)) {
+                            propSet.add(p);
+                            items.push({
+                                name: p,
+                                badge: "PROP",
+                                badgeClass: "badge-property",
+                                desc: `Property (${trigger.subItem || trigger.wildcardName})`
+                            });
+                        }
+                    }
+                }
+            } else {
+                const wcKeys = _wildcardKeysCache.get(cleanWc) || [];
+                for (const k of wcKeys) {
+                    if (!propSet.has(k)) {
+                        propSet.add(k);
+                        items.push({
+                            name: k,
+                            badge: "ITEM",
+                            badgeClass: "badge-wildcard",
+                            desc: `List item (${trigger.wildcardName})`
+                        });
+                    }
                 }
             }
         }
@@ -2515,6 +3033,8 @@ function getCaretCoordinates(ta, position) {
     return {
         top: top + ta.offsetTop,
         left: left + ta.offsetLeft,
+        relTop: top,
+        relLeft: left,
         lineHeight
     };
 }
@@ -2522,42 +3042,54 @@ function getCaretCoordinates(ta, position) {
 function attachAutocomplete(widget, node) {
     if (!widget) return;
     injectSyntaxStyles();
+    ensureWidgetInputElProxy(widget, node);
 
     let attempts = 0;
     const bind = () => {
         const ta = (widget instanceof HTMLElement && widget.tagName === "TEXTAREA")
             ? widget
-            : (widget?.inputEl || widget?.element);
-        if (!ta || !ta.parentElement) {
-            if (attempts++ < 30) requestAnimationFrame(bind);
+            : (resolveWidgetInputEl(widget, node) || (widget?.element?.tagName === "TEXTAREA" ? widget.element : widget?.element?.querySelector?.("textarea")) || widget?.inputEl);
+        if (!ta || !ta.parentElement || !ta.isConnected) {
+            if (attempts++ < 120) {
+                requestAnimationFrame(bind);
+            } else if (attempts < 300) {
+                attempts += 5;
+                setTimeout(bind, 250);
+            } else if (attempts < 400) {
+                attempts += 10;
+                setTimeout(bind, 1000);
+            }
             return;
         }
         if (ta._hasAutocomplete) return;
         ta._hasAutocomplete = true;
 
-        const parent = ta.parentElement;
-        const parentPos = window.getComputedStyle(parent).position;
-        if (parentPos === "static") {
-            parent.style.position = "relative";
+        let menu = ta._zombiehausAcMenu;
+        if (!menu || !menu.isConnected) {
+            menu = document.createElement("div");
+            menu.className = "zombiehaus-autocomplete-menu";
+            menu.style.position = "fixed";
+            menu.style.zIndex = "100050";
+            document.body.appendChild(menu);
+            ta._zombiehausAcMenu = menu;
         }
-
-        const menu = document.createElement("div");
-        menu.className = "zombiehaus-autocomplete-menu";
-        parent.appendChild(menu);
 
         let activeItems = [];
         let selectedIndex = 0;
         let currentTrigger = null;
 
         function closeMenu() {
-            menu.style.display = "none";
-            menu.innerHTML = "";
+            if (menu) {
+                menu.style.display = "none";
+                menu.innerHTML = "";
+            }
             activeItems = [];
             selectedIndex = 0;
             currentTrigger = null;
         }
 
         function renderMenu() {
+            if (!menu) return;
             menu.innerHTML = "";
             if (activeItems.length === 0) {
                 closeMenu();
@@ -2616,6 +3148,7 @@ function attachAutocomplete(widget, node) {
         }
 
         function updateSelectionHighlight() {
+            if (!menu) return;
             const rows = menu.querySelectorAll(".zombiehaus-autocomplete-item");
             rows.forEach((r, idx) => {
                 if (idx === selectedIndex) {
@@ -2628,24 +3161,27 @@ function attachAutocomplete(widget, node) {
         }
 
         function positionMenu() {
-            if (!currentTrigger) return;
+            if (!currentTrigger || !ta.isConnected || !menu) return;
             const coords = getCaretCoordinates(ta, currentTrigger.replaceStart);
+            const rect = ta.getBoundingClientRect();
             const menuWidth = 320;
-            const parentW = parent.clientWidth || 480;
-            const parentH = parent.clientHeight || 300;
 
-            let left = coords.left;
-            if (left + menuWidth > parentW - 10) {
-                left = Math.max(8, parentW - menuWidth - 10);
+            const caretX = coords.relLeft != null ? coords.relLeft : (coords.left - ta.offsetLeft);
+            const caretY = coords.relTop != null ? coords.relTop : (coords.top - ta.offsetTop);
+
+            let left = rect.left + caretX;
+            let top = rect.top + caretY + coords.lineHeight + 4;
+            const estMenuH = Math.min(230, activeItems.length * 32 + 20);
+
+            if (top + estMenuH > window.innerHeight - 10 && (rect.top + caretY - estMenuH > 10)) {
+                top = rect.top + caretY - estMenuH - 4;
             }
-            if (left < 4) left = 4;
-
-            let top = coords.top + coords.lineHeight + 4;
-            const estMenuH = Math.min(220, activeItems.length * 32 + 20);
-            if (top + estMenuH > parentH && coords.top - estMenuH > 4) {
-                top = coords.top - estMenuH - 4;
+            if (left + menuWidth > window.innerWidth - 10) {
+                left = Math.max(10, window.innerWidth - menuWidth - 10);
             }
+            if (left < 10) left = 10;
 
+            menu.style.position = "fixed";
             menu.style.left = `${left}px`;
             menu.style.top = `${top}px`;
             menu.style.width = `${menuWidth}px`;
@@ -2685,7 +3221,7 @@ function attachAutocomplete(widget, node) {
                 });
                 return;
             }
-            if (trigger.type === "property" && trigger.wildcardName && !_wildcardKeysCache.has(trigger.wildcardName)) {
+            if (trigger.type === "property" && trigger.wildcardName && !_wildcardKeysCache.has(trigger.wildcardName.toLowerCase())) {
                 fetchWildcardKeys(trigger.wildcardName).then(() => {
                     if (document.activeElement === ta) {
                         checkTriggerAndSuggest();
@@ -2746,14 +3282,17 @@ function attachAutocomplete(widget, node) {
             setTimeout(closeMenu, 180);
         });
 
-        ta.addEventListener("scroll", () => {
-            if (menu.style.display !== "none") {
+        const onViewportChange = () => {
+            if (menu && menu.style.display !== "none") {
                 positionMenu();
             }
-        }, { passive: true });
+        };
+        window.addEventListener("resize", onViewportChange, { passive: true });
+        window.addEventListener("scroll", onViewportChange, { passive: true });
+        ta.addEventListener("scroll", onViewportChange, { passive: true });
 
         document.addEventListener("mousedown", (e) => {
-            if (menu.style.display !== "none" && !menu.contains(e.target) && e.target !== ta) {
+            if (menu && menu.style.display !== "none" && !menu.contains(e.target) && e.target !== ta) {
                 closeMenu();
             }
         });
@@ -4766,6 +5305,311 @@ function attachImageDropHandlers(node) {
     });
 }
 
+// ── Negative Pedalboard Modules & Attachment ────────────────────────────
+const PEDALBOARD_MODULES = [
+    {
+        id: "quality",
+        label: "✦ Quality",
+        tooltip: "Toggle baseline quality guard (worst quality, low quality, normal quality)",
+        matchTag: "worst quality",
+        text: "(worst quality, low quality, normal quality:1.4)",
+        unweightedText: "worst quality, low quality, normal quality"
+    },
+    {
+        id: "anatomy",
+        label: "🚫 Anatomy",
+        tooltip: "Toggle anatomical & hand deformity guard",
+        matchTag: "bad anatomy",
+        text: "(bad anatomy, bad hands, missing fingers, extra digits:1.3)",
+        unweightedText: "bad anatomy, bad hands, missing fingers, extra digits"
+    },
+    {
+        id: "cgi",
+        label: "🎨 3D Guard",
+        tooltip: "Toggle 3D render / CGI guard for 2D or realistic styles",
+        matchTag: "3d render",
+        text: "(cgi, 3d render, cartoon, illustration:1.2)",
+        unweightedText: "cgi, 3d render, cartoon, illustration"
+    },
+    {
+        id: "watermark",
+        label: "💧 Watermark",
+        tooltip: "Toggle watermark, text, and signature suppression",
+        matchTag: "watermark",
+        text: "(watermark, text, signature, username:1.2)",
+        unweightedText: "watermark, text, signature, username"
+    }
+];
+
+function applyNegativeContainerStyles(el) {
+    if (!el || !el.style) return;
+    el.classList.add("zombiehaus-negative-prompt-ta");
+    el.style.setProperty("display", "block", "important");
+    el.style.setProperty("flex", "0 0 56px", "important");
+    el.style.setProperty("height", "56px", "important");
+    el.style.setProperty("min-height", "56px", "important");
+    el.style.setProperty("max-height", "56px", "important");
+    el.style.setProperty("resize", "none", "important");
+    el.style.setProperty("box-sizing", "border-box", "important");
+    el.style.setProperty("padding-bottom", "24px", "important");
+    el.style.overflowY = "auto";
+    el.style.overflowX = "hidden";
+    const p = el.parentElement;
+    if (p && p.style) {
+        p.classList.add("zombiehaus-negative-container");
+        p.style.setProperty("display", "flex", "important");
+        p.style.setProperty("flex-direction", "column", "important");
+        p.style.setProperty("flex", "0 0 84px", "important");
+        p.style.setProperty("min-height", "84px", "important");
+        p.style.setProperty("max-height", "84px", "important");
+        p.style.setProperty("height", "84px", "important");
+        p.style.setProperty("overflow", "hidden", "important");
+        p.style.setProperty("box-sizing", "border-box", "important");
+        p.style.setProperty("margin-bottom", "6px", "important");
+    }
+}
+
+function attachNegativePedalboard(widget, node) {
+    if (!widget) return;
+    ensureWidgetInputElProxy(widget, node);
+    let attempts = 0;
+    const bind = () => {
+        const ta = resolveWidgetInputEl(widget, node) || widget.inputEl || widget.element;
+        if (!ta || !ta.parentElement || !ta.isConnected) {
+            if (attempts++ < 120) {
+                requestAnimationFrame(bind);
+            } else if (attempts < 200) {
+                attempts += 5;
+                setTimeout(bind, 250);
+            }
+            return;
+        }
+
+        const parent = ta.parentElement;
+        let pedalBar = parent.querySelector(".zombiehaus-pedal-bar") || ta._pedalBar;
+
+        if (!pedalBar || !pedalBar.isConnected) {
+            pedalBar = document.createElement("div");
+            pedalBar.className = "zombiehaus-pedal-bar";
+            pedalBar.style.setProperty("display", "flex", "important");
+            pedalBar.style.setProperty("flex", "0 0 24px", "important");
+            pedalBar.style.setProperty("height", "24px", "important");
+            pedalBar.style.setProperty("min-height", "24px", "important");
+            pedalBar.style.setProperty("max-height", "24px", "important");
+            pedalBar.style.setProperty("margin-bottom", "4px", "important");
+            pedalBar.style.setProperty("box-sizing", "border-box", "important");
+            pedalBar.style.setProperty("width", "100%", "important");
+            pedalBar.addEventListener("pointerdown", (e) => e.stopPropagation());
+            pedalBar.addEventListener("mousedown", (e) => e.stopPropagation());
+
+            const label = document.createElement("span");
+            label.textContent = "Guards:";
+            label.style.cssText = "font-size: 10px; color: #6c7086; text-transform: uppercase; letter-spacing: 0.5px; margin-right: 4px; font-weight: 600; white-space: nowrap; flex-shrink: 0;";
+            pedalBar.appendChild(label);
+
+            const buttons = [];
+
+            PEDALBOARD_MODULES.forEach(mod => {
+                const btn = document.createElement("button");
+                btn.className = "zombiehaus-pedal-btn";
+                btn.textContent = mod.label;
+                btn.title = mod.tooltip;
+                btn.type = "button";
+                btn.addEventListener("pointerdown", (e) => e.stopPropagation());
+                btn.addEventListener("mousedown", (e) => e.stopPropagation());
+
+                btn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    let cur = (ta.value || "").trim();
+                    const hasTag = cur.toLowerCase().includes(mod.matchTag.toLowerCase());
+
+                    const styleVal = (node.widgets?.find(w => w.name === "prompt_style")?.value || "").toLowerCase();
+                    const isExpressions = styleVal.includes("expression");
+                    const insertText = isExpressions ? mod.unweightedText : mod.text;
+
+                    if (hasTag) {
+                        cur = cur.replace(mod.text, "");
+                        cur = cur.replace(mod.unweightedText, "");
+                        const escTag = mod.matchTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        cur = cur.replace(new RegExp(`\\([^)]*${escTag}[^)]*\\)`, "gi"), "");
+                        cur = cur.replace(/,\s*,+/g, ", ").replace(/^,\s*/, "").replace(/,\s*$/, "").trim();
+                        showStudioToast(`Disengaged [${mod.label}] guard`, "info");
+                    } else {
+                        if (cur && !cur.endsWith(",")) cur += ", ";
+                        else if (cur && cur.endsWith(",")) cur += " ";
+                        cur += insertText;
+                        showStudioToast(`Engaged [${mod.label}] guard${isExpressions ? ' (unweighted)' : ''}`);
+                    }
+
+                    ta.value = cur;
+                    widget.value = cur;
+                    widget._updateSyntaxHighlight?.();
+                    updateStates();
+                    if (node._popoutSyncFromNode) {
+                        node._popoutSyncFromNode();
+                    }
+                    pushPromptHistory(node, `Pedalboard: ${mod.label}`);
+                    app.graph?.setDirtyCanvas(true, true);
+                };
+
+                buttons.push({ btn, mod });
+                pedalBar.appendChild(btn);
+            });
+
+            function updateStates() {
+                const val = (ta.value || "").toLowerCase();
+                buttons.forEach(({ btn, mod }) => {
+                    if (val.includes(mod.matchTag.toLowerCase())) {
+                        btn.classList.add("active");
+                    } else {
+                        btn.classList.remove("active");
+                    }
+                });
+            }
+
+            ta._pedalButtons = buttons;
+            ta._updatePedalboardStates = updateStates;
+            ta.addEventListener("input", updateStates);
+            updateStates();
+
+            ta._pedalBar = pedalBar;
+        }
+
+        const ensureMounted = () => {
+            const p = ta.parentElement;
+            if (!p || !pedalBar) return;
+            applyNegativeContainerStyles(ta);
+            if (!p.contains(pedalBar)) {
+                p.insertBefore(pedalBar, ta);
+            }
+            ta._updatePedalboardStates?.();
+        };
+
+        ta._ensurePedalboardMounted = ensureMounted;
+        ensureMounted();
+    };
+    bind();
+}
+
+// ── Universal Proportional Prompt Sizing (Positive Expansive, Negative Compact) ──
+function updateTextEditorProportions(targetNode) {
+    if (!targetNode || targetNode._updatingProportions) return;
+    targetNode._updatingProportions = true;
+    try {
+        const pw = targetNode.widgets?.find(w => w.name === "positive");
+        const nw = targetNode.widgets?.find(w => w.name === "negative");
+        if (!pw && !nw) return;
+
+        // Reset runaway heights from prior loop bugs (> 2500) only if corrupted
+        if (targetNode.size && targetNode.size[1] > 2500) {
+            targetNode.size = [560, 830];
+        }
+
+        // 1. Negative Widget: Fixed compact slot for pedalboard (24px) + textarea (56px) + margin = 84px
+        // Allocating 96px in computeSize gives a 12px clear buffer gap so it never touches saved_prompt
+        if (nw) {
+            nw.computeSize = function(width) {
+                return [width || 400, 96];
+            };
+            delete nw.computeLayoutSize;
+            if (!nw.options) nw.options = {};
+            nw.options.getMinHeight = () => 96;
+            nw.options.getMaxHeight = () => 96;
+            delete nw.options.getHeight;
+            attachNegativePedalboard(nw, targetNode);
+        }
+
+        // 2. Positive Widget: Expansive dynamic slot absorbing all available vertical space
+        if (pw) {
+            delete pw.computeSize;
+            pw.computeLayoutSize = function() {
+                return { minHeight: 140, maxHeight: 100000, minWidth: 0 };
+            };
+            if (!pw.options) pw.options = {};
+            pw.options.getMinHeight = () => 140;
+            pw.options.getMaxHeight = () => 100000;
+            delete pw.options.getHeight;
+        }
+
+        // 3. Enforce DOM element styles on both textareas
+        const posTa = pw ? (resolveWidgetInputEl(pw, targetNode) || pw.inputEl || pw.element) : null;
+        const negTa = nw ? (resolveWidgetInputEl(nw, targetNode) || nw.inputEl || nw.element) : null;
+
+        if (posTa && posTa.style) {
+            posTa.style.setProperty("min-height", "140px", "important");
+            posTa.style.setProperty("height", "100%", "important");
+            posTa.style.removeProperty("max-height");
+            posTa.style.setProperty("flex", "1 1 0%", "important");
+            posTa.style.setProperty("resize", "none", "important");
+            posTa.style.setProperty("box-sizing", "border-box", "important");
+            posTa.style.overflowY = "auto";
+            posTa.style.overflowX = "hidden";
+            if (posTa.parentElement) {
+                posTa.parentElement.style.setProperty("display", "flex", "important");
+                posTa.parentElement.style.setProperty("flex-direction", "column", "important");
+                posTa.parentElement.style.setProperty("min-height", "140px", "important");
+                posTa.parentElement.style.setProperty("height", "100%", "important");
+                posTa.parentElement.style.setProperty("flex", "1 1 0%", "important");
+                posTa.parentElement.style.removeProperty("max-height");
+            }
+        }
+
+        if (negTa) {
+            applyNegativeContainerStyles(negTa);
+            if (negTa._ensurePedalboardMounted) {
+                negTa._ensurePedalboardMounted();
+            }
+        }
+
+        const nodeId = targetNode.id != null ? String(targetNode.id) : null;
+        let nodeEl = null;
+        if (nodeId != null) {
+            try {
+                nodeEl = document.querySelector(`[data-node-id="${CSS.escape(nodeId)}"]`) ||
+                         document.querySelector(`[data-testid="node-body-${CSS.escape(nodeId)}"]`)?.closest?.("[data-node-id]") ||
+                         document.querySelector(`[data-node-id="${nodeId}"]`);
+            } catch (_) {
+                nodeEl = document.querySelector(`[data-node-id="${nodeId}"]`);
+            }
+        }
+        if (!nodeEl && targetNode.domElement) nodeEl = targetNode.domElement;
+        if (!nodeEl && targetNode.element) nodeEl = targetNode.element;
+
+        if (nodeEl) {
+            const textareas = nodeEl.querySelectorAll("textarea");
+            if (textareas.length >= 2) {
+                const firstTa = textareas[0];
+                firstTa.style.setProperty("min-height", "140px", "important");
+                firstTa.style.setProperty("height", "100%", "important");
+                firstTa.style.removeProperty("max-height");
+                firstTa.style.setProperty("flex", "1 1 0%", "important");
+                firstTa.style.setProperty("resize", "none", "important");
+                firstTa.style.setProperty("box-sizing", "border-box", "important");
+                if (firstTa.parentElement) {
+                    firstTa.parentElement.style.setProperty("display", "flex", "important");
+                    firstTa.parentElement.style.setProperty("flex-direction", "column", "important");
+                    firstTa.parentElement.style.setProperty("min-height", "140px", "important");
+                    firstTa.parentElement.style.setProperty("height", "100%", "important");
+                    firstTa.parentElement.style.setProperty("flex", "1 1 0%", "important");
+                    firstTa.parentElement.style.removeProperty("max-height");
+                }
+
+                const secondTa = textareas[1];
+                applyNegativeContainerStyles(secondTa);
+                if (secondTa._ensurePedalboardMounted) {
+                    secondTa._ensurePedalboardMounted();
+                }
+            }
+        }
+
+        pw?._updateSyntaxHighlight?.();
+        nw?._updateSyntaxHighlight?.();
+    } finally {
+        targetNode._updatingProportions = false;
+    }
+}
+
 app.registerExtension({
     name: "zombiehaus.TextEditor",
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
@@ -4787,20 +5631,29 @@ app.registerExtension({
                 const dropdownWidget  = node.widgets?.find(w => w.name === "saved_prompt");
 
                 const hookCanvasUndoInput = (w) => {
-                    const el = w?.inputEl || w?.element;
-                    if (!el || el._hasCanvasUndoInputHook) return;
-                    el._hasCanvasUndoInputHook = true;
-                    let typeDebounce = null;
-                    el.addEventListener("input", () => {
-                        clearTimeout(typeDebounce);
-                        typeDebounce = setTimeout(() => {
-                            pushCanvasUndo(node, "Typing");
-                        }, 350);
-                    });
+                    let attempts = 0;
+                    const bind = () => {
+                        const el = resolveWidgetInputEl(w, node) || w?.inputEl || w?.element;
+                        if (!el || !el.isConnected) {
+                            if (attempts++ < 60) requestAnimationFrame(bind);
+                            return;
+                        }
+                        if (el._hasCanvasUndoInputHook) return;
+                        el._hasCanvasUndoInputHook = true;
+                        let typeDebounce = null;
+                        el.addEventListener("input", () => {
+                            clearTimeout(typeDebounce);
+                            typeDebounce = setTimeout(() => {
+                                pushCanvasUndo(node, "Typing");
+                            }, 350);
+                        });
+                    };
+                    bind();
                 };
 
                 if (positiveWidget) {
                     positiveWidget.label = "Positive";
+                    ensureWidgetInputElProxy(positiveWidget, node);
                     attachCommentShortcuts(positiveWidget, node);
                     attachSyntaxHighlighter(positiveWidget, node);
                     attachAutocomplete(positiveWidget, node);
@@ -4808,7 +5661,7 @@ app.registerExtension({
                     attachOllamaSelectionContextMenu(positiveWidget, positiveWidget, node);
                     hookCanvasUndoInput(positiveWidget);
                     requestAnimationFrame(() => {
-                        const ta = positiveWidget.inputEl || positiveWidget.element;
+                        const ta = resolveWidgetInputEl(positiveWidget, node) || positiveWidget.inputEl || positiveWidget.element;
                         if (ta) {
                             ta.style.overflowY = "auto";
                             ta.style.overflowX = "hidden";
@@ -4817,6 +5670,7 @@ app.registerExtension({
                 }
                 if (negativeWidget) {
                     negativeWidget.label = "Negative";
+                    ensureWidgetInputElProxy(negativeWidget, node);
                     attachCommentShortcuts(negativeWidget, node);
                     attachSyntaxHighlighter(negativeWidget, node);
                     attachAutocomplete(negativeWidget, node);
@@ -4827,21 +5681,17 @@ app.registerExtension({
 
                 pushCanvasUndo(node, "Initial State");
 
-                // ── Negative widget height control ────────────────────────────────
-                const NEG_H = 95;
-                if (negativeWidget) {
-                    negativeWidget.computeSize = function() {
-                        return [0, NEG_H];
-                    };
-                    requestAnimationFrame(() => {
-                        const ta = negativeWidget.inputEl || negativeWidget.element;
-                        if (ta) {
-                            ta.style.resize = "none";
-                            ta.style.overflowY = "auto";
-                            ta.style.overflowX = "hidden";
-                        }
-                    });
-                }
+                node._updateProportions = () => updateTextEditorProportions(node);
+
+                // Hook Classic LiteGraph onResize
+                const origOnResize = node.onResize;
+                node.onResize = function (size) {
+                    const r = origOnResize ? origOnResize.apply(this, arguments) : undefined;
+                    updateTextEditorProportions(node);
+                    return r;
+                };
+
+
 
                 // Hook selection and initial registration with IDE
                 const origOnSelected = node.onSelected;
@@ -4917,29 +5767,7 @@ app.registerExtension({
                 );
                 categoryWidget.label = "Category";
 
-                // Move style, theme, type, and category filters to appear right before saved_prompt
-                if (dropdownWidget) {
-                    const dropIdx = node.widgets.indexOf(dropdownWidget);
-                    const styleIdx = node.widgets.indexOf(styleWidget);
-                    const themeIdx = node.widgets.indexOf(themeWidget);
-                    const typeIdx  = node.widgets.indexOf(typeWidget);
-                    const catIdx   = node.widgets.indexOf(categoryWidget);
-                    if (dropIdx >= 0) {
-                        const items = [
-                            { w: styleWidget, idx: styleIdx },
-                            { w: themeWidget, idx: themeIdx },
-                            { w: typeWidget,  idx: typeIdx },
-                            { w: categoryWidget, idx: catIdx }
-                        ].sort((a, b) => b.idx - a.idx);
-
-                        for (const it of items) {
-                            if (it.idx >= 0) node.widgets.splice(it.idx, 1);
-                        }
-
-                        const newDropIdx = node.widgets.indexOf(dropdownWidget);
-                        node.widgets.splice(newDropIdx, 0, styleWidget, themeWidget, typeWidget, categoryWidget);
-                    }
-                }
+                // (Widgets are kept in natural sequence to ensure 100% stable workflow deserialization)
 
                 // ── Prompt dropdown → load on select ─────────────────────────────
                 if (dropdownWidget) {
@@ -4999,10 +5827,11 @@ app.registerExtension({
                 attachImageDropHandlers(node);
 
                 // ── Initial size ──────────────────────────────────────────────────
-                node.size = [560, 605];
+                node.size = [560, 830];
                 node.resizable = true;
 
-                requestAnimationFrame(() => refreshPrompts(node));
+                updateTextEditorProportions(node);
+                refreshPrompts(node);
 
                 return r;
             };
@@ -5101,25 +5930,85 @@ app.registerExtension({
                 );
             };
 
+            nodeType.prototype._healShiftedWidgets = function() {
+                const sw = this.widgets?.find(w => w.name === "saved_prompt");
+                const wmw = this.widgets?.find(w => w.name === "weight_mode");
+                const seedW = this.widgets?.find(w => w.name === "seed");
+                const cagw = this.widgets?.find(w => w.name === "control_after_generate");
+                const saw = this.widgets?.find(w => w.name === "seed_action");
+                const styleW = this.widgets?.find(w => w.name === "prompt_style");
+                const themeW = this.widgets?.find(w => w.name === "syntax_theme");
+                const catW = this.widgets?.find(w => w.name === "category_filter");
+
+                // 1. If seed_action received a .json prompt filename (e.g. "Minimal.json")
+                if (saw && typeof saw.value === "string" && saw.value.endsWith(".json")) {
+                    if (sw) sw.value = saw.value;
+                    saw.value = "fixed";
+                }
+
+                // 2. If saved_prompt received prompt_style (e.g. "Expressions (Flux / SD3)")
+                if (sw && styleW && styleW.options?.values?.includes(sw.value)) {
+                    styleW.value = sw.value;
+                    if (!sw.value.endsWith(".json")) {
+                        sw.value = sw.options?.values?.[0] || "";
+                    }
+                }
+
+                // 3. If weight_mode received syntax_theme (e.g. "Zombiehaus Neon (Default)")
+                if (wmw && themeW && themeW.options?.values?.includes(wmw.value)) {
+                    themeW.value = wmw.value;
+                    wmw.value = wmw.options?.values?.[0] || "Pass-Through (SDXL / Pony)";
+                }
+
+                // 4. If control_after_generate received a category or invalid value
+                if (cagw && !["fixed", "increment", "decrement", "randomize"].includes(cagw.value)) {
+                    if (catW && typeof cagw.value === "string" && cagw.value !== "--all categories--") {
+                        if (catW.options?.values && !catW.options.values.includes(cagw.value)) {
+                            catW.options.values.push(cagw.value);
+                        }
+                        catW.value = cagw.value;
+                    }
+                    cagw.value = "fixed";
+                }
+
+                // 5. If seed received NaN or string
+                if (seedW && (isNaN(seedW.value) || typeof seedW.value !== "number")) {
+                    seedW.value = 0;
+                }
+
+                // 6. Ensure seed_action is valid
+                if (saw && (!saw.options?.values?.includes(saw.value))) {
+                    saw.value = "fixed";
+                }
+
+                // 7. Ensure syntax_theme has a valid theme
+                if (themeW && (!getThemeOptions().includes(themeW.value))) {
+                    themeW.value = "Zombiehaus Neon (Default)";
+                }
+            };
+
             // ── onConfigure (workflow load / paste) ───────────────────────────────
             const onConfigure = nodeType.prototype.onConfigure;
             nodeType.prototype.onConfigure = function(config) {
                 if (onConfigure) onConfigure.apply(this, arguments);
 
-                if (this.properties?.syntax_theme) {
-                    const tw = this.widgets?.find(w => w.name === "syntax_theme");
-                    if (tw) tw.value = this.properties.syntax_theme;
+                // Auto-heal shifted widget values
+                this._healShiftedWidgets?.();
+
+                const themeW = this.widgets?.find(w => w.name === "syntax_theme");
+                const styleW = this.widgets?.find(w => w.name === "prompt_style");
+
+                if (this.properties?.syntax_theme && getThemeOptions().includes(this.properties.syntax_theme)) {
+                    if (themeW) themeW.value = this.properties.syntax_theme;
                     setNodeTheme(this, this.properties.syntax_theme);
+                } else if (themeW && themeW.value && getThemeOptions().includes(themeW.value)) {
+                    setNodeTheme(this, themeW.value);
                 } else {
-                    const tw = this.widgets?.find(w => w.name === "syntax_theme");
-                    if (tw && tw.value) {
-                        setNodeTheme(this, tw.value);
-                    }
+                    setNodeTheme(this, "Zombiehaus Neon (Default)");
                 }
 
-                if (this.properties?.prompt_style) {
-                    const sw = this.widgets?.find(w => w.name === "prompt_style");
-                    if (sw) sw.value = this.properties.prompt_style;
+                if (this.properties?.prompt_style && styleW) {
+                    styleW.value = this.properties.prompt_style;
                 }
 
                 const cfw = this.widgets?.find(w => w.name === "category_filter");
@@ -5136,6 +6025,7 @@ app.registerExtension({
                 const pw = this.widgets?.find(w => w.name === "positive");
                 const nw = this.widgets?.find(w => w.name === "negative");
                 if (pw) {
+                    ensureWidgetInputElProxy(pw, this);
                     attachCommentShortcuts(pw, this);
                     attachSyntaxHighlighter(pw, this);
                     attachAutocomplete(pw, this);
@@ -5143,23 +6033,38 @@ app.registerExtension({
                     attachOllamaSelectionContextMenu(pw, pw, this);
                 }
                 if (nw) {
+                    ensureWidgetInputElProxy(nw, this);
                     attachCommentShortcuts(nw, this);
                     attachSyntaxHighlighter(nw, this);
                     attachAutocomplete(nw, this);
                     attachNegativePedalboard(nw, this);
                     attachOllamaSelectionContextMenu(nw, nw, this);
                 }
-                setTimeout(() => reportCanvasNode(this, false), 500);
+
+                this._updateProportions = () => updateTextEditorProportions(this);
+                updateTextEditorProportions(this);
+                refreshPrompts(this);
+                setTimeout(() => {
+                    reportCanvasNode(this, false);
+                }, 500);
             };
 
             // ── onResize ──────────────────────────────────────────────────────────
             const onResize = nodeType.prototype.onResize;
             nodeType.prototype.onResize = function(size) {
                 const r = onResize ? onResize.apply(this, arguments) : undefined;
+                updateTextEditorProportions(this);
                 const pw = this.widgets?.find(w => w.name === "positive");
-                const nw = this.widgets?.find(w => w.name === "negative");
                 pw?._updateSyntaxHighlight?.();
+                const nw = this.widgets?.find(w => w.name === "negative");
                 nw?._updateSyntaxHighlight?.();
+                return r;
+            };
+
+            // ── onDrawForeground ──────────────────────────────────────────────────
+            const origOnDrawForeground = nodeType.prototype.onDrawForeground;
+            nodeType.prototype.onDrawForeground = function(ctx) {
+                const r = origOnDrawForeground ? origOnDrawForeground.apply(this, arguments) : undefined;
                 return r;
             };
 
@@ -5185,16 +6090,28 @@ app.registerExtension({
             };
 
             // ── Helper: set widget value AND update the visible textarea ──────────
-            function setTextValue(widget, value) {
+            function setTextValue(widget, value, node = null) {
                 if (!widget) return;
                 widget.value = value;
-                if (widget.inputEl) widget.inputEl.value = value;
+                const targetNode = node || widget.node || app.graph?._nodes?.find(n => n?.widgets?.includes(widget));
+                const el = resolveWidgetInputEl(widget, targetNode) || widget.inputEl || widget.element;
+                if (el) {
+                    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+                        el.value = value;
+                    } else {
+                        const innerTa = el.querySelector?.("textarea, input");
+                        if (innerTa) innerTa.value = value;
+                    }
+                    el.dispatchEvent(new Event("input", { bubbles: true }));
+                    el.dispatchEvent(new Event("change", { bubbles: true }));
+                }
                 widget._updateSyntaxHighlight?.();
             }
 
             // ── Helper: Attach comment keyboard shortcuts (Ctrl+/, Ctrl+Shift+/, Shift+Alt+A) ──
             function attachCommentShortcuts(widget, node) {
                 if (!widget) return;
+                ensureWidgetInputElProxy(widget, node);
                 const bindEl = (ta) => {
                     if (!ta || ta._hasCommentHandler) return;
                     ta._hasCommentHandler = true;
@@ -5566,15 +6483,28 @@ app.registerExtension({
                     });
                 };
 
-                if (widget.inputEl) bindEl(widget.inputEl);
-                requestAnimationFrame(() => {
-                    const ta = widget.inputEl || widget.element;
-                    if (ta) bindEl(ta);
-                });
+                let attempts = 0;
+                const bind = () => {
+                    const ta = (widget instanceof HTMLElement && widget.tagName === "TEXTAREA")
+                        ? widget
+                        : (resolveWidgetInputEl(widget, node) || widget?.inputEl || widget?.element);
+                    if (!ta || !ta.isConnected) {
+                        if (attempts++ < 120) {
+                            requestAnimationFrame(bind);
+                        } else if (attempts < 200) {
+                            attempts += 5;
+                            setTimeout(bind, 250);
+                        }
+                        return;
+                    }
+                    bindEl(ta);
+                };
+                bind();
             }
 
             // ── Load a JSON prompt file into the text boxes ───────────────────────
             function loadPrompt(node, filename) {
+                if (!node || !filename) return;
                 fetch("/zombiehaus/load_prompt", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -5582,21 +6512,36 @@ app.registerExtension({
                 })
                 .then(r => r.json())
                 .then(data => {
-                    if (data.success) {
-                        setTextValue(node.widgets?.find(w => w.name === "positive"),        data.data.positive || "");
-                        setTextValue(node.widgets?.find(w => w.name === "negative"),         data.data.negative || "");
-                        setTextValue(node.widgets?.find(w => w.name === "prompt_category"),  data.data.category || "");
+                    if (data.success && data.data) {
+                        const pw = node.widgets?.find(w => w.name === "positive");
+                        const nw = node.widgets?.find(w => w.name === "negative");
+                        const pcw = node.widgets?.find(w => w.name === "prompt_category");
+                        const dw = node.widgets?.find(w => w.name === "saved_prompt");
+
+                        if (dw && dw.value !== filename) {
+                            dw.value = filename;
+                        }
+
+                        setTextValue(pw, data.data.positive || "", node);
+                        setTextValue(nw, data.data.negative || "", node);
+                        setTextValue(pcw, data.data.category || "", node);
+
                         if (node._popoutCategoryInput) {
                             node._popoutCategoryInput.value = data.data.category || "";
                         }
                         pushPromptHistory(node, "Loaded: " + filename);
                         node._popoutSyncFromNode?.();
-                        app.graph.setDirtyCanvas(true, true);
+                        app.graph?.setDirtyCanvas(true, true);
+                        showStudioToast(`Loaded prompt: ${filename}`);
                     } else {
-                        console.error("[Zombiehaus] Load error:", data.message);
+                        console.error("[Zombiehaus] Load error:", data?.message);
+                        showStudioToast("Load error: " + (data?.message || "Failed to load prompt"), "error");
                     }
                 })
-                .catch(err => console.error("[Zombiehaus] Load error:", err.message));
+                .catch(err => {
+                    console.error("[Zombiehaus] Load error:", err);
+                    showStudioToast("Load error: " + err.message, "error");
+                });
             }
 
             // ── Filter saved_prompt dropdown by type AND category ─────────────────
@@ -6421,8 +7366,8 @@ app.registerExtension({
 
                 pushPromptHistory(node, "Pre-Swap Prompts");
                 const temp = pw.value || "";
-                setTextValue(pw, nw.value || "");
-                setTextValue(nw, temp);
+                setTextValue(pw, nw.value || "", node);
+                setTextValue(nw, temp, node);
                 pushPromptHistory(node, "Swapped Positive & Negative");
                 app.graph?.setDirtyCanvas(true, true);
             }
@@ -6973,119 +7918,7 @@ app.registerExtension({
                 }
             }
 
-            // ── Negative Pedalboard Implementation ────────────────────────────────
-            const PEDALBOARD_MODULES = [
-                {
-                    id: "quality",
-                    label: "✦ Quality",
-                    tooltip: "Toggle baseline quality guard (worst quality, low quality, normal quality)",
-                    matchTag: "worst quality",
-                    text: "(worst quality, low quality, normal quality:1.4)",
-                    unweightedText: "worst quality, low quality, normal quality"
-                },
-                {
-                    id: "anatomy",
-                    label: "🚫 Anatomy",
-                    tooltip: "Toggle anatomical & hand deformity guard",
-                    matchTag: "bad anatomy",
-                    text: "(bad anatomy, bad hands, missing fingers, extra digits:1.3)",
-                    unweightedText: "bad anatomy, bad hands, missing fingers, extra digits"
-                },
-                {
-                    id: "cgi",
-                    label: "🎨 3D Guard",
-                    tooltip: "Toggle 3D render / CGI guard for 2D or realistic styles",
-                    matchTag: "3d render",
-                    text: "(cgi, 3d render, cartoon, illustration:1.2)",
-                    unweightedText: "cgi, 3d render, cartoon, illustration"
-                },
-                {
-                    id: "watermark",
-                    label: "💧 Watermark",
-                    tooltip: "Toggle watermark, text, and signature suppression",
-                    matchTag: "watermark",
-                    text: "(watermark, text, signature, username:1.2)",
-                    unweightedText: "watermark, text, signature, username"
-                }
-            ];
-
-            function attachNegativePedalboard(widget, node) {
-                if (!widget) return;
-                requestAnimationFrame(() => {
-                    const ta = widget.inputEl || widget.element;
-                    if (!ta || !ta.parentElement || ta._hasPedalboard) return;
-                    ta._hasPedalboard = true;
-
-                    const parent = ta.parentElement;
-                    const pedalBar = document.createElement("div");
-                    pedalBar.className = "zombiehaus-pedal-bar";
-
-                    const label = document.createElement("span");
-                    label.textContent = "Pedalboard:";
-                    label.style.cssText = "font-size: 10px; color: #6c7086; text-transform: uppercase; letter-spacing: 0.5px; margin-right: 4px; font-weight: 600;";
-                    pedalBar.appendChild(label);
-
-                    const buttons = [];
-
-                    PEDALBOARD_MODULES.forEach(mod => {
-                        const btn = document.createElement("button");
-                        btn.className = "zombiehaus-pedal-btn";
-                        btn.textContent = mod.label;
-                        btn.title = mod.tooltip;
-                        btn.type = "button";
-
-                        btn.onclick = (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            let cur = (ta.value || "").trim();
-                            const hasTag = cur.toLowerCase().includes(mod.matchTag.toLowerCase());
-
-                            const styleVal = (node.widgets?.find(w => w.name === "prompt_style")?.value || "").toLowerCase();
-                            const isExpressions = styleVal.includes("expression");
-                            const insertText = isExpressions ? mod.unweightedText : mod.text;
-
-                            if (hasTag) {
-                                cur = cur.replace(mod.text, "");
-                                cur = cur.replace(mod.unweightedText, "");
-                                const escTag = mod.matchTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                                cur = cur.replace(new RegExp(`\\([^)]*${escTag}[^)]*\\)`, "gi"), "");
-                                cur = cur.replace(/,\s*,+/g, ", ").replace(/^,\s*/, "").replace(/,\s*$/, "").trim();
-                                showStudioToast(`Disengaged [${mod.label}] guard`, "info");
-                            } else {
-                                if (cur && !cur.endsWith(",")) cur += ", ";
-                                else if (cur && cur.endsWith(",")) cur += " ";
-                                cur += insertText;
-                                showStudioToast(`Engaged [${mod.label}] guard${isExpressions ? ' (unweighted)' : ''}`);
-                            }
-
-                            ta.value = cur;
-                            widget.value = cur;
-                            widget._updateSyntaxHighlight?.();
-                            updateStates();
-                            pushPromptHistory(node, `Pedalboard: ${mod.label}`);
-                        };
-
-                        buttons.push({ btn, mod });
-                        pedalBar.appendChild(btn);
-                    });
-
-                    function updateStates() {
-                        const val = (ta.value || "").toLowerCase();
-                        buttons.forEach(({ btn, mod }) => {
-                            if (val.includes(mod.matchTag.toLowerCase())) {
-                                btn.classList.add("active");
-                            } else {
-                                btn.classList.remove("active");
-                            }
-                        });
-                    }
-
-                    ta.addEventListener("input", updateStates);
-                    updateStates();
-
-                    parent.insertBefore(pedalBar, ta);
-                });
-            }
+            // ── Negative Pedalboard Implementation (Delegated to module-level) ──
 
             // ── Clean Prompt & JSON Exporters ─────────────────────────────────────
             function copyCleanPrompt(node) {
@@ -7253,9 +8086,20 @@ app.registerExtension({
 
             function setupTagStudio(widget, node) {
                 if (!widget) return;
-                requestAnimationFrame(() => {
-                    const ta = widget.inputEl || widget.element;
-                    if (!ta || !ta.parentElement || ta._tagStudioContainer) return;
+                ensureWidgetInputElProxy(widget, node);
+                let attempts = 0;
+                const bind = () => {
+                    const ta = resolveWidgetInputEl(widget, node) || widget.inputEl || widget.element;
+                    if (!ta || !ta.parentElement || !ta.isConnected) {
+                        if (attempts++ < 120) {
+                            requestAnimationFrame(bind);
+                        } else if (attempts < 200) {
+                            attempts += 5;
+                            setTimeout(bind, 250);
+                        }
+                        return;
+                    }
+                    if (ta._tagStudioContainer && ta._tagStudioContainer.isConnected) return;
 
                     const parent = ta.parentElement;
                     const container = document.createElement("div");
@@ -7264,7 +8108,8 @@ app.registerExtension({
                     ta._tagStudioContainer = container;
 
                     parent.appendChild(container);
-                });
+                };
+                bind();
             }
 
             function renderTagStudio(node, container, widget) {
@@ -8885,45 +9730,57 @@ app.registerExtension({
                 }
 
                 function updatePopoutBackdrops() {
-                    const themeName = node._currentSyntaxTheme || "Zombiehaus Neon (Default)";
+                    const themeName = node._currentSyntaxTheme ||
+                        (typeof localStorage !== "undefined" && localStorage.getItem("zombiehaus_syntax_theme")) ||
+                        "Zombiehaus Neon (Default)";
                     const theme = getThemeByName(themeName);
                     const bgColor = theme.bg_color || "#181825";
                     const caretColor = theme.caret_color || "#ffffff";
                     const isOff = (themeName === "Off (Plain Text)");
 
                     if (isOff) {
-                        if (posBackdrop) posBackdrop.style.display = "none";
-                        if (negBackdrop) negBackdrop.style.display = "none";
+                        if (posBackdrop) posBackdrop.style.setProperty("display", "none", "important");
+                        if (negBackdrop) negBackdrop.style.setProperty("display", "none", "important");
                         if (posTa) {
-                            posTa.style.color = "#cdd6f4";
-                            posTa.style.backgroundColor = bgColor;
-                            posTa.style.caretColor = caretColor;
+                            posTa.style.setProperty("color", "#cdd6f4", "important");
+                            posTa.style.setProperty("-webkit-text-fill-color", "#cdd6f4", "important");
+                            posTa.style.setProperty("background", bgColor, "important");
+                            posTa.style.setProperty("background-color", bgColor, "important");
+                            posTa.style.setProperty("caret-color", caretColor, "important");
                         }
                         if (negTa) {
-                            negTa.style.color = "#cdd6f4";
-                            negTa.style.backgroundColor = bgColor;
-                            negTa.style.caretColor = caretColor;
+                            negTa.style.setProperty("color", "#cdd6f4", "important");
+                            negTa.style.setProperty("-webkit-text-fill-color", "#cdd6f4", "important");
+                            negTa.style.setProperty("background", bgColor, "important");
+                            negTa.style.setProperty("background-color", bgColor, "important");
+                            negTa.style.setProperty("caret-color", caretColor, "important");
                         }
                     } else {
                         if (posBackdrop) {
-                            posBackdrop.style.display = "block";
+                            posBackdrop.style.setProperty("display", "block", "important");
                             posBackdrop.innerHTML = tokenizeAndHighlight(posTa.value || "", theme);
-                            posBackdrop.style.backgroundColor = bgColor;
+                            posBackdrop.style.setProperty("background-color", bgColor, "important");
+                            syncPopoutBackdropGeometry(posTa, posBackdrop);
                         }
                         if (negBackdrop) {
-                            negBackdrop.style.display = "block";
+                            negBackdrop.style.setProperty("display", "block", "important");
                             negBackdrop.innerHTML = tokenizeAndHighlight(negTa.value || "", theme);
-                            negBackdrop.style.backgroundColor = bgColor;
+                            negBackdrop.style.setProperty("background-color", bgColor, "important");
+                            syncPopoutBackdropGeometry(negTa, negBackdrop);
                         }
                         if (posTa) {
-                            posTa.style.color = "transparent";
-                            posTa.style.backgroundColor = "transparent";
-                            posTa.style.caretColor = caretColor;
+                            posTa.style.setProperty("color", "transparent", "important");
+                            posTa.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+                            posTa.style.setProperty("background", "transparent", "important");
+                            posTa.style.setProperty("background-color", "transparent", "important");
+                            posTa.style.setProperty("caret-color", caretColor, "important");
                         }
                         if (negTa) {
-                            negTa.style.color = "transparent";
-                            negTa.style.backgroundColor = "transparent";
-                            negTa.style.caretColor = caretColor;
+                            negTa.style.setProperty("color", "transparent", "important");
+                            negTa.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+                            negTa.style.setProperty("background", "transparent", "important");
+                            negTa.style.setProperty("background-color", "transparent", "important");
+                            negTa.style.setProperty("caret-color", caretColor, "important");
                         }
                     }
 
@@ -8937,10 +9794,16 @@ app.registerExtension({
                     const borderLeft = parseFloat(cs.borderLeftWidth) || 0;
                     const borderRight = parseFloat(cs.borderRightWidth) || 0;
                     const scrollbarWidth = Math.max(0, ta.offsetWidth - ta.clientWidth - borderLeft - borderRight);
-                    backdrop.style.paddingTop = cs.paddingTop;
-                    backdrop.style.paddingBottom = cs.paddingBottom;
-                    backdrop.style.paddingLeft = cs.paddingLeft;
+                    backdrop.style.paddingTop = cs.paddingTop || "12px";
+                    backdrop.style.paddingBottom = cs.paddingBottom || "34px";
+                    backdrop.style.paddingLeft = cs.paddingLeft || "12px";
                     backdrop.style.paddingRight = (parseFloat(cs.paddingRight) || 0) + scrollbarWidth + "px";
+                    backdrop.style.fontSize = cs.fontSize;
+                    backdrop.style.fontFamily = cs.fontFamily;
+                    backdrop.style.lineHeight = cs.lineHeight;
+                    backdrop.style.letterSpacing = cs.letterSpacing;
+                    backdrop.style.wordBreak = cs.wordBreak;
+                    backdrop.style.whiteSpace = cs.whiteSpace;
                     backdrop.scrollTop = ta.scrollTop;
                     backdrop.scrollLeft = ta.scrollLeft;
                 }
@@ -8951,11 +9814,17 @@ app.registerExtension({
                     if (pw.inputEl) pw.inputEl.value = posTa.value;
                     pw._updateSyntaxHighlight?.();
 
-                    const themeName = node._currentSyntaxTheme || "Zombiehaus Neon (Default)";
+                    const themeName = node._currentSyntaxTheme ||
+                        (typeof localStorage !== "undefined" && localStorage.getItem("zombiehaus_syntax_theme")) ||
+                        "Zombiehaus Neon (Default)";
                     if (themeName !== "Off (Plain Text)") {
                         const theme = getThemeByName(themeName);
                         posBackdrop.innerHTML = tokenizeAndHighlight(posTa.value || "", theme);
                         syncPopoutBackdropGeometry(posTa, posBackdrop);
+                        posTa.style.setProperty("color", "transparent", "important");
+                        posTa.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+                        posTa.style.setProperty("background", "transparent", "important");
+                        posTa.style.setProperty("background-color", "transparent", "important");
                     }
 
                     const stats = estimateTokens(posTa.value || "");
@@ -9004,11 +9873,17 @@ app.registerExtension({
                     if (nw.inputEl) nw.inputEl.value = negTa.value;
                     nw._updateSyntaxHighlight?.();
 
-                    const themeName = node._currentSyntaxTheme || "Zombiehaus Neon (Default)";
+                    const themeName = node._currentSyntaxTheme ||
+                        (typeof localStorage !== "undefined" && localStorage.getItem("zombiehaus_syntax_theme")) ||
+                        "Zombiehaus Neon (Default)";
                     if (themeName !== "Off (Plain Text)") {
                         const theme = getThemeByName(themeName);
                         negBackdrop.innerHTML = tokenizeAndHighlight(negTa.value || "", theme);
                         syncPopoutBackdropGeometry(negTa, negBackdrop);
+                        negTa.style.setProperty("color", "transparent", "important");
+                        negTa.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+                        negTa.style.setProperty("background", "transparent", "important");
+                        negTa.style.setProperty("background-color", "transparent", "important");
                     }
 
                     const stats = estimateTokens(negTa.value || "");

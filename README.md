@@ -18,7 +18,8 @@ A comprehensive collection of professional-grade custom nodes for ComfyUI, featu
 
 ComfyUI-Zombiehaus by zombiehaus provides custom nodes organized into six categories:
 
-**▥ Workspaces & Flagship Studios**
+**▥ Workspaces, UI & Flagship Studios**
+- [Zombiehaus Card Theme & Theme Studio](docs/ZombiehausCardTheme.md) - Tactile card node re-skinning for ComfyUI with 100% native wire routing, active execution glow pulses, dynamic text editor proportions, 19" studio equipment racks for minimized nodes, and an in-app Theme Studio for custom color palettes and presets.
 - [Zombiehaus Deck Studio](docs/ZombiehausDeckStudio.md) - Modular, column-and-card workspace interface organizing ComfyUI nodes into 5 logical production stage columns with tactile interactive cards, no-spaghetti smart wire connections, and real-time execution feedback.
 - [Zombiehaus Image Tray](docs/ZombiehausImageTray.md) - Dockable, real-time bottom filmstrip stream with one-click workflow restoration, LoadImage node routing, clipboard export, and full-screen metadata lightbox.
 
@@ -40,8 +41,7 @@ ComfyUI-Zombiehaus by zombiehaus provides custom nodes organized into six catego
 
 **🖼️ Image Enhancement & Post-Processing**
 - Wardrobe Inpaint - Semantic clothing segmentation (SegFormer ATR) and clean latent inpainting for virtual try-on and outfit replacement
-- Detailer Slot - Config bundle for one YOLO detection + inpaint pass
-- All-in-One Detailer - Runs any number of Detailer Slots sequentially with pipe support
+- [Detailer Slot & All-in-One Detailer](docs/allinone-detailer.md) - Modular YOLO detection + inpaint passes with dynamic drag-and-drop slot reordering, auto-naming, and pipe support
 - Model Upscale - All-in-one neural upscaler (e.g. 4x-UltraSharp) with optional downscale and pre-downscale upscale saving
 - Upscaler - Tiled upscaling with seam fixing and post-processing
 - Restormer - Deep learning image restoration (motion deblur, defocus, denoising)
@@ -63,7 +63,7 @@ ComfyUI-Zombiehaus by zombiehaus provides custom nodes organized into six catego
 
 **🛠️ Utilities & Prompting**
 - Master Seed - Centralized master seed generator and synchronizer (randomize, fixed, increment, decrement)
-- Smart Resizer - Aspect ratio optimization and smart cropping/padding for diffusion models
+- [Smart Resizer & Image Scale Down By](docs/smart-resizer.md) - Aspect ratio optimization, smart cropping/padding, and high-quality Lanczos downscaling (drop-in replacement for `easy imageScaleDownBy`)
 - Show Text - Simple text display for prompts, LoRA logs, and debugging
 - Text Editor - Interactive text editor with live syntax highlighting, intelligent autocomplete (__lists__, $vars, %sys%, <loras>), tag weight stepping (Ctrl+Up/Down), negative presets, direct CLIP conditioning, pipe passthrough, and category-filtered save/load
 - Model Scryer - Deep neural model introspection (WeightScryer integration), automatic trigger and tag discovery, and interactive on-canvas clipboard board ([Documentation](docs/ModelScryer.md))

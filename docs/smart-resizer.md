@@ -44,3 +44,25 @@ The **Zombiehaus Smart Resizer** (`ZombiehausSmartResizer`) prepares arbitrary i
 | `width` | INT | Computed pixel width |
 | `height` | INT | Computed pixel height |
 | `aspect_ratio_str` | STRING | Label (e.g. `16:9` or `1:1`) |
+
+---
+
+# Image Scale Down By
+
+High-quality batch image downscaler with Lanczos antialiasing.
+
+## Overview
+
+The **Zombiehaus Image Scale Down By** (`ZombiehausImageScaleDownBy`, aliased to `easy imageScaleDownBy`) provides fast, high-quality image reduction without needing `ComfyUI-Easy-Use`. Workflows that rely on `easy imageScaleDownBy` load seamlessly without any missing node errors.
+
+## Inputs
+
+- **images** (`IMAGE`): The input image tensor or batch (`[B, H, W, C]`).
+- **scale_by** (`FLOAT`): Downscale multiplier between `0.01` and `1.0` (default `0.5`, step `0.01`).
+
+## Outputs
+
+| Output | Type | Description |
+|---|---|---|
+| `images` | `IMAGE` | Downscaled image batch with PIL Lanczos antialiasing |
+

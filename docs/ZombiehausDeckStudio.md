@@ -95,10 +95,50 @@ Easily decipher how nodes connect without spaghetti cables:
 - `▶ Queue Prompt`: Primary execution button with live queuing feedback.
 - `⏹ Cancel`: Immediate execution interrupt.
 - `🗖 Prompt Studio`: Instant access to the popout prompt editor.
+- `⭐ Quick View`: Switch to the focused Quick View cockpit to monitor only pinned nodes live without wire clutter.
 - `🖼️ Image Tray`: Fast toggle for the dockable bottom generation gallery.
 - `Batch Stepper`: Fast single-click batch generation count control.
 - `🔍 Filter`: Real-time fuzzy search across node titles, IDs, and parameters.
 - `➕ Add Card`: Search and drop any registered ComfyUI node directly into the active workflow.
+
+---
+
+### 7. Focus Dashboard (Quick View) & Flexible Workspace Cockpit
+Cut out all extraneous noise and focus exclusively on the cards you need (e.g. Prompt Editor, List Curator, KSampler, Hi-Res Fix, All-in-One Detailer):
+
+- **Pin Any Card (`☆` / `★`)**: Click the star icon on any card header to pin it to your Focus Dashboard. You can also click `➕ Pin Cards ▾` in the dashboard sub-header to search and toggle nodes without leaving the view.
+- **Custom Card Ordering & 2D Column Stacking (Row Flow)**:
+  - **Stack Under / Above**: Drag any card by its header onto the bottom edge of another card to stack directly under it in the same column, or drag onto the top edge to stack above. A glowing orange bottom/top bar indicates the stack location.
+  - **Column Left / Right**: Drag toward the left or right side of a card/column to create or move into a separate column.
+  - **Header Nudge Buttons**:
+    - `◀` Move Column Left (or unstack into the column to the left)
+    - `▲` Move Up in Column (or pop out into its own column)
+    - `▼` Stack Under (or move down in column)
+    - `▶` Move Column Right (or unstack into the column to the right)
+  - Custom 2D column layouts and card sequences automatically persist in `localStorage`.
+- **All Resize Options**:
+  - **Free 2D Resizing with Zero Caps**: Drag the tactile glowing orange corner handle at the bottom-right of any card to freely resize width and height with zero artificial caps or ceilings. The workspace scrolls smoothly in both directions if cards exceed the viewport.
+  - **Native Resizing**: CSS `resize: both` corner is fully supported without conflicting with dragging or card controls.
+  - **Global Width Presets**: One-click preset buttons in the dashboard toolbar: `[ 380 ]`, `[ 520 ]`, `[ 720 ]`, `[ 960 ]`, or `[ ↺ Reset ]` to restore custom individual sizing.
+  - **Header Quick Cycle (`↔`)**: Click the width icon on any card header to quickly step its width between `380px`, `540px`, `760px`, and `1000px`.
+  - **Height Modes**: Toggle between `↕ Full Height` (cards expand to fill vertical studio height) and `↕ Auto Height` (cards hug their content naturally).
+- **Layout Flow Modes**:
+  - **`⇥ Row Flow`**: Horizontal scrollable board for side-by-side workflow stages.
+  - **`⊞ Grid Wrap`**: Responsive multi-card dashboard grid that wraps tiles into neat columns.
+- **Full Live Feedback**: Sampler progress bars, glowing execution borders, image previews, and two-way widget sync remain fully active.
+- **Instant Toggle**: Use `Alt + Q` or click `[ ⭐ Focus Dashboard ]` / `[ ▥ All Cards ]` to toggle seamlessly between your focused cockpit and the full 5-bay pipeline grid.
+
+---
+
+### 8. Live Syntax Highlighting on All Grid Textareas
+- All multiline prompt and text editors across the grid (Text Editor, CLIPTextEncode, List Curator, Prompt Refiner, etc.) feature real-time color syntax highlighting:
+  - **Weights**: `(word:1.2)`, `(word)`
+  - **LoRAs**: `<lora:model:1.0>`
+  - **Wildcards**: `__wildcard__`
+  - **Curator Tags**: `{curator}`, `{curator2}`
+  - **Variables**: `$variable`
+  - **Comments**: `/* ... */`, `// ...`, `# ...`
+  - **Section Banners**: `[Section]`
 
 ---
 
@@ -108,6 +148,7 @@ Easily decipher how nodes connect without spaghetti cables:
 |---|---|
 | `Alt + D` | Toggle Deck Studio Workstation / Canvas View |
 | `F9` | Toggle Deck Studio Workstation |
+| `Alt + Q` | Toggle Quick View Cockpit Mode |
 | `Alt + P` | Pop out Fullscreen Prompt Studio |
 | `Alt + T` / `F10` | Toggle Dockable Image Tray |
 | `Esc` | Return to Canvas View (or close active modal) |

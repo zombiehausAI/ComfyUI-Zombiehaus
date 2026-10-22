@@ -27,12 +27,13 @@ Hovering over any card reveals one-click actions:
 
 ---
 
-### 3. Click-to-Zoom & Pan Navigation (Full Image Detail Inspection)
-Unlike basic modal viewers, the Zombiehaus Image Tray features an interactive pan-and-zoom inspection engine:
-- **Click to Zoom In**: Clicking anywhere on the fitted image immediately zooms into high-resolution magnification ($2.5\times$ or 1:1 pixel scale) centered right on the clicked point.
-- **Drag to Pan**: While zoomed in, click-and-drag to smoothly explore fine micro-details across the full image (e.g. skin pores, eyes, hair strands, fabric textures, background sharpness).
-- **Mouse Wheel Zoom**: Scroll the mouse wheel to continuously zoom anywhere between $0.5\times$ and $8.0\times$ magnification.
-- **Click to Zoom Out**: Clicking the image again instantly zooms back out to the full-fit view.
+### 3. Lightbox Navigation, Zoom & Pan Controls
+Unlike basic modal viewers, the Zombiehaus Image Tray features an intuitive carousel and inspection engine:
+- **Top Horizontal Filmstrip**: A dedicated, horizontally scrollable filmstrip sits at the top of the modal above the active image. Scroll through thumbnail previews using horizontal gestures, trackpad swipes, or the mouse wheel directly over the strip.
+- **Synchronized Navigation**: Click any thumbnail in the top strip or use the on-screen `[ < ]` / `[ > ]` navigation buttons (or keyboard `ArrowLeft` / `ArrowRight`) to switch active images. The active picture is highlighted with an illuminated purple ring and automatically centered into view.
+- **Cursor-Focused Scroll Wheel Zoom**: Scrolling the mouse wheel while hovered over the image smoothly zooms in and out focused directly on the exact spot beneath your mouse cursor rather than always zooming into the center.
+- **Click to Zoom In / Zoom Out**: Clicking anywhere on the image immediately zooms into $2.5\times$ magnification centered on the clicked coordinates. Clicking again cleanly resets back to the fitted view.
+- **Drag to Pan**: When zoomed in, click and drag across the viewport to smoothly pan and inspect fine micro-details (e.g. skin textures, eyes, hair strands, fabric weaves, background sharpness).
 - **Dedicated Zoom Toolbar**: Includes `[-]`, `[+]`, `[1:1]` native resolution, and `[⊡ Fit]` reset buttons alongside a live magnification badge (`Fit`, `100%`, `250%`).
 
 ---

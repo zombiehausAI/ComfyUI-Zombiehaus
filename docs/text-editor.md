@@ -531,6 +531,23 @@ A rapid, one-click visual dock above the editor to inject curated prompt tokens 
         }
         // ➜ name: MyName, role: tank, weapon: aegis shield, armor: adamant plate,
         ```
+      - **Named Entity Catalog Files (`women.txt`, `characters.txt`)**:
+        Format wildcard files as a key-value dictionary catalog (one named entry per line):
+        ```text
+        // saved_prompts/wildcards/women.txt
+        MeganFox: { lora: "<lora:Chroma/Testing/Megan_Fox_Chroma_V1:1.0>", eyes: "blue", breasts: "small", hair: "jet black", ethnicity: "caucasian" }
+        Amanda: { lora: "<lora:Chroma/Amanda_Chroma_V6:1.0>", eyes: "blue", breasts: "medium", hair: "brunette", ethnicity: "caucasian" }
+        ```
+        - **Full Catalog Import (`all(...)`)**: Assign to a variable using `$women = all(__women__);` (or `$women = all(women);`). The entire file is loaded into a first-class `PromptDict` lookup table.
+        - **Targeted Entity Lookup**: Access specific characters via dot notation or bracket access:
+          ```text
+          $women = all(__women__);
+          $woman = $women.MeganFox;    
+          $woman.lora       
+
+          She has $woman.eyes eyes, and has long, messy, $woman.hair hair with some of it pulled back into a loose ponytail, long, slim legs, and a very slim, petite build.
+          ```
+        - **Random Single Character Roll**: `$woman = __women__;` picks a single random entity from the catalog while preserving all nested attributes (`$woman.lora`, `$woman.eyes`, `$woman.hair`, etc.).
       - **Multi-Entry Dictionary Lists (`heroes.txt`)**:
         Format wildcard list files with one dictionary per line:
         ```text
@@ -540,7 +557,7 @@ A rapid, one-click visual dock above the editor to inject curated prompt tokens 
         { name: "Zephyr", role: "rogue", weapon: "daggers" }
         ```
         - **Random Single Entity Roll**: `$hero = __heroes__;` rolls a single random dictionary with dot access `$hero.name`, `$hero.role`, `$hero.weapon`.
-        - **Complete Roster Import**: `$party = __all$$heroes__;` imports all entries into a `PromptList`. Access via `$party[0].name`, `$party.length`, or iterate through them.
+        - **Complete Roster Import**: `$party = __all$$heroes__;` or `$party = all(__heroes__);` imports all entries into a `PromptList`. Access via `$party[0].name`, `$party.length`, or iterate through them.
         - **In-File `[ALL]` Directive**: Adding `[ALL]` or `#mode: all` as the first line of any wildcard `.txt` file automatically forces any standard reference like `__negatives__` to output all entries as a comma-separated list without needing `all$$`.
         - **Inline `{all$$...}` Choices**: Use `{all$$item1|item2|item3}` or `{all$$item1, item2, item3}` directly in prompts to emit all items comma-separated.
         - **`all(...)` Function Syntax**: Use `all(__wildcard__)`, `all(__wildcard__}`, or `all($list)` to evaluate and comma-separate all items from a wildcard list or variable.
@@ -920,7 +937,7 @@ The Text Editor features a built-in, context-aware autocomplete menu with real-t
 | `%` | **System Variables** | `SYS` | System variables including `%date%`, `%time%`, `%seed%`, `%model%`, `%width%`, `%height%`, `%steps%`, `%cfg%`. Selecting inserts `%name% `. |
 | `{c` | **Curator Placeholders** | `CUR` | Fast insertion for `{curator}`, `{curator2}`, `{curator3}`, `{curator4}`, `{curator5}`, `{curator6}` slots. Selecting inserts `{curator} `. |
 | `<l` or `<lora:` | **LoRA Models** | `LORA` | Scans available ComfyUI LoRA models. Selecting inserts `<lora:model_name:1.0> `. |
-| `.` *(after `$var`)* | **Object / Dict Properties** | `PROP` / `METH` | Typing `.` after a variable (e.g. `$woman.`) autocompletes dictionary keys from assigned wildcards or inline dictionaries, plus helpers (`keys`, `values`, `length`). Selecting inserts the property name. |
+| `.` *(after `$var`)* | **List Items & Object Properties** | `ITEM` / `PROP` / `METH` | Typing `.` after a variable (e.g. `$scenes.`, `$women.`, or `$woman.`) autocompletes list items or dictionary keys from assigned wildcards (including `all(__name__)`, `any(__name__)`, `one(__name__)`, or direct assignments), chained sub-item properties (e.g. `$woman = $women.JulianneHough` -> `$woman.lora`), and built-in helpers (`keys`, `values`, `length`, `first`, `last`). |
 
 ### Keyboard & Navigation Controls
 

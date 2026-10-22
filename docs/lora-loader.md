@@ -10,8 +10,11 @@ The Zombiehaus LoRA Loader manages a JSON-based stack of LoRAs through an intera
 
 - **LoRA Stack UI**: Add, remove, reorder, and toggle individual LoRAs in the node's panel — all state is stored in a hidden `lora_stack` JSON field
 - **Hybrid Fixed & Random Pool**: Mark individual LoRAs as either Fixed (`📌` always applied) or Random Pool (`🎲` randomly chosen per generation)
-- **Show Text Integration**: Outputs a formatted string (`loaded_loras`) listing exactly which LoRAs were applied, ready to connect to `ZombiehausShowText`
-- **Deterministic Randomization**: Connect a `seed` to ensure the exact same random LoRA is picked for a given seed, or leave unconnected for dynamic generation
+- **Toggleable Random Variation Range**: When in the Random Pool, toggle between fixed weight (`=`) and a randomized variation range (`~` rolls between `Min` and `Max` per generation seed)
+- **Dynamic Step Dropoff & Scheduling**: Apply step-wise decay curves (`cosine`, `linear`, `exponential`, `step`) and windowing (`start_percent` to `end_percent`) per LoRA via the drawer (`⏱`) or prompt tags
+- **Master Dynamic Switch**: Master `enable_dynamic_lora` widget toggle to activate or bypass all timing schedules
+- **Show Text Integration**: Outputs a formatted string (`loaded_loras`) listing exactly which LoRAs were applied (including rolled strengths and dynamic fade intervals), ready to connect to `ZombiehausShowText`
+- **Deterministic Randomization**: Connect a `seed` to ensure the exact same random LoRA is picked and the exact same random strength is rolled for a given seed, or leave unconnected for dynamic generation
 - **Case-Insensitive Path Matching**: Finds LoRA files using three fallback strategies (exact, basename, basename without extension) — handles subdirectories and mixed-case filenames
 - **Per-LoRA Strength**: Each entry in the stack has its own strength value; strength 0 skips the LoRA
 - **Base Model Validation**: The `base_model_name` dropdown (populated from `config.json` definitions) lets the UI warn when a LoRA's metadata doesn't match the selected base model
@@ -31,7 +34,8 @@ The Zombiehaus LoRA Loader manages a JSON-based stack of LoRAs through an intera
 - **positive** (CONDITIONING): Positive conditioning passthrough
 - **negative** (CONDITIONING): Negative conditioning passthrough
 - **seed** (INT): Seed passthrough and random pool seed (forceInput — must be wired, not typed)
-- **prompt** (STRING): Optional prompt text input (e.g. from **Text Editor**). Automatically scans for `<lora:name:strength>` tags and loads them on the fly
+- **enable_dynamic_lora** (BOOLEAN, default: True): Master switch for dynamic step scheduling and dropoffs
+- **prompt** (STRING): Optional prompt text input (e.g. from **Text Editor**). Automatically scans for `<lora:...>` tags and loads them on the fly
 - **random_pick_count** (INT, default: 1): How many LoRAs to randomly pick from the `🎲 Random Pool`
 - **lora_filter** (STRING): Text filter for the LoRA list in the UI panel; persists automatically across browser sessions via `localStorage` and within saved workflows
 - **civitai_api_key** (STRING, hidden): Civitai API key stored in the workflow; overrides `config.json` key
@@ -44,66 +48,158 @@ The Zombiehaus LoRA Loader manages a JSON-based stack of LoRAs through an intera
 |--------|------|-------------|
 | model | MODEL | Model with all enabled and selected LoRAs applied |
 | clip | CLIP | CLIP with all enabled and selected LoRAs applied |
-| positive | CONDITIONING | Positive conditioning passthrough (auto-encoded with modified CLIP if `prompt` is wired and input conditioning is empty) |
+| positive | CONDITIONING | Positive conditioning passthrough (hooks attached and auto-encoded with modified CLIP if needed) |
 | negative | CONDITIONING | Negative conditioning passthrough |
 | seed | INT | Seed passthrough |
 | pipe | PIPE | `(model, clip, vae, positive, negative)` passthrough |
-| loaded_loras | STRING | Formatted list of applied LoRAs (connect to **Show Text**) |
+| loaded_loras | STRING | Formatted list of applied LoRAs with rolled weights and step dropoff details (connect to **Show Text**) |
 | trigger_words | STRING | Comma-separated trained trigger words extracted from active LoRAs (connect to **Text Editor** / **CLIP Encode**) |
 | prompt | STRING | Clean prompt text with all `<lora:...>` tags cleanly stripped and punctuation normalized |
 
-## Random Pool & Hybrid LoRAs
+## Random Pool & Variation Ranges
 
 The LoRA Loader allows combining **Fixed** LoRAs that always load alongside a **Random Pool** of variations:
 
-- **📌 Fixed (Default)**: Any LoRA marked with the pin icon is applied on every run. Perfect for base styles, detailers, or face enhancers.
+- **📌 Fixed (Default)**: Any LoRA marked with the pin icon is applied on every run.
 - **🎲 Random Pool**: Click the mode button to toggle a LoRA into the Random Pool (indicated with a dice icon and purple glow).
+- **Toggleable Weight Range (`~` vs `=`)**:
+  - When in the Random Pool, a secondary button appears:
+    - **`=` (Fixed Weight)**: When sampled, uses the exact fixed `Strength` input.
+    - **`~` (Random Weight Range)**: Switches the input to `[Min] ~ [Max]`. When sampled, generates a deterministic pseudo-random weight between `Min` and `Max` based on the seed.
+    - **Reversed Ranges Supported**: Ranges can be specified in either direction (e.g. `0.5 ~ 1.0` or `1.0 ~ 0.5`). The engine automatically normalizes `min` and `max` so you never encounter invalid bounds.
 - **`random_pick_count`**: Specifies how many LoRAs to randomly sample from the pool on each generation (default: 1).
-- **Live Header Count**: The header displays the active pool count (e.g., `(2 fixed, 4 random pool)`).
+
+## Dynamic Step Scheduling & Dropoffs
+
+Dynamic step scheduling applies model hooks during sampling steps, allowing LoRA weights to gradually fade in, fade out, or apply only during specific generation phases (e.g. applying a face likeness or anatomy LoRA early to lock in structure, then fading it out so fine texture detail comes purely from the base model).
+
+Click the **`⏱`** button on any LoRA row in the node to expand its dynamic scheduling drawer:
+
+| Setting | UI Control | Description |
+|---|---|---|
+| **Dynamic Toggle** | Checkbox | Activates time-scheduled step decay and hook keyframes for this LoRA. |
+| **Step Window** | `start_percent` ➔ `end_percent` | Percentage range of generation steps (`0.0` to `1.0`) during which the LoRA is active (e.g., `0.0 ➔ 0.5` is active during the first 50% of sampling). |
+| **End Strength** | `end_strength` | The target weight the LoRA decays down to at `end_percent` (e.g., `0.0` for full fade out, or `0.2` for partial retention). |
+| **Decay Curve** | `decay_profile` | Mathematical interpolation curve between the starting weight and `end_strength`. Options: `cosine`, `linear`, `exponential`, or `step`. |
+
+### Decay Profile Curves
+
+- **`cosine` (Recommended)**: Smooth S-curve transition ($0.5 \times (1 + \cos(\pi \cdot t))$). Yields the most natural, artifact-free transitions because weight changes ease in and ease out smoothly.
+- **`linear`**: Constant linear interpolation ($1 - t$). Weight drops at a steady, fixed rate across the active step window.
+- **`exponential`**: Rapid initial drop that asymptotically tapers off. Useful for aggressive early structural guidance that quickly yields to base model denoising.
+- **`step`**: Hard threshold cutoff. Maintains full starting strength throughout the window, then abruptly drops to `end_strength` at `end_percent`.
+
+### Master Dynamic Switch
+
+The node includes an **`enable_dynamic_lora`** widget (default: `True`). When toggled to `False`, all dynamic step scheduling and timing windows (both from the UI drawer and from prompt tags) are bypassed, and all LoRAs load at their static base strengths.
 
 ### Connecting to Show Text
 
 Connect the `loaded_loras` output to the `text` input of a **Show Text** node (`ZombiehausShowText`). It displays exactly what was loaded for that run:
 ```text
 [Fixed] detailer_v2.safetensors (strength: 1)
-[Random] cyberpunk_girl_v1.safetensors (strength: 0.85)
-[Prompt] futanari_v2 (strength: 0.85)
+[Random] cyberpunk_girl_v1.safetensors (rolled: 0.74 [0.4~0.9])
+[Random+Dynamic] heavy_lighting.safetensors (rolled: 0.85 [0.5~1] ➔ 0 @ 0-0.5 [cosine])
+[Prompt+Dynamic] Chroma/Melissa_Benoist_Chroma_V1 (strength: 0.92 [0.8~1] ➔ 0 @ 0-0.6 [cosine])
 ```
 
-## Dynamic Prompt LoRA Tagging (`<lora:name:strength>`)
+---
 
-Instead of configuring every LoRA in the UI panel, you can "tag" LoRAs directly in your prompt (e.g. inside dynamic choices, variables, or CASE statements in `ZombiehausTextEditor`).
+## Dynamic Prompt LoRA Tagging (`<lora:...>`)
 
-### How It Works
+Instead of manually adding every LoRA to the node UI, you can embed LoRA tags directly into prompt text (e.g., inside dynamic choices, variables, wildcards, or CASE statements in `ZombiehausTextEditor`). When the prompt string is wired to the LoRA Loader's `prompt` input, the loader parses all tags, resolves paths, schedules weights, and strips the tags cleanly before emitting the cleaned prompt.
 
-1. Wire **Text Editor** `positive` (STRING) &rarr; **LoRA Loader** `prompt` (STRING).
-2. The LoRA Loader scans the incoming text for `<lora:...>` tags at execution time.
-3. It searches your installed LoRAs on disk (`models/loras/` including all subdirectories) using case-insensitive matching.
-4. It dynamically loads them onto `model` and `clip`, triggers automatic keyword discovery for them, and returns clean text via the `prompt` output with the tags stripped.
+### Syntax Grammar
 
-### Supported Syntax
-
-- `<lora:name>` &rarr; Model & CLIP strength `1.0`
-- `<lora:name:0.8>` &rarr; Model & CLIP strength `0.8`
-- `<lora:name:0.8:0.6>` &rarr; Model strength `0.8`, CLIP strength `0.6`
-- `<lora:subfolder/name:0.75>` &rarr; Subfolder path matching
-- `/* <lora:name:1.0> */` &rarr; Comments are ignored (muted)
-
-### Conditional & Choice Examples
+Prompt tags use colon-separated arguments inside angle brackets:
 
 ```text
-// Dynamic choice
-{<lora:cyberpunk_v1:0.8> | <lora:fantasy_v2:0.9>}
+<lora:model_path:strength_and_timing:decay_profile>
+```
 
-// Variable & CASE statement
-$character = {futanari | man | woman}
-{case $character:
-    futanari => <lora:futanari_v2:0.85>
-    | man    => <lora:male_enhancer:0.7>
-    | woman  => <lora:female_details:0.8>
+- **Arguments are flexible and order-independent**:
+  - The first argument is always the **Model Name or Path** (e.g. `Chroma/Melissa_Benoist_Chroma_V1` or `flat2DAnimerge`).
+  - Decay profiles (`cosine`, `linear`, `exponential`, `step`) can be placed as any colon-separated token (e.g. `:cosine` at the end).
+  - Timing windows (`@start-end` or `@end`) and target dropoffs (`>end_strength`) can be attached directly to the strength token.
+
+### Quick Reference & Examples
+
+| Syntax Pattern | What It Does |
+|---|---|
+| `<lora:name>` | Default strength `1.0` for both Model and CLIP. |
+| `<lora:name:0.8>` | Fixed strength `0.8` for both Model and CLIP. |
+| `<lora:name:0.8:0.6>` | Independent strengths: Model `0.8`, CLIP `0.6`. |
+| `<lora:name:0.8~1.0>` | **Random variation range**: rolls a random strength between `0.8` and `1.0` per generation seed. |
+| `<lora:name:1.0~0.5>` | **Reversed random range**: automatically normalized so minimum is `0.5` and maximum is `1.0`. |
+| `<lora:name:1.0:cosine>` | **Decay curve**: Cosine fade starting at `1.0` and decaying to `0.0` over the generation. |
+| `<lora:name:1.0@0.0-0.6>` | **Step timing window**: Active from `0%` to `60%` of sampling steps (fades to `0.0` at 60%). |
+| `<lora:name:1.0@0.6>` | **Step timing shortcut**: Identical to `@0.0-0.6` (active from start through 60%). |
+| `<lora:name:1.0@0.2-0.8>` | **Mid-generation window**: LoRA activates at 20% of steps and ends at 80%. |
+| `<lora:name:1.0>0.2>` | **Target dropoff**: Starts at `1.0` and decays down to `0.2` (retaining 20% strength) instead of `0.0`. |
+| `<lora:name:1.0>0.2:cosine>` | **Dropoff with profile**: Starts at `1.0`, cosine fades to `0.2` over generation steps. |
+| `<lora:name:0.8~1.0:cosine>` | **Random range + profile**: Rolls start strength between `0.8` and `1.0`, then cosine fades to `0.0`. |
+| `<lora:name:0.8~1.0@0.0-0.6:cosine>` | **Random range + timing + profile**: Rolls between `0.8` and `1.0`, cosine fades to `0.0` by step 60%. |
+| `<lora:name:0.8~1.0>0.2@0.0-0.5:cosine>` | **Full combination**: Rolls random start weight (`0.8~1.0`), cosine fades to `0.2` by 50% of steps. |
+| `/* <lora:name:1.0> */` | **Muted LoRA**: Wrapped in comments; completely ignored by the loader. |
+
+### Component Breakdown
+
+#### 1. Model Identifier
+- **Subdirectories**: Supported via forward slashes or backslashes (e.g. `Chroma/Melissa_Benoist_Chroma_V1` or `SDXL\Characters\Gwen`).
+- **Extensions**: Optional; `.safetensors`, `.ckpt`, or `.pt` can be included or omitted.
+- **Fuzzy Matching**: Matches exact relative paths first, then falls back to case-insensitive basename matching.
+
+#### 2. Strength & Random Ranges (`~`)
+- **Fixed Value**: Single float (e.g. `:0.85` or `:1.2`).
+- **Random Range (`Min~Max` or `Max~Min`)**:
+  - Example: `0.8~1.0` rolls a uniform random float between `0.8` and `1.0` (rounded to 3 decimal places).
+  - Example: `1.0~0.5` works identically; the loader automatically ensures `min <= max` during evaluation.
+  - **Deterministic**: When a `seed` is wired into the LoRA Loader, the rolled strength is 100% reproducible for that seed.
+
+#### 3. Step Timing Windows (`@`)
+- Formatted as `@start_percent-end_percent` or `@end_percent`.
+- Values are floating-point numbers between `0.0` (0% of sampling steps) and `1.0` (100% of sampling steps).
+  - `@0.0-0.5`: Active for the first half of sampling.
+  - `@0.3-0.7`: Active only during the middle 40% of sampling.
+  - `@0.6`: Shortcut for `@0.0-0.6` (active from step 0 to step 60%).
+
+#### 4. Target End Dropoff (`>`)
+- Formatted as `start_strength>end_strength`.
+- By default, dynamic timing drops the LoRA strength to `0.0` at `end_percent`.
+- Specifying `>end_strength` allows setting a non-zero residual weight:
+  - Example: `1.0>0.2` begins at strength `1.0` and tapers down to `0.2`.
+  - Example: `0.8~1.0>0.15` rolls a starting strength between `0.8` and `1.0`, tapering down to `0.15`.
+
+#### 5. Decay Profiles (`:cosine`, `:linear`, `:exponential`, `:step`)
+- Specify the curve profile name anywhere as a colon-separated argument:
+  ```text
+  <lora:Chroma/Melissa_Benoist_Chroma_V1:0.8~1.0:cosine>
+  <lora:Chroma/Melissa_Benoist_Chroma_V1:0.8~1.0@0.0-0.6:cosine>
+  <lora:Chroma/Melissa_Benoist_Chroma_V1:1.0>0.2@0.0-0.5:linear>
+  ```
+- If a timing window `@` or dropoff `>` is specified without an explicit profile token, **`cosine`** is used by default.
+
+### Dynamic Prompting & Text Editor Integration
+
+Because prompt tags are evaluated at runtime, you can combine them seamlessly with `ZombiehausTextEditor` features:
+
+```text
+// 1. Dynamic choice between characters with randomized strengths and cosine decay:
+{<lora:Chroma/Melissa_Benoist_Chroma_V1:0.8~1.0@0.0-0.6:cosine> | <lora:Chroma/Gal_Gadot_V2:0.75~0.95@0.0-0.5:cosine>}
+
+// 2. Style LoRA applied only during initial composition steps:
+<lora:gothic_art_style:1.0>0.1@0.0-0.4:cosine>, 1girl, castle interior, cinematic lighting
+
+// 3. Conditional character loading via variables and CASE statements:
+$role = {hero | villain | rogue};
+{case $role:
+    hero    => <lora:Paladin_Armor_V3:0.9@0.0-0.7:cosine> shining silver armor, glowing sword
+    | villain => <lora:Dark_Overlord_V1:0.85~1.0:cosine> obsidian plate, dark aura
+    | rogue   => <lora:Leather_Thief_V2:0.7~0.95> hooded cloak, dual daggers
 }
 ```
-The Text Editor evaluates the variable/case/choice first, and the winning branch's tag is loaded by the LoRA Loader.
+
+When evaluated, the winning branch's tag is fed into the LoRA Loader, the dynamic schedule is applied to the model, and all `<lora:...>` syntax is cleanly stripped from the prompt output.
 
 ## LoRA Stack
 

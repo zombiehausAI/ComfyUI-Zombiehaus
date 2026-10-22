@@ -50,9 +50,9 @@ Wildcard and list files are strictly stored in the `saved_prompts/wildcards/` di
 
 ## Canvas Controls
 
-- **💾 Save As New**: Prompts for a filename and saves the textarea contents to `saved_prompts/wildcards/<name>.txt`.
-- **✏️ Update Selected**: Overwrites the currently selected list file with the current lines.
-- **🗑️ Delete List**: Permanently deletes the selected list file.
+- **💾 Save As New**: Opens a sleek modal dialog to specify the filename (with subfolder support) and saves to `saved_prompts/wildcards/<name>.txt` with instant toast notification.
+- **✏️ Update Selected**: Overwrites the currently selected list file with the current lines with one-click and shows an instant success toast notification (no blocking popups).
+- **🗑️ Delete List**: Permanently deletes the selected list file with a confirmation prompt.
 - **🔄 Refresh Lists**: Reloads list files from disk and updates the dropdown.
 
 ## Tips & Best Practices

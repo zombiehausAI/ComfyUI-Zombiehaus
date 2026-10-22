@@ -41,7 +41,7 @@ from .modules.chroma_shift_node import ZombiehausChromaShift
 from .modules.prompt_mixer_node import ZombiehausPromptMixer
 from .modules.seed_controller_node import ZombiehausSeedController
 from .modules.controlnet_preprocessor_node import ZombiehausImagePreprocessor
-from .modules.smart_resizer_node import ZombiehausSmartResizer
+from .modules.smart_resizer_node import ZombiehausSmartResizer, ZombiehausImageScaleDownBy
 from .modules.faceswap_node import ZombiehausFaceSwap
 from .modules.glamour_controller_node import ZombiehausGlamourController
 from .modules.studio_director_node import ZombiehausStudioDirector
@@ -68,6 +68,7 @@ import hashlib
 import requests
 import json
 import os
+import asyncio
 import re
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
@@ -390,6 +391,8 @@ async def gallery_list(request):
     try:
         subpath = request.query.get("path", "").strip()
         sort_by = request.query.get("sort", "name").strip()
+        limit_param = request.query.get("limit", "").strip()
+        limit = int(limit_param) if limit_param.isdigit() else None
         output_dir = folder_paths.get_output_directory()
         
         # Build the full path
@@ -407,48 +410,62 @@ async def gallery_list(request):
         if not os.path.isdir(full_path):
             return web.json_response({"success": False, "message": "Directory not found"})
         
-        folders = []
-        images = []
-        folder_stats = {}
-        image_stats = {}
-        
-        try:
-            items = os.listdir(full_path)
-            
-            for item in items:
-                item_path = os.path.join(full_path, item)
-                try:
-                    stat = os.stat(item_path)
-                    
-                    if os.path.isdir(item_path):
-                        folders.append(item)
-                        folder_stats[item] = {
-                            'modified': stat.st_mtime,
-                            'created': stat.st_ctime
-                        }
-                    elif os.path.isfile(item_path):
-                        # Check if it's an image file
-                        if item.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp')):
-                            images.append(item)
-                            image_stats[item] = {
-                                'modified': stat.st_mtime,
-                                'created': stat.st_ctime,
-                                'size': stat.st_size
-                            }
-                except (OSError, PermissionError):
-                    continue
-                    
-        except PermissionError:
-            return web.json_response({"success": False, "message": "Permission denied"})
-        
-        return web.json_response({
-            "success": True, 
-            "data": {
+        def _scan_directory():
+            folders = []
+            images = []
+            folder_stats = {}
+            image_stats = {}
+            img_exts = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp')
+
+            try:
+                with os.scandir(full_path) as it:
+                    for entry in it:
+                        try:
+                            stat = entry.stat()
+                            name = entry.name
+                            if entry.is_dir():
+                                folders.append(name)
+                                folder_stats[name] = {
+                                    'modified': stat.st_mtime,
+                                    'created': stat.st_ctime
+                                }
+                            elif entry.is_file():
+                                if name.lower().endswith(img_exts):
+                                    images.append(name)
+                                    image_stats[name] = {
+                                        'modified': stat.st_mtime,
+                                        'created': stat.st_ctime,
+                                        'size': stat.st_size
+                                    }
+                        except (OSError, PermissionError):
+                            continue
+            except PermissionError:
+                return None, "Permission denied"
+
+            # If limit requested and sorting by date, sort and trim on server
+            if limit and limit > 0 and len(images) > limit:
+                if sort_by == "date":
+                    images.sort(key=lambda x: image_stats.get(x, {}).get('modified', 0), reverse=True)
+                else:
+                    images.sort()
+                images = images[:limit]
+                image_stats = {k: image_stats[k] for k in images if k in image_stats}
+
+            return {
                 "folders": folders,
                 "images": images,
                 "folderStats": folder_stats,
                 "imageStats": image_stats
-            }
+            }, None
+
+        # Offload file scanning to background thread so main asyncio event loop is never blocked
+        scan_data, err_msg = await asyncio.to_thread(_scan_directory)
+        if err_msg:
+            return web.json_response({"success": False, "message": err_msg})
+
+        return web.json_response({
+            "success": True, 
+            "data": scan_data
         })
     except Exception as e:
         msg = f"API Error listing gallery: {e}"
@@ -1830,6 +1847,8 @@ NODE_CLASS_MAPPINGS = {
     "ZombiehausSeedController": ZombiehausSeedController,
     "ZombiehausImagePreprocessor": ZombiehausImagePreprocessor,
     "ZombiehausSmartResizer": ZombiehausSmartResizer,
+    "ZombiehausImageScaleDownBy": ZombiehausImageScaleDownBy,
+    "easy imageScaleDownBy": ZombiehausImageScaleDownBy,
     "ZombiehausFaceSwap": ZombiehausFaceSwap,
     "ZombiehausGlamourController": ZombiehausGlamourController,
     "ZombiehausStudioDirector": ZombiehausStudioDirector,
@@ -1888,6 +1907,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZombiehausSeedController": "Zombiehaus Master Seed",
     "ZombiehausImagePreprocessor": "Zombiehaus Image Preprocessor",
     "ZombiehausSmartResizer": "Zombiehaus Smart Resizer",
+    "ZombiehausImageScaleDownBy": "Zombiehaus Image Scale Down By",
+    "easy imageScaleDownBy": "Image Scale Down By (Zombiehaus)",
     "ZombiehausFaceSwap": "Zombiehaus Face Swapper",
     "ZombiehausGlamourController": "Zombiehaus Glamour & Body Sculptor",
     "ZombiehausStudioDirector": "Zombiehaus Virtual Studio Director",

@@ -134,36 +134,117 @@ class ZombiehausTextEditor:
         return "\n".join(lines).strip()
 
     @staticmethod
+    def parse_lora_tag_content(content: str) -> dict | None:
+        try:
+            from .lora_loader_node import ZombiehausLoraLoader
+            return ZombiehausLoraLoader.parse_lora_tag_content(content)
+        except Exception:
+            pass
+
+        parts = [p.strip() for p in content.split(':') if p.strip()]
+        if not parts:
+            return None
+
+        name = parts[0].strip().replace('\\', '/')
+        result = {
+            "name": name,
+            "model_strength": 1.0,
+            "clip_strength": 1.0,
+            "is_range": False,
+            "min_strength": 1.0,
+            "max_strength": 1.0,
+            "dynamic": False,
+            "start_percent": 0.0,
+            "end_percent": 1.0,
+            "end_strength": 0.0,
+            "decay_profile": "cosine",
+        }
+
+        if len(parts) == 1:
+            return result
+
+        raw_args = parts[1:]
+        known_profiles = {"linear", "cosine", "exponential", "step"}
+        if raw_args and raw_args[-1].lower() in known_profiles:
+            result["decay_profile"] = raw_args.pop(-1).lower()
+            result["dynamic"] = True
+
+        for idx, arg in enumerate(raw_args):
+            if '@' in arg:
+                weight_part, time_part = arg.split('@', 1)
+                arg = weight_part.strip()
+                time_part = time_part.strip()
+                result["dynamic"] = True
+                if '-' in time_part:
+                    t1, t2 = time_part.split('-', 1)
+                    try:
+                        result["start_percent"] = max(0.0, min(1.0, float(t1)))
+                        result["end_percent"] = max(0.0, min(1.0, float(t2)))
+                    except ValueError:
+                        pass
+                else:
+                    try:
+                        result["end_percent"] = max(0.0, min(1.0, float(time_part)))
+                    except ValueError:
+                        pass
+
+            if '>' in arg:
+                w_start, w_end = arg.split('>', 1)
+                arg = w_start.strip()
+                result["dynamic"] = True
+                try:
+                    result["end_strength"] = float(w_end.strip())
+                except ValueError:
+                    pass
+
+            if '~' in arg:
+                min_s, max_s = arg.split('~', 1)
+                try:
+                    result["is_range"] = True
+                    result["min_strength"] = float(min_s.strip())
+                    result["max_strength"] = float(max_s.strip())
+                    result["model_strength"] = result["max_strength"]
+                    result["clip_strength"] = result["max_strength"]
+                except ValueError:
+                    pass
+            elif arg:
+                try:
+                    val = float(arg)
+                    if idx == 0:
+                        result["model_strength"] = val
+                        result["clip_strength"] = val
+                    elif idx == 1:
+                        result["clip_strength"] = val
+                except ValueError:
+                    pass
+
+        return result
+
+    @staticmethod
     def extract_prompt_loras(prompt: str) -> tuple[list[dict], str]:
         """
-        Parses <lora:name:strength> or <lora:name:model_weight:clip_weight> tags from prompt text.
+        Parses <lora:...> tags from prompt text, supporting standard, random range (~), and dynamic dropoff (> / @).
         Ignores tags wrapped in /* ... */ comments.
         Returns:
-            (lora_entries: list of dict(name, model_strength, clip_strength), clean_prompt: str)
+            (lora_entries: list of dict, clean_prompt: str)
         """
         if not prompt or not isinstance(prompt, str):
             return [], ""
 
         uncommented = re.sub(r'/\*.*?\*/', '', prompt, flags=re.DOTALL)
-        pattern = r'<lora:([^:>]+)(?::([+-]?[0-9]*\.?[0-9]+))?(?::([+-]?[0-9]*\.?[0-9]+))?>'
+        tag_pattern = r'<lora:([^>]+)>'
 
         loras = []
-        for m in re.finditer(pattern, uncommented, flags=re.IGNORECASE):
-            name = m.group(1).strip().replace('\\', '/')
-            w1 = m.group(2)
-            w2 = m.group(3)
-
-            model_w = float(w1) if w1 is not None and w1 != '' else 1.0
-            clip_w = float(w2) if w2 is not None and w2 != '' else model_w
-
-            loras.append({
-                "name": name,
-                "model_strength": model_w,
-                "clip_strength": clip_w,
-            })
+        for m in re.finditer(tag_pattern, uncommented, flags=re.IGNORECASE):
+            content = m.group(1).strip()
+            parsed = ZombiehausTextEditor.parse_lora_tag_content(content)
+            if parsed:
+                loras.append(parsed)
 
         clean = re.sub(r'/\*\s*<lora:[^>]+>\s*\*/|<lora:[^>]+>', '', prompt)
-        clean = re.sub(r',\s*,+', ', ', clean)
+        clean = re.sub(r'[ \t]+', ' ', clean)
+        clean = re.sub(r'\s*,\s*,+', ', ', clean)
+        clean = re.sub(r'\s+,', ',', clean)
         clean = re.sub(r'^[,\s]+|[,\s]+$', '', clean)
         return loras, clean
 
@@ -557,11 +638,12 @@ class ZombiehausTextEditor:
 
         # Helper: load wildcard file as a data structure or line selection
         def load_wildcard_resource(wc_spec: str, default_all: bool = False, local_vars: dict = None):
-            m = re.match(r'^__(?:([0-9]+(?:-[0-9]+)?|all|\*)\$\$)?([a-zA-Z0-9_\-/]+)__$', wc_spec.strip())
+            m = re.match(r'^__(?:([0-9]+(?:-[0-9]+)?|all|\*)\$\$)?([a-zA-Z0-9_\-/.]+)__$', wc_spec.strip())
             if not m:
                 return None
             count_spec = m.group(1)
             wc_name = m.group(2).strip()
+            base_wc = wc_name[:-4] if wc_name.lower().endswith((".txt", ".json")) else wc_name
             search_dirs = get_prompts_dirs()
             candidates = []
             for d in search_dirs:
@@ -569,8 +651,13 @@ class ZombiehausTextEditor:
                     os.path.join(d, 'wildcards', f"{wc_name}.json"),
                     os.path.join(d, 'wildcards', f"{wc_name}.txt"),
                     os.path.join(d, 'wildcards', wc_name),
+                    os.path.join(d, 'wildcards', f"{base_wc}.json"),
+                    os.path.join(d, 'wildcards', f"{base_wc}.txt"),
                     os.path.join(d, f"{wc_name}.json"),
                     os.path.join(d, f"{wc_name}.txt"),
+                    os.path.join(d, wc_name),
+                    os.path.join(d, f"{base_wc}.json"),
+                    os.path.join(d, f"{base_wc}.txt"),
                 ])
             target_file = None
             for c in candidates:
@@ -634,7 +721,19 @@ class ZombiehausTextEditor:
             if is_yaml_dict:
                 parsed_full = parse_complex_value("\n".join(lines), local_vars)
                 if isinstance(parsed_full, PromptDict):
-                    return parsed_full
+                    is_all_selection = (count_spec in ("all", "*")) or default_all or (count_spec is None and file_mode_all)
+                    if is_all_selection:
+                        return parsed_full
+                    if parsed_full:
+                        chosen_k = rng.choice(list(parsed_full.keys()))
+                        chosen_v = parsed_full[chosen_k]
+                        if isinstance(chosen_v, dict):
+                            if "name" not in chosen_v:
+                                chosen_v["name"] = chosen_k
+                            if "key" not in chosen_v:
+                                chosen_v["key"] = chosen_k
+                        return chosen_v
+                    return ""
 
             # Multiple entries
             parsed_lines = [parse_complex_value(line, local_vars) for line in lines]
@@ -651,6 +750,34 @@ class ZombiehausTextEditor:
             s = raw.strip()
             if not s:
                 return s
+
+            # Support all(...) and all{...}: e.g. all(__wildcard__), all(wildcard), all($var), all([...])
+            m_all = re.match(r'^all\s*[\(\{]\s*([^{}\(\)]+?)\s*[\)\}]$', s, re.IGNORECASE)
+            if m_all:
+                inner_all = m_all.group(1).strip()
+                if inner_all.startswith("$") and current_vars:
+                    m_chain = re.match(r'^\$([a-zA-Z0-9_]+)((?:\.[a-zA-Z0-9_]+(?:\(\))?|\[\s*(?:-?[0-9]+|"[^"]*"|\'[^\']*\')\s*\])*)$', inner_all)
+                    if m_chain:
+                        b = m_chain.group(1)
+                        ch = m_chain.group(2)
+                        if b in current_vars:
+                            return evaluate_chain(current_vars[b], ch) if ch else current_vars[b]
+
+                wc_cand = inner_all.strip("'\"")
+                if not (wc_cand.startswith("__") and wc_cand.endswith("__")):
+                    wc_clean = re.sub(r'^_+|_+$', '', wc_cand)
+                    if wc_clean.lower().endswith((".txt", ".json")):
+                        wc_clean = wc_clean[:-4] if wc_clean.lower().endswith(".txt") else wc_clean[:-5]
+                    wc_clean = re.sub(r'^_+|_+$', '', wc_clean)
+                    if not wc_clean.startswith(("[", "{")):
+                        wc_cand = f"__{wc_clean}__"
+
+                if wc_cand.startswith("__") and wc_cand.endswith("__"):
+                    wc_val = load_wildcard_resource(wc_cand, default_all=True, local_vars=current_vars)
+                    if wc_val is not None:
+                        return wc_val
+
+                return parse_complex_value(inner_all, current_vars)
 
             if s.startswith("__") and s.endswith("__"):
                 wc_val = load_wildcard_resource(s, default_all=False, local_vars=current_vars)
@@ -803,14 +930,49 @@ class ZombiehausTextEditor:
                             curr = curr[-1]
                         else:
                             curr = ""
+                    elif prop_clean in ("random", "rand", "random()", "rand()", "choose", "choose()", "any", "any()"):
+                        if isinstance(curr, list) and curr:
+                            curr = rng.choice(curr)
+                        elif isinstance(curr, dict) and curr:
+                            chosen_k = rng.choice(list(curr.keys()))
+                            chosen_v = curr[chosen_k]
+                            if isinstance(chosen_v, dict):
+                                if "name" not in chosen_v:
+                                    chosen_v["name"] = chosen_k
+                                if "key" not in chosen_v:
+                                    chosen_v["key"] = chosen_k
+                            curr = chosen_v
+                        else:
+                            curr = ""
                     elif isinstance(curr, dict):
                         curr = curr.get(prop_clean, "")
                     elif isinstance(curr, list):
-                        mapped = PromptDict()
+                        # 1. Direct match by key or name/id if list items are dicts
+                        found_item = None
                         for item in curr:
-                            if isinstance(item, dict) and prop_clean in item:
-                                mapped[str(item[prop_clean])] = item
-                        curr = mapped if mapped else ""
+                            if isinstance(item, dict):
+                                if prop_clean in item:
+                                    found_item = item[prop_clean]
+                                    break
+                                elif item.get("name") == prop_clean or item.get("id") == prop_clean:
+                                    found_item = item
+                                    break
+                        if found_item is not None:
+                            curr = found_item
+                        else:
+                            # 2. Map items by property or collect property values
+                            mapped = PromptDict()
+                            val_list = []
+                            for item in curr:
+                                if isinstance(item, dict) and prop_clean in item:
+                                    mapped[str(item[prop_clean])] = item
+                                    val_list.append(item[prop_clean])
+                            if mapped:
+                                curr = mapped
+                            elif val_list:
+                                curr = PromptList(val_list)
+                            else:
+                                curr = ""
                     else:
                         curr = ""
                 elif bracket:
@@ -823,7 +985,10 @@ class ZombiehausTextEditor:
                             found = None
                             for item in curr:
                                 if isinstance(item, dict):
-                                    if str(item.get("name", "")) == key or str(item.get("id", "")) == key:
+                                    if key in item:
+                                        found = item[key]
+                                        break
+                                    elif str(item.get("name", "")) == key or str(item.get("id", "")) == key:
                                         found = item
                                         break
                             curr = found if found is not None else ""
@@ -842,14 +1007,18 @@ class ZombiehausTextEditor:
 
         def resolve_property_access(in_text, local_vars):
             chain_pat = re.compile(
-                r'\$([a-zA-Z0-9_]+)((?:\.[a-zA-Z0-9_]+(?:\(\))?|\[\s*(?:-?[0-9]+|"[^"]*"|\'[^\']*\')\s*\])+)'
+                r'(\{|\$\{)?\$?([a-zA-Z0-9_]+)((?:\.[a-zA-Z0-9_]+(?:\(\))?|\[\s*(?:-?[0-9]+|"[^"]*"|\'[^\']*\')\s*\])+)(\})?'
             )
             def repl(m):
-                base = m.group(1)
-                chain = m.group(2)
+                prefix = m.group(1) or ""
+                base = m.group(2)
+                chain = m.group(3)
+                suffix = m.group(4) or ""
                 if base in local_vars:
                     res = evaluate_chain(local_vars[base], chain)
-                    return str(res)
+                    if (prefix == "{" or prefix == "${") and suffix == "}":
+                        return str(res)
+                    return prefix + str(res) + suffix
                 return m.group(0)
             return chain_pat.sub(repl, in_text)
 
@@ -970,6 +1139,12 @@ class ZombiehausTextEditor:
                                 variables[v_name] = parsed_dict
                                 ti = b_pos
                                 continue
+                            if re.match(r'^all\s*[\(\{]', clean_val, re.IGNORECASE):
+                                parsed_comp = parse_complex_value(clean_val, variables)
+                                if isinstance(parsed_comp, (PromptList, PromptDict)):
+                                    variables[v_name] = parsed_comp
+                                    ti = b_pos
+                                    continue
 
                             # Check if inner_content is dynamic syntax ({a|b} choices, CASE statements, seq, etc.)
                             is_dynamic_syntax = False
@@ -1002,16 +1177,20 @@ class ZombiehausTextEditor:
                         lines = [l.strip() for l in raw_content.splitlines() if l.strip()]
                         clean_val = "\n".join(lines)
 
-                        # Check for list [ ... ], dict { ... }, or wildcard __name__
-                        if (clean_val.startswith("[") and clean_val.endswith("]")) or \
-                           (clean_val.startswith("{") and clean_val.endswith("}")) or \
-                           (clean_val.startswith("__") and clean_val.endswith("__")):
+                        # Check for list [ ... ], dict { ... }, wildcard __name__, or all(...)
+                        is_comp_syntax = (
+                            (clean_val.startswith("[") and clean_val.endswith("]")) or
+                            (clean_val.startswith("{") and clean_val.endswith("}")) or
+                            (clean_val.startswith("__") and clean_val.endswith("__")) or
+                            bool(re.match(r'^all\s*[\(\{]', clean_val, re.IGNORECASE))
+                        )
+                        if is_comp_syntax:
                             parsed_comp = parse_complex_value(clean_val, variables)
                             if isinstance(parsed_comp, (PromptList, PromptDict)):
                                 variables[v_name] = parsed_comp
                                 ti = val_start + m_semi.end()
                                 continue
-                            elif clean_val.startswith("__") and clean_val.endswith("__") and parsed_comp is not None:
+                            elif parsed_comp is not None and (clean_val.startswith("__") or re.match(r'^all\s*[\(\{]', clean_val, re.IGNORECASE)):
                                 variables[v_name] = parsed_comp
                                 ti = val_start + m_semi.end()
                                 continue
@@ -1041,16 +1220,20 @@ class ZombiehausTextEditor:
                         raw_content = ZombiehausTextEditor.filter_comments(raw_content)
                         clean_val = raw_content.strip()
 
-                        # Check for list [ ... ], dict { ... }, or wildcard __name__
-                        if (clean_val.startswith("[") and clean_val.endswith("]")) or \
-                           (clean_val.startswith("{") and clean_val.endswith("}")) or \
-                           (clean_val.startswith("__") and clean_val.endswith("__")):
+                        # Check for list [ ... ], dict { ... }, wildcard __name__, or all(...)
+                        is_comp_syntax = (
+                            (clean_val.startswith("[") and clean_val.endswith("]")) or
+                            (clean_val.startswith("{") and clean_val.endswith("}")) or
+                            (clean_val.startswith("__") and clean_val.endswith("__")) or
+                            bool(re.match(r'^all\s*[\(\{]', clean_val, re.IGNORECASE))
+                        )
+                        if is_comp_syntax:
                             parsed_comp = parse_complex_value(clean_val, variables)
                             if isinstance(parsed_comp, (PromptList, PromptDict)):
                                 variables[v_name] = parsed_comp
                                 ti = val_start + m_line.end()
                                 continue
-                            elif clean_val.startswith("__") and clean_val.endswith("__") and parsed_comp is not None:
+                            elif parsed_comp is not None and (clean_val.startswith("__") or re.match(r'^all\s*[\(\{]', clean_val, re.IGNORECASE)):
                                 variables[v_name] = parsed_comp
                                 ti = val_start + m_line.end()
                                 continue
@@ -2079,10 +2262,14 @@ class ZombiehausTextEditor:
                 return str(val)
 
             # 2. Wildcard reference: all(__name__) or all(name)
-            wc_candidate = raw_target
+            wc_candidate = raw_target.strip("'\"")
             if not (wc_candidate.startswith("__") and wc_candidate.endswith("__")):
-                if re.match(r'^[a-zA-Z0-9_\-/]+$', wc_candidate):
-                    wc_candidate = f"__{wc_candidate}__"
+                wc_clean = re.sub(r'^_+|_+$', '', wc_candidate)
+                if wc_clean.lower().endswith((".txt", ".json")):
+                    wc_clean = wc_clean[:-4] if wc_clean.lower().endswith(".txt") else wc_clean[:-5]
+                wc_clean = re.sub(r'^_+|_+$', '', wc_clean)
+                if re.match(r'^[a-zA-Z0-9_\-/.]+$', wc_clean):
+                    wc_candidate = f"__{wc_clean}__"
 
             if wc_candidate.startswith("__") and wc_candidate.endswith("__"):
                 res = load_wildcard_resource(wc_candidate, default_all=True, local_vars=variables)

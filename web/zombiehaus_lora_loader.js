@@ -790,6 +790,13 @@ app.registerExtension({
                 onNodeCreated?.apply(this, arguments);
                 const node = this;
 
+                // Ensure node is resizable with corner drag arrows and has a healthy initial size
+                node.resizable = true;
+                node.min_size = [460, 320];
+                if (!node.size || node.size[0] < 460 || node.size[1] < 400) {
+                    node.size = [480, 680];
+                }
+
                 // --- WIDGETS ---
                 const loraStackWidget = node.widgets.find((w) => w.name === "lora_stack");
                 loraStackWidget.type = "hidden"; // This widget is for data transfer only
@@ -932,6 +939,15 @@ app.registerExtension({
                         name: availableLoras[0] || allLoras[0] || "", // Use first available, fallback to first overall
                         enabled: true,
                         strength: 1.0,
+                        random: false,
+                        random_strength: false,
+                        min_strength: 0.5,
+                        max_strength: 1.0,
+                        dynamic: false,
+                        start_percent: 0.0,
+                        end_percent: 0.5,
+                        end_strength: 0.0,
+                        decay_profile: "cosine"
                     });
                     updateStack(currentStack);
                 });
@@ -1008,7 +1024,61 @@ app.registerExtension({
 
                 const listContainer = createElement("div", { className: "zombiehaus-lora-list-dynamic" });
                 const mainWidgetContainer = createElement("div", { className: "zombiehaus-lora-main-container" }, headerContainer, listContainer);
-                node.addDOMWidget("advanced_list", "html", mainWidgetContainer, { serialize: false });
+                const domWidget = node.addDOMWidget("advanced_list", "html", mainWidgetContainer, { 
+                    serialize: false,
+                    hideOnZoom: true
+                });
+
+                function getWidgetStartY() {
+                    if (domWidget && typeof domWidget.last_y === "number" && domWidget.last_y > 80) {
+                        return domWidget.last_y;
+                    }
+                    const slots = Math.max(node.inputs?.length || 0, node.outputs?.length || 0);
+                    let y = 30 + Math.max(slots * 20, 40);
+                    if (Array.isArray(node.widgets)) {
+                        for (const w of node.widgets) {
+                            if (w === domWidget) break;
+                            if (w.type === "hidden" || w.hidden) continue;
+                            y += 28;
+                        }
+                    }
+                    return y;
+                }
+
+                const updateWidgetSize = () => {
+                    if (!node.size) return;
+                    const startY = getWidgetStartY();
+                    const availableHeight = Math.max(140, node.size[1] - startY - 20);
+
+                    mainWidgetContainer.style.width = "100%";
+                    mainWidgetContainer.style.height = "100%";
+                    mainWidgetContainer.style.maxHeight = `${availableHeight}px`;
+
+                    listContainer.style.width = "100%";
+                    listContainer.style.height = "100%";
+                };
+                node._zombiehausUpdateWidgetSize = updateWidgetSize;
+
+                // Configure dynamic layout sizing so ComfyUI distributes all remaining free vertical space to this widget
+                delete domWidget.computeSize;
+                domWidget.computeLayoutSize = function () {
+                    return { minHeight: 180, maxHeight: 100000, minWidth: 0 };
+                };
+                if (!domWidget.options) domWidget.options = {};
+                domWidget.options.hideOnZoom = true;
+                domWidget.options.getMinHeight = () => 180;
+                domWidget.options.getMaxHeight = () => 100000;
+                delete domWidget.options.getHeight;
+
+                // Hook instance onResize
+                const origOnResize = node.onResize;
+                node.onResize = function (size) {
+                    const r = origOnResize ? origOnResize.apply(this, arguments) : undefined;
+                    updateWidgetSize();
+                    return r;
+                };
+
+                updateWidgetSize();
 
                 // --- STATE MANAGEMENT ---
                 function getStack() {
@@ -1093,22 +1163,29 @@ app.registerExtension({
                             draggable: true,
                             dataset: { index } // Store index for D&D
                         });
+                        row.style.cssText = "display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; align-items: center !important; width: 100% !important; gap: 4px !important; box-sizing: border-box !important;";
 
                         const dragHandle = createElement("div", { 
                             className: "zombiehaus-lora-drag-handle", 
                             textContent: "⠿",
                             title: "Drag to reorder"
                         });
+                        dragHandle.style.cssText = "flex: 0 0 auto !important; cursor: grab; padding: 0 2px !important; line-height: 1 !important;";
 
                         const validationIcon = createElement("div", { className: "zombiehaus-lora-validation-icon" });
+                        validationIcon.style.cssText = "flex: 0 0 18px !important; width: 18px !important; min-width: 18px !important; text-align: center !important; display: inline-flex !important; align-items: center !important; justify-content: center !important;";
 
                         const { element: toggle } = createToggleSwitch(lora.enabled, (newState) => {
                             const currentStack = getStack();
                             currentStack[index].enabled = newState;
                             updateStack(currentStack);
                         });
+                        toggle.style.cssText = "flex: 0 0 auto !important;";
 
                         const isRandom = !!lora.random;
+                        const isRandomStrength = !!lora.random_strength;
+                        const isDynamic = !!lora.dynamic;
+
                         const randomButton = createElement("button", {
                             className: "zombiehaus-lora-mode-button" + (isRandom ? " active-random" : ""),
                             textContent: isRandom ? "🎲" : "📌",
@@ -1116,37 +1193,193 @@ app.registerExtension({
                                 ? "Random Pool: Randomly picked during generation. Click to make Fixed (Always Loaded)."
                                 : "Fixed: Always loaded on every run. Click to add to Random Pool (🎲)."
                         });
+                        randomButton.style.cssText = "flex: 0 0 24px !important; width: 24px !important; min-width: 24px !important; max-width: 24px !important; height: 22px !important; padding: 0 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important;";
                         randomButton.addEventListener("click", () => {
                             const currentStack = getStack();
                             currentStack[index].random = !currentStack[index].random;
                             updateStack(currentStack);
                         });
 
+                        // Range button (only visible when isRandom is true)
+                        let rangeButton = null;
+                        if (isRandom) {
+                            rangeButton = createElement("button", {
+                                className: "zombiehaus-lora-mode-button" + (isRandomStrength ? " active-range" : ""),
+                                textContent: isRandomStrength ? "~" : "=",
+                                title: isRandomStrength
+                                    ? "Random Weight Range: Active (rolls between Min and Max). Click for Fixed Weight (=)."
+                                    : "Fixed Weight in Pool (=). Click to enable Random Weight Range (~)."
+                            });
+                            rangeButton.style.cssText = "flex: 0 0 20px !important; width: 20px !important; min-width: 20px !important; max-width: 20px !important; height: 22px !important; padding: 0 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important;";
+                            rangeButton.addEventListener("click", () => {
+                                const currentStack = getStack();
+                                currentStack[index].random_strength = !currentStack[index].random_strength;
+                                if (currentStack[index].random_strength) {
+                                    if (currentStack[index].min_strength === undefined) currentStack[index].min_strength = 0.5;
+                                    if (currentStack[index].max_strength === undefined) currentStack[index].max_strength = 1.0;
+                                }
+                                updateStack(currentStack);
+                            });
+                        }
+
                         const dropdown = createSearchableDropdown(availableLoras, lora.name, (newValue) => {
                             const currentStack = getStack();
                             currentStack[index].name = newValue;
                             updateStack(currentStack); // Re-render to update closures
                         }, globalFilter);
+                        dropdown.style.cssText = "flex: 1 1 0 !important; min-width: 0 !important; width: auto !important; box-sizing: border-box !important;";
 
-                        const updateStrength = (newValue) => {
-                            const currentStack = getStack();
-                            currentStack[index].strength = parseFloat(newValue);
-                            loraStackWidget.value = JSON.stringify(currentStack); // Update without re-rendering
-                        };
-
-                        // Use a larger step for buttons, but allow fine-tuning via manual input.
                         const stepValue = 0.05;
-                        const strengthInput = createNumberInput(lora.strength, -2, 2, stepValue, updateStrength);
+                        const strengthContainer = createElement("div", { className: "zombiehaus-lora-strength-container" });
+                        strengthContainer.style.cssText = "flex: 0 0 auto !important; display: inline-flex !important; align-items: center !important; gap: 2px !important;";
+
+                        if (isRandom && isRandomStrength) {
+                            const minVal = lora.min_strength !== undefined ? parseFloat(lora.min_strength) : 0.5;
+                            const maxVal = lora.max_strength !== undefined ? parseFloat(lora.max_strength) : 1.0;
+
+                            const minInput = createNumberInput(minVal, -2, 2, stepValue, (newVal) => {
+                                const currentStack = getStack();
+                                currentStack[index].min_strength = parseFloat(newVal);
+                                loraStackWidget.value = JSON.stringify(currentStack);
+                            });
+                            minInput.title = "Min Strength (scroll or type to adjust)";
+                            minInput.classList.add("zombiehaus-lora-range-input");
+
+                            const sep = createElement("span", { textContent: "~", className: "zombiehaus-lora-range-sep" });
+
+                            const maxInput = createNumberInput(maxVal, -2, 2, stepValue, (newVal) => {
+                                const currentStack = getStack();
+                                currentStack[index].max_strength = parseFloat(newVal);
+                                loraStackWidget.value = JSON.stringify(currentStack);
+                            });
+                            maxInput.title = "Max Strength (scroll or type to adjust)";
+                            maxInput.classList.add("zombiehaus-lora-range-input");
+
+                            strengthContainer.append(minInput, sep, maxInput);
+                        } else {
+                            const updateStrength = (newValue) => {
+                                const currentStack = getStack();
+                                currentStack[index].strength = parseFloat(newValue);
+                                loraStackWidget.value = JSON.stringify(currentStack);
+                            };
+                            const strengthInput = createNumberInput(lora.strength, -2, 2, stepValue, updateStrength);
+                            strengthContainer.append(strengthInput);
+                        }
+
+                        // Dynamic timing toggle button
+                        const dynamicButton = createElement("button", {
+                            className: "zombiehaus-lora-mode-button" + (isDynamic ? " active-dynamic" : ""),
+                            textContent: "⏱",
+                            title: isDynamic
+                                ? `Dynamic Dropoff Active (${lora.start_percent ?? 0}➔${lora.end_percent ?? 0.5}, End: ${lora.end_strength ?? 0}). Click to configure timing.`
+                                : "Dynamic Dropoff Inactive. Click to configure timing dropoff."
+                        });
+                        dynamicButton.style.cssText = "flex: 0 0 22px !important; width: 22px !important; min-width: 22px !important; max-width: 22px !important; height: 22px !important; padding: 0 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important;";
+                        dynamicButton.addEventListener("click", () => {
+                            const currentStack = getStack();
+                            currentStack[index]._drawer_open = !currentStack[index]._drawer_open;
+                            updateStack(currentStack);
+                        });
 
                         const removeButton = createElement("button", { textContent: "✖", className: "zombiehaus-lora-remove-button" });
+                        removeButton.style.cssText = "flex: 0 0 20px !important; width: 20px !important; min-width: 20px !important; max-width: 20px !important; height: 22px !important; padding: 0 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important;";
                         removeButton.addEventListener("click", () => {
                             const currentStack = getStack();
                             currentStack.splice(index, 1);
                             updateStack(currentStack);
                         });
 
-                        row.append(dragHandle, toggle, randomButton, validationIcon, dropdown, strengthInput, removeButton);
+                        if (rangeButton) {
+                            row.append(dragHandle, toggle, randomButton, rangeButton, validationIcon, dropdown, strengthContainer, dynamicButton, removeButton);
+                        } else {
+                            row.append(dragHandle, toggle, randomButton, validationIcon, dropdown, strengthContainer, dynamicButton, removeButton);
+                        }
                         listContainer.appendChild(row);
+
+                        // If drawer is open, append drawer row
+                        if (lora._drawer_open) {
+                            const drawer = createElement("div", { className: "zombiehaus-lora-drawer" });
+
+                            const dynCheckbox = createElement("input", {
+                                type: "checkbox",
+                                checked: isDynamic
+                            });
+                            dynCheckbox.addEventListener("change", (e) => {
+                                const currentStack = getStack();
+                                currentStack[index].dynamic = e.target.checked;
+                                if (currentStack[index].dynamic) {
+                                    if (currentStack[index].start_percent === undefined) currentStack[index].start_percent = 0.0;
+                                    if (currentStack[index].end_percent === undefined) currentStack[index].end_percent = 0.5;
+                                    if (currentStack[index].end_strength === undefined) currentStack[index].end_strength = 0.0;
+                                    if (currentStack[index].decay_profile === undefined) currentStack[index].decay_profile = "cosine";
+                                }
+                                updateStack(currentStack);
+                            });
+                            const dynLabel = createElement("label", {
+                                className: "zombiehaus-lora-drawer-field",
+                                style: "cursor: pointer; font-weight: 500;"
+                            }, dynCheckbox, " Dynamic Dropoff");
+
+                            const startStepInput = createNumberInput(lora.start_percent ?? 0.0, 0, 1, 0.05, (v) => {
+                                const currentStack = getStack();
+                                currentStack[index].start_percent = parseFloat(v);
+                                loraStackWidget.value = JSON.stringify(currentStack);
+                            });
+                            startStepInput.title = "Start Step % (e.g. 0.0 for start of sampling)";
+                            startStepInput.classList.add("zombiehaus-lora-mini-input");
+
+                            const endStepInput = createNumberInput(lora.end_percent ?? 0.5, 0, 1, 0.05, (v) => {
+                                const currentStack = getStack();
+                                currentStack[index].end_percent = parseFloat(v);
+                                loraStackWidget.value = JSON.stringify(currentStack);
+                            });
+                            endStepInput.title = "End Step % (e.g. 0.5 to finish dropoff at 50% steps)";
+                            endStepInput.classList.add("zombiehaus-lora-mini-input");
+
+                            const stepsField = createElement("div", { className: "zombiehaus-lora-drawer-field" },
+                                createElement("span", { textContent: "Steps:" }),
+                                startStepInput,
+                                createElement("span", { textContent: "➔" }),
+                                endStepInput
+                            );
+
+                            const endStrengthInput = createNumberInput(lora.end_strength ?? 0.0, -2, 2, 0.05, (v) => {
+                                const currentStack = getStack();
+                                currentStack[index].end_strength = parseFloat(v);
+                                loraStackWidget.value = JSON.stringify(currentStack);
+                            });
+                            endStrengthInput.title = "End Strength (weight at end step %)";
+                            endStrengthInput.classList.add("zombiehaus-lora-mini-input");
+
+                            const endStrengthField = createElement("div", { className: "zombiehaus-lora-drawer-field" },
+                                createElement("span", { textContent: "End Wt:" }),
+                                endStrengthInput
+                            );
+
+                            const curveSelect = createElement("select", { className: "zombiehaus-lora-mini-select" });
+                            ["cosine", "linear", "exponential", "step"].forEach((prof) => {
+                                const opt = createElement("option", {
+                                    value: prof,
+                                    textContent: prof.charAt(0).toUpperCase() + prof.slice(1),
+                                    selected: (lora.decay_profile || "cosine").toLowerCase() === prof
+                                });
+                                curveSelect.appendChild(opt);
+                            });
+                            curveSelect.addEventListener("change", (e) => {
+                                const currentStack = getStack();
+                                currentStack[index].decay_profile = e.target.value;
+                                loraStackWidget.value = JSON.stringify(currentStack);
+                            });
+
+                            const curveField = createElement("div", { className: "zombiehaus-lora-drawer-field" },
+                                createElement("span", { textContent: "Curve:" }),
+                                curveSelect
+                            );
+
+                            drawer.append(dynLabel, stepsField, endStrengthField, curveField);
+                            listContainer.appendChild(drawer);
+                        }
+
                         displayValidationStatus(lora.name, baseModelName, validationIcon);
 
                         // Add context menu listener to the row
@@ -1243,8 +1476,6 @@ app.registerExtension({
                     if (globalFilter) {
                         statusSpan.title += `\nDropdowns are pre-filtered by: "${globalFilter}"`;
                     }
-
-                    node.computeSize();
                 }
 
                 // --- INITIALIZATION ---
@@ -1282,6 +1513,12 @@ app.registerExtension({
                 const originalOnConfigure = node.onConfigure;
                 node.onConfigure = function (info) {
                     originalOnConfigure?.apply(this, arguments);
+                    node.resizable = true;
+                    node.min_size = [460, 320];
+                    if (!this.size || this.size[0] < 460 || this.size[1] < 400) {
+                        this.size = [Math.max(this.size?.[0] || 480, 460), 680];
+                    }
+                    updateWidgetSize();
                     const lfw = this.widgets ? this.widgets.find((w) => w.name === "lora_filter") : null;
                     if (lfw) {
                         if (typeof lfw.value !== "string") {
@@ -1311,32 +1548,48 @@ app.registerExtension({
                 // Listen for external refresh events from ComfyUI (e.g., pressing 'R')
                 api.addEventListener("loras_updated", refreshLoras);
             };
+
+            // Hook prototype onResize so canvas resize immediately propagates
+            const origPrototypeOnResize = nodeType.prototype.onResize;
+            nodeType.prototype.onResize = function (size) {
+                const r = origPrototypeOnResize ? origPrototypeOnResize.apply(this, arguments) : undefined;
+                this._zombiehausUpdateWidgetSize?.();
+                return r;
+            };
         }
     },
 });
 
 // --- STYLES ---
-if (!document.getElementById("zombiehaus-lora-loader-styles")) {
-    const style =createElement("style", {
-        id: "zombiehaus-lora-loader-styles",
-        innerHTML: `
+let loraStylesEl = document.getElementById("zombiehaus-lora-loader-styles");
+if (!loraStylesEl) {
+    loraStylesEl = createElement("style", { id: "zombiehaus-lora-loader-styles" });
+    document.head.appendChild(loraStylesEl);
+}
+loraStylesEl.innerHTML = `
             .zombiehaus-lora-main-container {
-                display: flex;
-                flex-direction: column;
-                width: 100%;
-                height: 100%;
-                min-height: 0;
-                overflow: hidden;
+                display: flex !important;
+                flex-direction: column !important;
+                width: 100% !important;
+                height: 100% !important;
+                flex: 1 1 0% !important;
+                min-height: 0 !important;
+                overflow: hidden !important;
+                padding-right: 4px !important;
+                padding-bottom: 4px !important;
+                box-sizing: border-box !important;
             }
             .zombiehaus-lora-list-dynamic {
-                width: 100%;
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
-                overflow-y: auto;
-                overflow-x: hidden;
-                flex: 1;
-                min-height: 0;
+                width: 100% !important;
+                height: 100% !important;
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 4px !important;
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+                flex: 1 1 0% !important;
+                min-height: 0 !important;
+                box-sizing: border-box !important;
             }
             .zombiehaus-lora-header {
                 display: flex;
@@ -1386,25 +1639,43 @@ if (!document.getElementById("zombiehaus-lora-loader-styles")) {
                 font-weight: 500;
             }
             .zombiehaus-lora-row {
-                display: grid;
-                grid-template-columns: auto auto auto 18px 1fr auto auto;
-                align-items: center;
-                gap: 4px;
-                padding: 2px;
-                border-radius: 2px;
-                font-size: 0.85em;
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+                gap: 4px !important;
+                padding: 2px !important;
+                border-radius: 2px !important;
+                font-size: 0.85em !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            .zombiehaus-lora-row > * {
+                margin: 0 !important;
+            }
+            .zombiehaus-lora-row .zombiehaus-lora-search-container {
+                flex: 1 1 0 !important;
+                min-width: 0 !important;
+                width: auto !important;
             }
             .zombiehaus-lora-mode-button {
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
                 background: transparent;
                 border: 1px solid transparent;
                 border-radius: 3px;
                 cursor: pointer;
                 font-size: 1.05em;
-                padding: 1px 3px;
-                line-height: 1;
+                padding: 1px 3px !important;
+                line-height: 1 !important;
                 opacity: 0.6;
                 transition: all 0.15s ease;
                 user-select: none;
+                flex: 0 0 auto !important;
+                width: auto !important;
+                height: 22px !important;
+                box-sizing: border-box !important;
             }
             .zombiehaus-lora-mode-button:hover {
                 opacity: 1;
@@ -1415,6 +1686,77 @@ if (!document.getElementById("zombiehaus-lora-loader-styles")) {
                 background: rgba(192, 132, 252, 0.2);
                 border: 1px solid rgba(192, 132, 252, 0.6);
                 box-shadow: 0 0 4px rgba(192, 132, 252, 0.3);
+            }
+            .zombiehaus-lora-mode-button.active-range {
+                opacity: 1;
+                background: rgba(56, 189, 248, 0.2);
+                border: 1px solid rgba(56, 189, 248, 0.6);
+                color: #38bdf8;
+                box-shadow: 0 0 4px rgba(56, 189, 248, 0.3);
+            }
+            .zombiehaus-lora-mode-button.active-dynamic {
+                opacity: 1;
+                background: rgba(52, 211, 153, 0.2);
+                border: 1px solid rgba(52, 211, 153, 0.6);
+                color: #34d399;
+                box-shadow: 0 0 4px rgba(52, 211, 153, 0.3);
+            }
+            .zombiehaus-lora-strength-container {
+                display: flex;
+                align-items: center;
+                gap: 2px;
+            }
+            .zombiehaus-lora-range-input {
+                width: 44px;
+                text-align: center;
+                background: #222;
+                border: 1px solid #444;
+                color: #38bdf8;
+                border-radius: 3px;
+                padding: 1px 2px;
+                font-size: 0.85em;
+            }
+            .zombiehaus-lora-range-sep {
+                font-size: 0.85em;
+                color: #888;
+                user-select: none;
+            }
+            .zombiehaus-lora-drawer {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 8px;
+                padding: 4px 8px 6px 28px;
+                background: rgba(0, 0, 0, 0.25);
+                border-left: 2px solid rgba(52, 211, 153, 0.5);
+                border-radius: 0 0 4px 4px;
+                margin-bottom: 2px;
+                font-size: 0.8em;
+                color: #bbb;
+            }
+            .zombiehaus-lora-drawer-field {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+            .zombiehaus-lora-mini-input {
+                width: 38px;
+                text-align: center;
+                background: #1a1a1a;
+                border: 1px solid #444;
+                color: #eee;
+                border-radius: 3px;
+                padding: 1px 2px;
+                font-size: 0.9em;
+            }
+            .zombiehaus-lora-mini-select {
+                background: #1a1a1a;
+                border: 1px solid #444;
+                color: #eee;
+                border-radius: 3px;
+                padding: 1px 2px;
+                font-size: 0.9em;
+                cursor: pointer;
             }
             .zombiehaus-lora-validation-icon {
                 display: flex;
@@ -1860,7 +2202,4 @@ if (!document.getElementById("zombiehaus-lora-loader-styles")) {
             .zombiehaus-lora-header .zombiehaus-lora-toggle-switch {
                 transform: scale(0.8);
             }
-        `
-    });
-    document.head.appendChild(style);
-}
+`;

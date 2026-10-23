@@ -66,14 +66,18 @@
             </select>
         </div>
 
-        <!-- Profile Preset Controls -->
+        <!-- Studio Workflow Controls -->
         <div class="zh-profile-rack">
-            <label class="zh-profile-label">Profile:</label>
-            <select id="profile-select" class="zh-select zh-profile-dropdown">
+            <label class="zh-profile-label">📁 Workflow:</label>
+            <select id="profile-select" class="zh-select zh-profile-dropdown" title="Select and load a Studio Workflow">
                 <option value="Chroma 1-HD Photoreal">Chroma 1-HD Photoreal</option>
             </select>
-            <button id="btn-save-profile" class="zh-btn zh-btn-subtle" title="Save current setup as a new profile">💾 Save</button>
-            <button id="btn-delete-profile" class="zh-btn zh-btn-danger" title="Delete current custom profile">🗑️</button>
+            <button id="btn-save-profile" class="zh-btn zh-btn-subtle" title="Save current setup as a Studio Workflow">💾 Save</button>
+            <button id="btn-export-workflow" class="zh-btn zh-btn-subtle" title="Export Workflow to .json file">⬇️ Export</button>
+            <button id="btn-import-workflow" class="zh-btn zh-btn-subtle" title="Import Workflow from .json file">⬆️ Import</button>
+            <input type="file" id="workflow-file-input" accept=".json,image/png,image/webp" style="display: none;">
+            <button id="btn-new-workflow" class="zh-btn zh-btn-subtle" title="Reset to clean default workflow">📄 New</button>
+            <button id="btn-delete-profile" class="zh-btn zh-btn-danger" title="Delete current custom workflow">🗑️</button>
         </div>
 
         <!-- Connection & Action Controls -->

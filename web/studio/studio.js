@@ -77,9 +77,13 @@ const el = {
     renderSettingsVideo: document.getElementById("render-settings-video"),
     renderSettingsMusic: document.getElementById("render-settings-music"),
 
-    // Profile controls
+    // Workflow / Profile controls
     profileSelect: document.getElementById("profile-select"),
     btnSaveProfile: document.getElementById("btn-save-profile"),
+    btnExportWorkflow: document.getElementById("btn-export-workflow"),
+    btnImportWorkflow: document.getElementById("btn-import-workflow"),
+    workflowFileInput: document.getElementById("workflow-file-input"),
+    btnNewWorkflow: document.getElementById("btn-new-workflow"),
     btnDeleteProfile: document.getElementById("btn-delete-profile"),
 
     // Action controls
@@ -284,6 +288,7 @@ async function initStudio() {
     setupVideoStudio();
     setupImageEditStudio();
     setupHotkeys();
+    setupGlobalWorkflowDrop();
 
     await loadModelAssets();
     await loadProfiles();
@@ -296,6 +301,10 @@ async function initStudio() {
 
 function addLoraItem(name = "None", strength = 1.0) {
     if (!el.loraStackContainer) return;
+    if (typeof name === "object" && name !== null) {
+        strength = name.strength !== undefined ? name.strength : (name.model_strength !== undefined ? name.model_strength : 1.0);
+        name = name.name || "None";
+    }
 
     const item = document.createElement("div");
     item.className = "zh-stack-item zh-lora-item";
@@ -305,11 +314,22 @@ function addLoraItem(name = "None", strength = 1.0) {
 
     const select = document.createElement("select");
     select.className = "zh-select zh-lora-select flex-1";
+    let found = false;
     for (const loraName of availableLoraList) {
         const opt = document.createElement("option");
         opt.value = loraName;
         opt.textContent = loraName;
-        if (lorNameMatch(loraName, name)) opt.selected = true;
+        if (lorNameMatch(loraName, name)) {
+            opt.selected = true;
+            found = true;
+        }
+        select.appendChild(opt);
+    }
+    if (!found && name && name !== "None") {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        opt.selected = true;
         select.appendChild(opt);
     }
 
@@ -1889,11 +1909,12 @@ async function loadProfiles() {
         const found = data.profiles?.find(p => p.name === name);
         if (found && found.data) {
             applyProfileData(found.data);
+            showStudioToast(`Loaded workflow: "${name}"`, "info");
         }
     });
 
     el.btnSaveProfile?.addEventListener("click", async () => {
-        const name = prompt("Enter profile name to save:", el.profileSelect?.value || "My Setup");
+        const name = prompt("Enter workflow name to save:", el.profileSelect?.value || "My Studio Workflow");
         if (!name || !name.trim()) return;
 
         const pData = gatherCurrentProfileData();
@@ -1906,13 +1927,35 @@ async function loadProfiles() {
         if (res.success) {
             await loadProfiles();
             if (el.profileSelect) el.profileSelect.value = name.trim();
+            showStudioToast(`Saved workflow "${name.trim()}"!`, "success");
+        } else {
+            showStudioToast("Save failed: " + (res.message || "Unknown error"), "error");
         }
+    });
+
+    el.btnExportWorkflow?.addEventListener("click", () => {
+        exportStudioWorkflow();
+    });
+
+    el.btnImportWorkflow?.addEventListener("click", () => {
+        el.workflowFileInput?.click();
+    });
+
+    el.workflowFileInput?.addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            await importStudioWorkflowFile(file);
+        }
+    });
+
+    el.btnNewWorkflow?.addEventListener("click", () => {
+        resetDefaultStudioWorkflow();
     });
 
     el.btnDeleteProfile?.addEventListener("click", async () => {
         const name = el.profileSelect?.value;
         if (!name) return;
-        if (!confirm(`Delete profile "${name}"?`)) return;
+        if (!confirm(`Delete workflow "${name}"?`)) return;
 
         const resp = await fetch("/zombiehaus/studio/profiles/delete", {
             method: "POST",
@@ -1922,8 +1965,291 @@ async function loadProfiles() {
         const res = await resp.json();
         if (res.success) {
             await loadProfiles();
+            showStudioToast(`Deleted workflow "${name}".`, "info");
         } else {
             alert(res.message || "Failed to delete profile (built-in profiles cannot be deleted)");
+        }
+    });
+}
+
+function showStudioToast(message, type = "info") {
+    let container = document.getElementById("zh-toast-container");
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "zh-toast-container";
+        container.style.cssText = "position: fixed; bottom: 24px; right: 24px; z-index: 99999; display: flex; flex-direction: column; gap: 8px; pointer-events: none;";
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement("div");
+    const colors = {
+        info: "var(--accent-cyan)",
+        success: "var(--accent-green)",
+        error: "#ff4d4f"
+    };
+    const accent = colors[type] || colors.info;
+    toast.style.cssText = `
+        background: rgba(18, 22, 31, 0.95);
+        color: #e2e8f0;
+        border-left: 3px solid ${accent};
+        border-radius: 6px;
+        padding: 10px 16px;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 500;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+        backdrop-filter: blur(8px);
+        transform: translateY(10px);
+        opacity: 0;
+        transition: all 0.25s ease-out;
+        pointer-events: auto;
+    `;
+    toast.textContent = message;
+    container.appendChild(toast);
+    requestAnimationFrame(() => {
+        toast.style.transform = "translateY(0)";
+        toast.style.opacity = "1";
+    });
+    setTimeout(() => {
+        toast.style.transform = "translateY(10px)";
+        toast.style.opacity = "0";
+        setTimeout(() => toast.remove(), 250);
+    }, 3500);
+}
+
+function exportStudioWorkflow() {
+    const name = el.profileSelect?.value || "Studio_Workflow";
+    const data = gatherCurrentProfileData();
+    const exportObj = {
+        app: "Zombiehaus Studio",
+        version: "1.0",
+        type: "studio_workflow",
+        name: name,
+        created_at: new Date().toISOString(),
+        workflow: data
+    };
+    const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `zombiehaus_workflow_${name.replace(/[^\w.-]/g, "_")}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showStudioToast(`Exported workflow: "${name}"`, "success");
+}
+
+function extractWorkflowFromPng(arrayBuffer) {
+    try {
+        const dataView = new DataView(arrayBuffer);
+        if (dataView.getUint32(0) !== 0x89504E47 || dataView.getUint32(4) !== 0x0D0A1A0A) {
+            return null;
+        }
+        let offset = 8;
+        const utf8Decoder = new TextDecoder("utf-8");
+        while (offset < arrayBuffer.byteLength - 8) {
+            const length = dataView.getUint32(offset);
+            const type = utf8Decoder.decode(new Uint8Array(arrayBuffer, offset + 4, 4));
+            if (type === "tEXt" || type === "iTXt") {
+                const chunkData = new Uint8Array(arrayBuffer, offset + 8, length);
+                let nullIdx = -1;
+                for (let i = 0; i < chunkData.length; i++) {
+                    if (chunkData[i] === 0) {
+                        nullIdx = i;
+                        break;
+                    }
+                }
+                if (nullIdx !== -1) {
+                    const keyword = utf8Decoder.decode(chunkData.subarray(0, nullIdx));
+                    if (keyword === "extra_pnginfo" || keyword === "workflow") {
+                        let textStr = null;
+                        if (type === "tEXt") {
+                            textStr = utf8Decoder.decode(chunkData.subarray(nullIdx + 1));
+                        } else {
+                            const compFlag = chunkData[nullIdx + 1];
+                            if (compFlag === 0) {
+                                let curr = nullIdx + 3;
+                                while (curr < chunkData.length && chunkData[curr] !== 0) curr++;
+                                curr++;
+                                while (curr < chunkData.length && chunkData[curr] !== 0) curr++;
+                                curr++;
+                                textStr = utf8Decoder.decode(chunkData.subarray(curr));
+                            }
+                        }
+                        if (textStr) {
+                            const parsed = JSON.parse(textStr);
+                            if (parsed.zombiehaus_studio_workflow) {
+                                return parsed.zombiehaus_studio_workflow;
+                            }
+                        }
+                    }
+                }
+            }
+            offset += 12 + length;
+        }
+    } catch (e) {
+        console.warn("Failed parsing PNG chunk metadata:", e);
+    }
+    return null;
+}
+
+async function importStudioWorkflowFile(file) {
+    if (!file) return;
+    try {
+        let workflowData = null;
+        let workflowName = file.name.replace(/\.[^/.]+$/, "");
+
+        if (file.name.endsWith(".png")) {
+            const buf = await file.arrayBuffer();
+            workflowData = extractWorkflowFromPng(buf);
+            if (!workflowData) {
+                showStudioToast("No Zombiehaus Studio Workflow found in PNG metadata.", "error");
+                return;
+            }
+        } else {
+            const text = await file.text();
+            const parsed = JSON.parse(text);
+            if (parsed.workflow) {
+                workflowData = parsed.workflow;
+                if (parsed.name) workflowName = parsed.name;
+            } else if (parsed.architecture || parsed.mode || parsed.checkpoint_name) {
+                workflowData = parsed;
+            } else {
+                showStudioToast("Unrecognized workflow JSON format.", "error");
+                return;
+            }
+        }
+
+        if (workflowData) {
+            applyProfileData(workflowData);
+
+            if (el.profileSelect) {
+                let optExists = false;
+                for (const opt of el.profileSelect.options) {
+                    if (opt.value === workflowName) {
+                        opt.selected = true;
+                        optExists = true;
+                        break;
+                    }
+                }
+                if (!optExists) {
+                    const opt = document.createElement("option");
+                    opt.value = workflowName;
+                    opt.textContent = `📁 ${workflowName} (Imported)`;
+                    opt.selected = true;
+                    el.profileSelect.insertBefore(opt, el.profileSelect.firstChild);
+                }
+            }
+
+            showStudioToast(`Imported workflow "${workflowName}" successfully!`, "success");
+        }
+    } catch (err) {
+        console.error("Failed to import studio workflow:", err);
+        showStudioToast("Failed to import workflow: " + err.message, "error");
+    } finally {
+        if (el.workflowFileInput) el.workflowFileInput.value = "";
+    }
+}
+
+function resetDefaultStudioWorkflow() {
+    if (!confirm("Reset Studio to a clean default workflow? Any unsaved modifications will be cleared.")) return;
+    const defaultData = {
+        mode: "image",
+        architecture: "chroma",
+        checkpoint_name: "None",
+        unet_name: "None",
+        weight_dtype: "default",
+        clip_name: "disabled",
+        clip_type: "flux2",
+        vae_name: "None",
+        chroma_shift: 3.0,
+        guidance: 3.5,
+        loras: [],
+        width: 1024,
+        height: 1024,
+        batch: 1,
+        seed: 0,
+        steps: 30,
+        cfg: 3.5,
+        sampler_name: "euler_ancestral",
+        scheduler: "simple",
+        enable_hires: false,
+        hires_scale: 1.5,
+        hires_denoise: 0.35,
+        enable_detailer: true,
+        detailer_confidence: 0.3,
+        detailers: [{ model: "face_yolov8m.pt", denoise: 0.45, steps: 20 }],
+        enable_dewax: false,
+        dewax_grain: 0.05,
+        enable_restormer: false,
+        restormer_task: "Real-World Image Denoising",
+        enable_upscale: false,
+        upscale_model: "None",
+        positive_prompt: "",
+        negative_prompt: "",
+        mute_negative: false,
+        prompt_style: "Natural Prose (FLUX / SD3)",
+        script_text: "",
+        style_movement: "none_photorealistic",
+        color_palette: "natural_balance",
+        style_strength: 1.0,
+        glamour_enable: false,
+        glamour_age: 0.0,
+        glamour_smile: 0.0,
+        glamour_skin: 0.0,
+        glamour_ethnicity: "keep_original",
+        glamour_hair: "keep_original",
+        glamour_eyes: "keep_original",
+        glamour_breasts: 0.0,
+        glamour_waist: 0.0,
+        glamour_hips: 0.0,
+        glamour_muscle: 0.0,
+        i2i_task: "wardrobe",
+        i2i_garment_preset: "all_garments",
+        i2i_grow_mask: 16,
+        i2i_blur_mask: 8,
+        i2i_fidelity: 75,
+        i2i_positive: "",
+        i2i_negative: ""
+    };
+    applyProfileData(defaultData);
+    if (el.profileSelect) {
+        let newOpt = el.profileSelect.querySelector("option[value='Untitled Workflow']");
+        if (!newOpt) {
+            newOpt = document.createElement("option");
+            newOpt.value = "Untitled Workflow";
+            newOpt.textContent = "📄 Untitled Workflow";
+            el.profileSelect.insertBefore(newOpt, el.profileSelect.firstChild);
+        }
+        newOpt.selected = true;
+    }
+    showStudioToast("Created new default workflow.", "info");
+}
+
+function setupGlobalWorkflowDrop() {
+    window.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    });
+    window.addEventListener("drop", async (e) => {
+        const files = e.dataTransfer?.files;
+        if (!files || files.length === 0) return;
+        const file = files[0];
+        if (file.name.endsWith(".json")) {
+            e.preventDefault();
+            e.stopPropagation();
+            await importStudioWorkflowFile(file);
+        } else if (file.type.startsWith("image/") && currentMode !== "image_edit") {
+            if (file.name.endsWith(".png")) {
+                const buf = await file.arrayBuffer();
+                const wf = extractWorkflowFromPng(buf);
+                if (wf) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    applyProfileData(wf);
+                    showStudioToast(`Loaded workflow from image "${file.name}"!`, "success");
+                }
+            }
         }
     });
 }
@@ -1931,12 +2257,20 @@ async function loadProfiles() {
 function applyProfileData(data) {
     if (!data) return;
     const setVal = (elInput, val) => {
-        if (elInput && val !== undefined) {
+        if (elInput && val !== undefined && val !== null) {
             elInput.value = val;
             elInput.dispatchEvent(new Event("input"));
             elInput.dispatchEvent(new Event("change"));
         }
     };
+    const setChecked = (elCheck, val) => {
+        if (elCheck && val !== undefined && val !== null) {
+            elCheck.checked = Boolean(val);
+            elCheck.dispatchEvent(new Event("change"));
+        }
+    };
+
+    // 1. Architecture & Models
     setVal(el.architecture, data.architecture);
     setVal(el.checkpoint, data.checkpoint_name);
     setVal(el.unet, data.unet_name);
@@ -1945,21 +2279,50 @@ function applyProfileData(data) {
     setVal(el.clipType, data.clip_type);
     setVal(el.vae, data.vae_name);
     setVal(el.chromaShift, data.chroma_shift);
-    setVal(el.steps, data.steps);
-    setVal(el.cfg, data.cfg);
-    setVal(el.sampler, data.sampler_name);
-    setVal(el.scheduler, data.scheduler);
+    setVal(el.guidance, data.guidance);
     if (el.badgeArch && data.architecture) {
         el.badgeArch.textContent = data.architecture.toUpperCase();
     }
 
+    // 2. LoRA Stack
     if (Array.isArray(data.loras) && el.loraStackContainer) {
         el.loraStackContainer.innerHTML = "";
         for (const l of data.loras) {
-            addLoraItem(l.name, l.strength !== undefined ? l.strength : 1.0);
+            const lName = typeof l === "string" ? l : (l.name || "None");
+            const lStr = typeof l === "object" && l.strength !== undefined ? l.strength : 1.0;
+            addLoraItem(lName, lStr);
         }
         if (data.loras.length === 0) addLoraItem("None", 1.0);
     }
+
+    // 3. Resolution & KSampler
+    setVal(el.width, data.width);
+    setVal(el.height, data.height);
+    setVal(el.batch, data.batch);
+    if (data.seed !== undefined) setVal(el.seed, data.seed);
+    setVal(el.steps, data.steps);
+    setVal(el.cfg, data.cfg);
+    setVal(el.sampler, data.sampler_name);
+    setVal(el.scheduler, data.scheduler);
+
+    if (el.badgeRes && data.width && data.height) {
+        el.badgeRes.textContent = `${data.width} × ${data.height}`;
+        document.querySelectorAll(".zh-ratio-btn").forEach(btn => {
+            const bw = btn.getAttribute("data-w");
+            const bh = btn.getAttribute("data-h");
+            if (bw === String(data.width) && bh === String(data.height)) {
+                document.querySelectorAll(".zh-ratio-btn").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+            }
+        });
+    }
+
+    // 4. Modular Post-Processing Stages
+    if (data.enable_hires !== undefined) setChecked(el.enableHires, data.enable_hires);
+    setVal(el.hiresScale, data.hires_scale);
+    setVal(el.hiresDenoise, data.hires_denoise);
+
+    if (data.enable_detailer !== undefined) setChecked(el.enableDetailer, data.enable_detailer);
     if (data.detailer_confidence !== undefined) {
         const confNum = document.getElementById("detailer-global-confidence");
         const confSlider = document.getElementById("detailer-global-confidence-slider");
@@ -1973,10 +2336,100 @@ function applyProfileData(data) {
         }
         if (data.detailers.length === 0) addDetailerItem({ model: "face_yolov8m.pt", denoise: 0.45, steps: 20 });
     }
+
+    if (data.enable_dewax !== undefined) setChecked(el.enableDewax, data.enable_dewax);
+    setVal(el.dewaxGrain, data.dewax_grain);
+
+    if (data.enable_restormer !== undefined) setChecked(el.enableRestormer, data.enable_restormer);
+    setVal(el.restormerTask, data.restormer_task);
+
+    if (data.enable_upscale !== undefined) setChecked(el.enableUpscale, data.enable_upscale);
+    setVal(el.upscaleModel, data.upscale_model);
+
+    // 5. Prompts & Scripts
+    if (data.positive_prompt !== undefined) {
+        setVal(el.positiveEditor, data.positive_prompt);
+        if (typeof updateSyntaxHighlighting === "function") updateSyntaxHighlighting(el.positiveEditor, el.positiveBackdrop);
+    }
+    if (data.negative_prompt !== undefined) {
+        setVal(el.negativeEditor, data.negative_prompt);
+        if (typeof updateSyntaxHighlighting === "function") updateSyntaxHighlighting(el.negativeEditor, el.negativeBackdrop);
+    }
+    if (data.mute_negative !== undefined) setChecked(el.muteNegativeCheckbox, data.mute_negative);
+    setVal(el.promptStyle, data.prompt_style);
+    if (data.script_text !== undefined) {
+        setVal(el.scriptEditor, data.script_text);
+        if (typeof updateSyntaxHighlighting === "function") updateSyntaxHighlighting(el.scriptEditor, el.scriptBackdrop);
+    }
+
+    // 6. Style Harmonizer
+    setVal(el.styleMovementSelect, data.style_movement);
+    setVal(el.colorPaletteSelect, data.color_palette);
+    setVal(el.styleStrengthSlider, data.style_strength);
+
+    // 7. Glamour & Body Sculpting
+    if (data.glamour_enable !== undefined) setChecked(el.glamourEnable, data.glamour_enable);
+    setVal(el.glamourAge, data.glamour_age);
+    setVal(el.glamourSmile, data.glamour_smile);
+    setVal(el.glamourSkin, data.glamour_skin);
+    setVal(el.glamourEthnicity, data.glamour_ethnicity);
+    setVal(el.glamourHair, data.glamour_hair);
+    setVal(el.glamourEyes, data.glamour_eyes);
+    setVal(el.glamourBreasts, data.glamour_breasts);
+    setVal(el.glamourWaist, data.glamour_waist);
+    setVal(el.glamourHips, data.glamour_hips);
+    setVal(el.glamourMuscle, data.glamour_muscle);
+
+    // 8. Image Edit / Wardrobe
+    if (data.i2i_task && typeof setI2iTask === "function") {
+        setI2iTask(data.i2i_task);
+        document.querySelectorAll(".zh-i2i-mode-pills [data-i2i-task]").forEach(tab => {
+            if (tab.getAttribute("data-i2i-task") === data.i2i_task) {
+                document.querySelectorAll(".zh-i2i-mode-pills [data-i2i-task]").forEach(t => t.classList.remove("active"));
+                tab.classList.add("active");
+            }
+        });
+    }
+    setVal(el.i2iGarmentPreset, data.i2i_garment_preset);
+    setVal(el.i2iGrowMask, data.i2i_grow_mask);
+    setVal(el.i2iBlurMask, data.i2i_blur_mask);
+    setVal(el.i2iFidelitySlider, data.i2i_fidelity);
+    setVal(el.i2iPositiveEditor, data.i2i_positive);
+    setVal(el.i2iNegativeEditor, data.i2i_negative);
+
+    // 9. Video Settings
+    setVal(el.videoArch, data.video_arch);
+    setVal(el.videoModel, data.video_model);
+    setVal(el.videoFps, data.video_fps);
+    setVal(el.videoCodec, data.video_codec);
+    setVal(el.videoMotion, data.video_motion);
+    setVal(el.videoDenoise, data.video_denoise);
+    setVal(el.videoDuration, data.video_duration);
+    setVal(el.videoSteps, data.video_steps);
+    setVal(el.videoPromptEditor, data.video_prompt);
+
+    // 10. Music Settings
+    setVal(el.musicGenre, data.music_genre);
+    setVal(el.musicVocalStyle, data.music_vocal_style);
+    setVal(el.musicKey, data.music_key);
+    setVal(el.musicBpm, data.music_bpm);
+    if (data.music_mastering !== undefined) setChecked(el.musicMastering, data.music_mastering);
+    if (data.music_stereo_3d !== undefined) setChecked(el.musicStereo3D, data.music_stereo_3d);
+    setVal(el.musicTitle, data.music_title);
+    setVal(el.musicStyleTags, data.music_style_tags);
+    setVal(el.musicLyricsEditor, data.music_lyrics);
+
+    // 11. Active Mode
+    if (data.mode && data.mode !== currentMode) {
+        const modeBtn = document.getElementById(`mode-btn-${data.mode}`);
+        modeBtn?.click();
+    }
 }
 
 function gatherCurrentProfileData() {
     return {
+        // Mode & Architecture
+        mode: currentMode,
         architecture: el.architecture?.value || "chroma",
         checkpoint_name: el.checkpoint?.value || "None",
         unet_name: el.unet?.value || "None",
@@ -1985,13 +2438,94 @@ function gatherCurrentProfileData() {
         clip_type: el.clipType?.value || "flux2",
         vae_name: el.vae?.value || "None",
         chroma_shift: parseFloat(el.chromaShift?.value || "3.0"),
+        guidance: parseFloat(el.guidance?.value || "3.5"),
+
+        // LoRAs
+        loras: getLoraStackData(),
+
+        // Canvas & KSampler
+        width: parseInt(el.width?.value || "1024", 10),
+        height: parseInt(el.height?.value || "1024", 10),
+        batch: parseInt(el.batch?.value || "1", 10),
+        seed: parseInt(el.seed?.value || "0", 10),
         steps: parseInt(el.steps?.value || "30", 10),
         cfg: parseFloat(el.cfg?.value || "3.5"),
         sampler_name: el.sampler?.value || "euler_ancestral",
         scheduler: el.scheduler?.value || "simple",
-        loras: getLoraStackData(),
+
+        // Modular Post-processing Stages
+        enable_hires: el.enableHires?.checked ?? false,
+        hires_scale: parseFloat(el.hiresScale?.value || "1.5"),
+        hires_denoise: parseFloat(el.hiresDenoise?.value || "0.35"),
+
+        enable_detailer: el.enableDetailer?.checked ?? true,
+        detailer_confidence: parseFloat(document.getElementById("detailer-global-confidence")?.value || "0.3"),
         detailers: getDetailerStackData(),
-        detailer_confidence: parseFloat(document.getElementById("detailer-global-confidence")?.value || "0.3")
+
+        enable_dewax: el.enableDewax?.checked ?? false,
+        dewax_grain: parseFloat(el.dewaxGrain?.value || "0.05"),
+
+        enable_restormer: el.enableRestormer?.checked ?? false,
+        restormer_task: el.restormerTask?.value || "Real-World Image Denoising",
+
+        enable_upscale: el.enableUpscale?.checked ?? false,
+        upscale_model: el.upscaleModel?.value || "None",
+
+        // Prompts & Script
+        positive_prompt: el.positiveEditor?.value || "",
+        negative_prompt: el.negativeEditor?.value || "",
+        mute_negative: el.muteNegativeCheckbox?.checked ?? false,
+        prompt_style: el.promptStyle?.value || "Natural Prose (FLUX / SD3)",
+        script_text: el.scriptEditor?.value || "",
+
+        // Style Harmonizer
+        style_movement: el.styleMovementSelect?.value || "none_photorealistic",
+        color_palette: el.colorPaletteSelect?.value || "natural_balance",
+        style_strength: parseFloat(el.styleStrengthSlider?.value || "1.0"),
+
+        // Glamour & Anatomy Sculpting
+        glamour_enable: el.glamourEnable?.checked ?? false,
+        glamour_age: parseFloat(el.glamourAge?.value || "0.0"),
+        glamour_smile: parseFloat(el.glamourSmile?.value || "0.0"),
+        glamour_skin: parseFloat(el.glamourSkin?.value || "0.0"),
+        glamour_ethnicity: el.glamourEthnicity?.value || "keep_original",
+        glamour_hair: el.glamourHair?.value || "keep_original",
+        glamour_eyes: el.glamourEyes?.value || "keep_original",
+        glamour_breasts: parseFloat(el.glamourBreasts?.value || "0.0"),
+        glamour_waist: parseFloat(el.glamourWaist?.value || "0.0"),
+        glamour_hips: parseFloat(el.glamourHips?.value || "0.0"),
+        glamour_muscle: parseFloat(el.glamourMuscle?.value || "0.0"),
+
+        // Image Edit / Wardrobe
+        i2i_task: i2iCurrentTask || "wardrobe",
+        i2i_garment_preset: el.i2iGarmentPreset?.value || "all_garments",
+        i2i_grow_mask: parseInt(el.i2iGrowMask?.value || "16", 10),
+        i2i_blur_mask: parseInt(el.i2iBlurMask?.value || "8", 10),
+        i2i_fidelity: parseFloat(el.i2iFidelitySlider?.value || "75"),
+        i2i_positive: el.i2iPositiveEditor?.value || "",
+        i2i_negative: el.i2iNegativeEditor?.value || "",
+
+        // Video Settings
+        video_arch: el.videoArch?.value || "wan21",
+        video_model: el.videoModel?.value || "None",
+        video_fps: parseInt(el.videoFps?.value || "30", 10),
+        video_codec: el.videoCodec?.value || "h264",
+        video_motion: parseFloat(el.videoMotion?.value || "1.0"),
+        video_denoise: parseFloat(el.videoDenoise?.value || "1.0"),
+        video_duration: parseInt(el.videoDuration?.value || "5", 10),
+        video_steps: parseInt(el.videoSteps?.value || "30", 10),
+        video_prompt: el.videoPromptEditor?.value || "",
+
+        // Music Settings
+        music_genre: el.musicGenre?.value || "Pop / Dance Anthem",
+        music_vocal_style: el.musicVocalStyle?.value || "Female Belter",
+        music_key: el.musicKey?.value || "A minor",
+        music_bpm: parseInt(el.musicBpm?.value || "128", 10),
+        music_mastering: el.musicMastering?.checked ?? true,
+        music_stereo_3d: el.musicStereo3D?.checked ?? true,
+        music_title: el.musicTitle?.value || "",
+        music_style_tags: el.musicStyleTags?.value || "",
+        music_lyrics: el.musicLyricsEditor?.value || ""
     };
 }
 
@@ -2650,12 +3184,18 @@ async function triggerGenerate() {
     }
 
     try {
+        const studioWorkflowPayload = gatherCurrentProfileData();
         const resp = await fetch("/prompt", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 client_id: clientId,
-                prompt: promptGraph
+                prompt: promptGraph,
+                extra_data: {
+                    extra_pnginfo: {
+                        zombiehaus_studio_workflow: studioWorkflowPayload
+                    }
+                }
             })
         });
         const data = await resp.json();

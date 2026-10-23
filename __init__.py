@@ -200,12 +200,23 @@ async def delete_studio_profile_api(request):
         return web.json_response({"success": False, "message": str(e)})
 
 @server.PromptServer.instance.routes.get("/zombiehaus/studio")
+@server.PromptServer.instance.routes.get("/zombiehaus/studio/")
 async def serve_studio_page(request):
     """Serve the standalone Zombiehaus Studio web interface."""
     html_path = os.path.join(os.path.dirname(__file__), "web", "studio", "index.html")
     if os.path.isfile(html_path):
         return web.FileResponse(html_path)
     return web.Response(text="Zombiehaus Studio index.html not found", status=404)
+
+@server.PromptServer.instance.routes.get("/zombiehaus/studio/{filename:.*}")
+async def serve_studio_static(request):
+    """Serve static assets directly under /zombiehaus/studio/."""
+    filename = request.match_info.get("filename", "")
+    base_dir = os.path.join(os.path.dirname(__file__), "web", "studio")
+    file_path = os.path.abspath(os.path.join(base_dir, filename))
+    if file_path.startswith(base_dir) and os.path.isfile(file_path):
+        return web.FileResponse(file_path)
+    return web.Response(status=404)
 
 @server.PromptServer.instance.routes.post("/zombiehaus/studio/open")
 async def open_studio_in_browser(request):

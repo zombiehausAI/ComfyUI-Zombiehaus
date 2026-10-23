@@ -19,7 +19,7 @@ A comprehensive collection of professional-grade custom nodes for ComfyUI, featu
 ComfyUI-Zombiehaus by zombiehaus provides custom nodes organized into six categories:
 
 **▥ Workspaces, UI & Flagship Studios**
-- [Zombiehaus Studio Nodes (Chroma & Script Studio)](docs/ZombiehausStudio.md) - Zero-wiring all-in-one flagship studio mega-nodes consolidating model loading, prompt text studio, 16-channel latents, flow-matching timestep shift, dynamic guidance, KSampler, Hires Fix, YOLO detailing, De-Wax texture recovery, Restormer, and super-resolution upscaling with modular enable/disable toggles.
+- [Zombiehaus Studio (Workstation & Flagship Modes)](docs/ZombiehausStudio.md) - Standalone, zero-wiring full-screen creative suite with 6 production modes: Screenplay Direction, Image Generation, Image Edit (i2i / SegFormer Wardrobe Try-On / Photoreal Polish), Video DiT Synthesis, Suno-grade Vocal Music Production, and List/Wildcard Curation.
 - [Zombiehaus Card Theme & Theme Studio](docs/ZombiehausCardTheme.md) - Tactile card node re-skinning for ComfyUI with 100% native wire routing, active execution glow pulses, dynamic text editor proportions, 19" studio equipment racks for minimized nodes, and an in-app Theme Studio for custom color palettes and presets.
 - [Zombiehaus Deck Studio](docs/ZombiehausDeckStudio.md) - Modular, column-and-card workspace interface organizing ComfyUI nodes into 5 logical production stage columns with tactile interactive cards, no-spaghetti smart wire connections, and real-time execution feedback.
 - [Zombiehaus Image Tray](docs/ZombiehausImageTray.md) - Dockable, real-time bottom filmstrip stream with one-click workflow restoration, LoadImage node routing, clipboard export, and full-screen metadata lightbox.

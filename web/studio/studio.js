@@ -17,6 +17,7 @@ const el = {
     // Mode buttons
     btnScreenplay: document.getElementById("mode-btn-screenplay"),
     btnPrompt: document.getElementById("mode-btn-prompt"),
+    btnI2i: document.getElementById("mode-btn-i2i"),
     btnVideo: document.getElementById("mode-btn-video"),
     btnMusic: document.getElementById("mode-btn-music"),
     btnLists: document.getElementById("mode-btn-lists"),
@@ -24,9 +25,35 @@ const el = {
     // Views
     viewScreenplay: document.getElementById("view-screenplay"),
     viewPrompt: document.getElementById("view-prompt"),
+    viewI2i: document.getElementById("view-i2i"),
     viewVideo: document.getElementById("view-video"),
     viewMusic: document.getElementById("view-music"),
     viewLists: document.getElementById("view-lists"),
+
+    // Image Edit (i2i / Wardrobe) controls
+    i2iDropzone: document.getElementById("i2i-dropzone"),
+    i2iFileInput: document.getElementById("i2i-file-input"),
+    i2iDropPlaceholder: document.getElementById("i2i-drop-placeholder"),
+    i2iPreviewContainer: document.getElementById("i2i-preview-container"),
+    i2iPreviewImg: document.getElementById("i2i-preview-img"),
+    i2iInfoBadge: document.getElementById("i2i-info-badge"),
+    btnI2iClear: document.getElementById("btn-i2i-clear"),
+    i2iPaneWardrobe: document.getElementById("i2i-pane-wardrobe"),
+    i2iPaneGeneral: document.getElementById("i2i-pane-general"),
+    i2iGarmentPreset: document.getElementById("i2i-garment-preset"),
+    i2iGrowMask: document.getElementById("i2i-grow-mask"),
+    valI2iGrowMask: document.getElementById("val-i2i-grow-mask"),
+    i2iBlurMask: document.getElementById("i2i-blur-mask"),
+    valI2iBlurMask: document.getElementById("val-i2i-blur-mask"),
+    i2iFidelitySlider: document.getElementById("i2i-fidelity-slider"),
+    valI2iFidelity: document.getElementById("val-i2i-fidelity"),
+    i2iFidelityLabel: document.getElementById("i2i-fidelity-label"),
+    i2iFidelitySummary: document.getElementById("i2i-fidelity-summary"),
+    i2iPositiveEditor: document.getElementById("i2i-positive-editor"),
+    i2iPositiveBackdrop: document.getElementById("i2i-positive-backdrop"),
+    i2iNegativeEditor: document.getElementById("i2i-negative-editor"),
+    i2iNegativeBackdrop: document.getElementById("i2i-negative-backdrop"),
+    i2iQuickTags: document.getElementById("i2i-quick-tags"),
 
     // Scale & Curator controls
     uiScaleSelect: document.getElementById("ui-scale-select"),
@@ -255,6 +282,7 @@ async function initStudio() {
     setupListCurator();
     setupMusicStudio();
     setupVideoStudio();
+    setupImageEditStudio();
     setupHotkeys();
 
     await loadModelAssets();
@@ -825,8 +853,8 @@ function setupModeSwitcher() {
         currentMode = mode;
 
         // Mode button active states
-        [el.btnScreenplay, el.btnPrompt, el.btnVideo, el.btnMusic, el.btnLists].forEach(b => b?.classList.remove("active"));
-        [el.viewScreenplay, el.viewPrompt, el.viewVideo, el.viewMusic, el.viewLists].forEach(v => v?.classList.remove("active"));
+        [el.btnScreenplay, el.btnPrompt, el.btnI2i, el.btnVideo, el.btnMusic, el.btnLists].forEach(b => b?.classList.remove("active"));
+        [el.viewScreenplay, el.viewPrompt, el.viewI2i, el.viewVideo, el.viewMusic, el.viewLists].forEach(v => v?.classList.remove("active"));
 
         // Engine rack active states
         if (el.engineRackImage) el.engineRackImage.style.display = "none";
@@ -855,6 +883,15 @@ function setupModeSwitcher() {
             if (el.enginePanelTitle) el.enginePanelTitle.textContent = "🎛️ Engine & Models";
             if (el.renderPanelTitle) el.renderPanelTitle.textContent = "⚡ Render Pipeline";
             if (el.genBtnLabel) el.genBtnLabel.textContent = "GENERATE IMAGE";
+            if (el.badgeArch) el.badgeArch.textContent = (el.architecture?.value || "CHROMA").toUpperCase();
+        } else if (mode === "i2i") {
+            el.btnI2i?.classList.add("active");
+            el.viewI2i?.classList.add("active");
+            if (el.engineRackImage) el.engineRackImage.style.display = "block";
+            if (el.renderSettingsImage) el.renderSettingsImage.style.display = "block";
+            if (el.enginePanelTitle) el.enginePanelTitle.textContent = "🎛️ Engine & Models";
+            if (el.renderPanelTitle) el.renderPanelTitle.textContent = "⚡ Render Pipeline";
+            if (el.genBtnLabel) el.genBtnLabel.textContent = i2iCurrentTask === "wardrobe" ? "CHANGE CLOTHES" : "EDIT IMAGE";
             if (el.badgeArch) el.badgeArch.textContent = (el.architecture?.value || "CHROMA").toUpperCase();
         } else if (mode === "video") {
             el.btnVideo?.classList.add("active");
@@ -889,6 +926,7 @@ function setupModeSwitcher() {
 
     el.btnScreenplay?.addEventListener("click", () => setMode("screenplay"));
     el.btnPrompt?.addEventListener("click", () => setMode("prompt"));
+    el.btnI2i?.addEventListener("click", () => setMode("i2i"));
     el.btnVideo?.addEventListener("click", () => setMode("video"));
     el.btnMusic?.addEventListener("click", () => setMode("music"));
     el.btnLists?.addEventListener("click", () => setMode("lists"));
@@ -1450,6 +1488,307 @@ function setupHotkeys() {
     el.btnInterrupt?.addEventListener("click", triggerInterrupt);
 }
 
+// ── Image Edit (i2i / Wardrobe) Studio Setup ─────────────────────────────────
+
+let i2iCurrentTask = "wardrobe";
+let i2iUploadedFilename = null;
+
+function setupImageEditStudio() {
+    // Mode tabs: wardrobe, realism, style, refine
+    const tabs = document.querySelectorAll(".zh-i2i-mode-pills [data-i2i-task]");
+    tabs.forEach(tab => {
+        tab.addEventListener("click", () => {
+            tabs.forEach(t => t.classList.remove("active"));
+            tab.classList.add("active");
+            const task = tab.getAttribute("data-i2i-task");
+            setI2iTask(task);
+        });
+    });
+
+    // File upload / dropzone
+    if (el.i2iDropzone && el.i2iFileInput) {
+        el.i2iDropzone.addEventListener("click", (e) => {
+            if (e.target.closest("#btn-i2i-clear")) return;
+            el.i2iFileInput.click();
+        });
+
+        el.i2iFileInput.addEventListener("change", (e) => {
+            if (e.target.files && e.target.files[0]) {
+                handleI2iFileUpload(e.target.files[0]);
+            }
+        });
+
+        el.i2iDropzone.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            el.i2iDropzone.classList.add("drag-over");
+        });
+
+        ["dragleave", "dragend"].forEach(evt => {
+            el.i2iDropzone.addEventListener(evt, () => el.i2iDropzone.classList.remove("drag-over"));
+        });
+
+        el.i2iDropzone.addEventListener("drop", (e) => {
+            e.preventDefault();
+            el.i2iDropzone.classList.remove("drag-over");
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+                handleI2iFileUpload(e.dataTransfer.files[0]);
+            }
+        });
+    }
+
+    el.btnI2iClear?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        clearI2iImage();
+    });
+
+    // Mask Grow & Blur sync
+    if (el.i2iGrowMask && el.valI2iGrowMask) {
+        el.i2iGrowMask.addEventListener("input", () => {
+            el.valI2iGrowMask.value = el.i2iGrowMask.value;
+        });
+        el.valI2iGrowMask.addEventListener("input", () => {
+            el.i2iGrowMask.value = el.valI2iGrowMask.value;
+        });
+    }
+    if (el.i2iBlurMask && el.valI2iBlurMask) {
+        el.i2iBlurMask.addEventListener("input", () => {
+            el.valI2iBlurMask.value = el.i2iBlurMask.value;
+        });
+        el.valI2iBlurMask.addEventListener("input", () => {
+            el.i2iBlurMask.value = el.valI2iBlurMask.value;
+        });
+    }
+
+    // Fidelity slider sync & presets
+    if (el.i2iFidelitySlider && el.valI2iFidelity) {
+        const updateFidelitySummary = (val) => {
+            const v = parseFloat(val);
+            if (el.i2iFidelitySummary) {
+                if (v >= 85) {
+                    el.i2iFidelitySummary.textContent = `${v}% Fidelity: High-precision polish; preserves original structure while fixing artifacts and sharpening micro-details.`;
+                } else if (v >= 65) {
+                    el.i2iFidelitySummary.textContent = `${v}% Fidelity: Preserves subject pose and composition while re-rendering photorealistic textures, skin pores, and lifelike lighting.`;
+                } else if (v >= 40) {
+                    el.i2iFidelitySummary.textContent = `${v}% Fidelity: Balanced re-imagining; significant restyle or artistic transformation while keeping overall scene layout.`;
+                } else {
+                    el.i2iFidelitySummary.textContent = `${v}% Fidelity: Creative divergence; loose structural reference with high artistic freedom.`;
+                }
+            }
+        };
+
+        el.i2iFidelitySlider.addEventListener("input", () => {
+            el.valI2iFidelity.value = el.i2iFidelitySlider.value;
+            updateFidelitySummary(el.i2iFidelitySlider.value);
+        });
+        el.valI2iFidelity.addEventListener("input", () => {
+            el.i2iFidelitySlider.value = el.valI2iFidelity.value;
+            updateFidelitySummary(el.valI2iFidelity.value);
+        });
+
+        document.querySelectorAll(".zh-fidelity-quick-rack [data-fidelity]").forEach(btn => {
+            btn.addEventListener("click", () => {
+                document.querySelectorAll(".zh-fidelity-quick-rack [data-fidelity]").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                const val = btn.getAttribute("data-fidelity");
+                el.i2iFidelitySlider.value = val;
+                el.valI2iFidelity.value = val;
+                updateFidelitySummary(val);
+            });
+        });
+    }
+
+    // Dynamic suggestions setup
+    bindI2iSuggestionTags();
+
+    // Negative guard chips
+    document.querySelectorAll(".zh-pedal-chip[data-i2i-neg]").forEach(btn => {
+        btn.addEventListener("click", () => {
+            btn.classList.toggle("active");
+            syncI2iNegativeGuards();
+        });
+    });
+
+    // Default wardrobe prompt
+    if (el.i2iPositiveEditor && !el.i2iPositiveEditor.value) {
+        el.i2iPositiveEditor.value = "haute couture silk evening gown, elegant, tailored, luxurious fabric";
+    }
+}
+
+async function handleI2iFileUpload(file) {
+    if (!file || !file.type.startsWith("image/")) {
+        alert("Please select a valid image file (PNG, JPG, WEBP).");
+        return;
+    }
+
+    // Local thumbnail preview immediately
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        if (el.i2iPreviewImg) {
+            el.i2iPreviewImg.src = e.target.result;
+            el.i2iPreviewImg.onload = () => {
+                if (el.i2iInfoBadge) {
+                    el.i2iInfoBadge.textContent = `${el.i2iPreviewImg.naturalWidth} × ${el.i2iPreviewImg.naturalHeight}`;
+                }
+            };
+        }
+        if (el.i2iDropPlaceholder) el.i2iDropPlaceholder.style.display = "none";
+        if (el.i2iPreviewContainer) el.i2iPreviewContainer.style.display = "flex";
+    };
+    reader.readAsDataURL(file);
+
+    // Upload to ComfyUI backend
+    const formData = new FormData();
+    formData.append("image", file);
+    formData.append("overwrite", "true");
+
+    try {
+        if (el.i2iInfoBadge) el.i2iInfoBadge.textContent = "Uploading...";
+        const res = await fetch("/upload/image", {
+            method: "POST",
+            body: formData
+        });
+        if (res.ok) {
+            const data = await res.json();
+            i2iUploadedFilename = data.name;
+            if (el.i2iInfoBadge && el.i2iPreviewImg) {
+                el.i2iInfoBadge.textContent = `${el.i2iPreviewImg.naturalWidth || 1024} × ${el.i2iPreviewImg.naturalHeight || 1024} • ${data.name}`;
+            }
+        } else {
+            console.error("Failed to upload image:", res.statusText);
+            if (el.i2iInfoBadge) el.i2iInfoBadge.textContent = "Upload failed";
+        }
+    } catch (err) {
+        console.error("Error uploading image:", err);
+        if (el.i2iInfoBadge) el.i2iInfoBadge.textContent = "Upload error";
+    }
+}
+
+function clearI2iImage() {
+    i2iUploadedFilename = null;
+    if (el.i2iFileInput) el.i2iFileInput.value = "";
+    if (el.i2iPreviewImg) el.i2iPreviewImg.src = "";
+    if (el.i2iPreviewContainer) el.i2iPreviewContainer.style.display = "none";
+    if (el.i2iDropPlaceholder) el.i2iDropPlaceholder.style.display = "flex";
+}
+
+function setI2iTask(task) {
+    i2iCurrentTask = task;
+    if (task === "wardrobe") {
+        if (el.i2iPaneWardrobe) el.i2iPaneWardrobe.style.display = "block";
+        if (el.i2iPaneGeneral) el.i2iPaneGeneral.style.display = "none";
+        if (currentMode === "i2i" && el.genBtnLabel) el.genBtnLabel.textContent = "CHANGE CLOTHES";
+        updateI2iSuggestions([
+            { tag: "haute couture silk evening gown, elegant, tailored, luxurious fabric", label: "Silk Gown" },
+            { tag: "casual denim jacket over white cotton t-shirt and blue jeans", label: "Denim & Tee" },
+            { tag: "sharp black tailored tuxedo with satin lapels, white dress shirt", label: "Black Tuxedo" },
+            { tag: "leather biker jacket, silver zippers, rugged rebel chic", label: "Biker Leather" },
+            { tag: "bohemian summer floral sundress, light breezy fabric", label: "Floral Dress" }
+        ]);
+        if (!el.i2iPositiveEditor?.value) {
+            el.i2iPositiveEditor.value = "haute couture silk evening gown, elegant, tailored, luxurious fabric";
+        }
+    } else if (task === "realism") {
+        if (el.i2iPaneWardrobe) el.i2iPaneWardrobe.style.display = "none";
+        if (el.i2iPaneGeneral) el.i2iPaneGeneral.style.display = "block";
+        if (currentMode === "i2i" && el.genBtnLabel) el.genBtnLabel.textContent = "MAKE REALISTIC";
+        if (el.i2iFidelitySlider) {
+            el.i2iFidelitySlider.value = 75;
+            if (el.valI2iFidelity) el.valI2iFidelity.value = 75;
+            if (el.i2iFidelitySummary) el.i2iFidelitySummary.textContent = "75% Fidelity: Preserves subject pose and composition while re-rendering photorealistic textures, skin pores, and lifelike lighting.";
+        }
+        updateI2iSuggestions([
+            { tag: "photorealistic 8k raw photo, highly detailed skin pores, lifelike natural cinematic lighting, masterpiece, sharp focus", label: "Photoreal 8K" },
+            { tag: "hyperdetailed cinematic portrait, rembrandt lighting, shot on 35mm lens, f/1.8, fine film grain", label: "35mm Portrait" },
+            { tag: "candid street photograph, natural ambient sunlight, authentic skin texture", label: "Candid Sunlight" },
+            { tag: "studio fashion editorial portrait, crisp focus, soft diffused beauty dish lighting", label: "Studio Editorial" }
+        ]);
+        if (!el.i2iPositiveEditor?.value) {
+            el.i2iPositiveEditor.value = "photorealistic 8k raw photo, highly detailed skin pores, lifelike natural cinematic lighting, masterpiece, sharp focus";
+        }
+    } else if (task === "style") {
+        if (el.i2iPaneWardrobe) el.i2iPaneWardrobe.style.display = "none";
+        if (el.i2iPaneGeneral) el.i2iPaneGeneral.style.display = "block";
+        if (currentMode === "i2i" && el.genBtnLabel) el.genBtnLabel.textContent = "TRANSFER STYLE";
+        if (el.i2iFidelitySlider) {
+            el.i2iFidelitySlider.value = 50;
+            if (el.valI2iFidelity) el.valI2iFidelity.value = 50;
+            if (el.i2iFidelitySummary) el.i2iFidelitySummary.textContent = "50% Fidelity: Balanced re-imagining; significant restyle or artistic transformation while keeping overall scene layout.";
+        }
+        updateI2iSuggestions([
+            { tag: "cyberpunk neon synthwave style, glowing volumetric light, holographic reflections, futuristic", label: "Cyberpunk" },
+            { tag: "dark fantasy oil painting, heavy brush strokes, dramatic chiaroscuro, Frank Frazetta aesthetic", label: "Oil Painting" },
+            { tag: "90s retro anime aesthetic, cel shaded, vibrant hand-drawn colors, nostalgic film grain", label: "Retro Anime" },
+            { tag: "watercolor and ink wash painting, fluid splashes, delicate paper texture, sumi-e elegance", label: "Watercolor" }
+        ]);
+        if (!el.i2iPositiveEditor?.value) {
+            el.i2iPositiveEditor.value = "cyberpunk neon synthwave style, glowing volumetric light, holographic reflections, futuristic";
+        }
+    } else if (task === "refine") {
+        if (el.i2iPaneWardrobe) el.i2iPaneWardrobe.style.display = "none";
+        if (el.i2iPaneGeneral) el.i2iPaneGeneral.style.display = "block";
+        if (currentMode === "i2i" && el.genBtnLabel) el.genBtnLabel.textContent = "REFINE IMAGE";
+        if (el.i2iFidelitySlider) {
+            el.i2iFidelitySlider.value = 88;
+            if (el.valI2iFidelity) el.valI2iFidelity.value = 88;
+            if (el.i2iFidelitySummary) el.i2iFidelitySummary.textContent = "88% Fidelity: High-precision polish; preserves original structure while fixing artifacts and sharpening micro-details.";
+        }
+        updateI2iSuggestions([
+            { tag: "ultra-sharp high definition, enhanced micro-textures, crystal clear clarity, cleaned edges", label: "Ultra-Sharp" },
+            { tag: "color grade correction, deep rich contrast, clean shadows, cinematic balance", label: "Color Grade" },
+            { tag: "denoise artifacts, smooth transitions, crisp specular highlights", label: "Clean Specular" }
+        ]);
+        if (!el.i2iPositiveEditor?.value) {
+            el.i2iPositiveEditor.value = "ultra-sharp high definition, enhanced micro-textures, crystal clear clarity, cleaned edges";
+        }
+    }
+}
+
+function updateI2iSuggestions(items) {
+    if (!el.i2iQuickTags) return;
+    el.i2iQuickTags.innerHTML = "";
+    items.forEach(item => {
+        const btn = document.createElement("button");
+        btn.className = "zh-tag-chip";
+        btn.setAttribute("data-i2i-tag", item.tag);
+        btn.textContent = item.label;
+        btn.addEventListener("click", () => {
+            if (el.i2iPositiveEditor) {
+                const cur = el.i2iPositiveEditor.value.trim();
+                el.i2iPositiveEditor.value = cur ? `${cur}, ${item.tag}` : item.tag;
+            }
+        });
+        el.i2iQuickTags.appendChild(btn);
+    });
+}
+
+function bindI2iSuggestionTags() {
+    document.querySelectorAll("#i2i-quick-tags [data-i2i-tag]").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const tag = btn.getAttribute("data-i2i-tag");
+            if (el.i2iPositiveEditor && tag) {
+                const cur = el.i2iPositiveEditor.value.trim();
+                el.i2iPositiveEditor.value = cur ? `${cur}, ${tag}` : tag;
+            }
+        });
+    });
+}
+
+function syncI2iNegativeGuards() {
+    const guards = {
+        unreal: "cartoon, 3d render, cgi, illustration, anime, sketch, drawing, painting, bad digital art",
+        badclothes: "deformed clothing, distorted seams, ill-fitting clothes, asymmetrical collar, mismatched patterns",
+        quality: "blurry, low quality, jpeg artifacts, lowres, worst quality, pixelated, washed out"
+    };
+    const activeTokens = [];
+    document.querySelectorAll(".zh-pedal-chip[data-i2i-neg].active").forEach(btn => {
+        const type = btn.getAttribute("data-i2i-neg");
+        if (guards[type]) activeTokens.push(guards[type]);
+    });
+    if (el.i2iNegativeEditor) {
+        el.i2iNegativeEditor.value = activeTokens.join(", ");
+    }
+}
+
 // ── 4. Models & Profiles API ─────────────────────────────────────────────────
 
 function populateSelect(selectEl, items, selectedVal) {
@@ -1844,7 +2183,7 @@ async function triggerGenerate() {
 
     let promptGraph = {};
 
-    if (currentMode === "screenplay" || currentMode === "prompt") {
+    if (currentMode === "screenplay" || currentMode === "prompt" || currentMode === "i2i") {
         const activeLoras = getLoraStackData();
         const loraStackJson = JSON.stringify(activeLoras);
 
@@ -1886,88 +2225,187 @@ async function triggerGenerate() {
             }
         };
 
-        const is16ch = el.architecture?.value === "chroma" || el.architecture?.value === "flux";
-        promptGraph["3"] = {
-            "class_type": "ZombiehausLatentPreset",
-            "inputs": {
-                "pipe": ["2", 5],
-                "resolution": "Manual",
-                "width": parseInt(el.width?.value || "1024", 10),
-                "height": parseInt(el.height?.value || "1024", 10),
-                "batch_size": parseInt(el.batch?.value || "1", 10),
-                "latent_channels": is16ch ? 16 : 4,
-                "downscale": 8,
-                "architecture": is16ch ? "Chroma / Flux (16ch)" : "SDXL / Pony (4ch)"
+        let currentPipe;
+
+        if (currentMode === "i2i") {
+            if (!i2iUploadedFilename) {
+                alert("Please upload or drop a source image before generating in Image Edit mode.");
+                setGeneratingState(false);
+                if (el.progressWrap) el.progressWrap.style.display = "none";
+                return;
             }
-        };
 
-        let posText = el.positiveEditor?.value || "";
-        let negText = el.muteNegativeCheckbox?.checked ? "" : (el.negativeEditor?.value || "");
+            promptGraph["source_image"] = {
+                "class_type": "ZombiehausLoadImage",
+                "inputs": {
+                    "image": i2iUploadedFilename,
+                    "scaling": "None (Original)",
+                    "target_width": parseInt(el.width?.value || "1024", 10),
+                    "target_height": parseInt(el.height?.value || "1024", 10),
+                    "resampling": "lanczos"
+                }
+            };
 
-        // Inject glamour sculpting if enabled
-        const glamourTokens = getGlamourPromptTokens();
-        if (glamourTokens) {
-            posText = posText.trim() ? `${posText.trim()}, ${glamourTokens}` : glamourTokens;
-        }
-
-        let samplerPipe = ["4", 5];
-
-        if (currentMode === "screenplay") {
-            let scriptText = el.scriptEditor?.value || "";
+            let posText = el.i2iPositiveEditor?.value || "";
+            let negText = el.i2iNegativeEditor?.value || "";
+            const glamourTokens = getGlamourPromptTokens();
             if (glamourTokens) {
-                scriptText = `${scriptText.trim()}\n\n// Glamour & Anatomy Directives\n${glamourTokens}`;
+                posText = posText.trim() ? `${posText.trim()}, ${glamourTokens}` : glamourTokens;
             }
-            promptGraph["4_text"] = {
-                "class_type": "ZombiehausTextEditor",
-                "inputs": {
-                    "pipe": ["3", 1],
-                    "positive": scriptText,
-                    "negative": negText,
-                    "saved_prompt": "--select prompt--",
-                    "weight_mode": "Translate for Chroma / Flux (Linguistic Emphasis)"
-                }
-            };
-            promptGraph["4"] = {
-                "class_type": "ZombiehausSceneScriptDirector",
-                "inputs": {
-                    "pipe": ["4_text", 5],
-                    "script": ["4_text", 0],
-                    "default_lora_strength": 0.85,
-                    "default_overlap_blend": 0.25
-                }
-            };
-            samplerPipe = ["4", 0];
-        } else {
+
             promptGraph["4"] = {
                 "class_type": "ZombiehausTextEditor",
                 "inputs": {
-                    "pipe": ["3", 1],
+                    "pipe": ["2", 5],
                     "positive": posText,
                     "negative": negText,
                     "saved_prompt": "--select prompt--",
                     "weight_mode": "Translate for Chroma / Flux (Linguistic Emphasis)"
                 }
             };
-            samplerPipe = ["4", 5];
-        }
 
-        promptGraph["5"] = {
-            "class_type": "ZombiehausKSampler",
-            "inputs": {
-                "pipe": samplerPipe,
-                "latent_image": ["3", 0],
-                "seed": actualSeed,
-                "steps": parseInt(el.steps?.value || "30", 10),
-                "cfg": parseFloat(el.cfg?.value || "3.5"),
-                "sampler_name": el.sampler?.value || "euler_ancestral",
-                "scheduler": el.scheduler?.value || "simple",
-                "denoise": 1.0,
-                "use_cudnn": true
+            if (i2iCurrentTask === "wardrobe") {
+                promptGraph["5_wardrobe"] = {
+                    "class_type": "ZombiehausWardrobeInpaint",
+                    "inputs": {
+                        "image": ["source_image", 0],
+                        "preset": el.i2iGarmentPreset?.value || "all_garments",
+                        "grow_mask": parseInt(el.i2iGrowMask?.value || "16", 10),
+                        "blur_mask": parseInt(el.i2iBlurMask?.value || "8", 10),
+                        "do_inpaint": true,
+                        "seed": actualSeed,
+                        "steps": parseInt(el.steps?.value || "25", 10),
+                        "cfg": parseFloat(el.cfg?.value || "7.0"),
+                        "denoise": 1.0,
+                        "sampler": el.sampler?.value || "euler",
+                        "scheduler": el.scheduler?.value || "normal",
+                        "pipe": ["4", 5]
+                    }
+                };
+                currentPipe = ["5_wardrobe", 2];
+            } else {
+                const fidelityVal = parseFloat(el.i2iFidelitySlider?.value || "75");
+                promptGraph["5_i2i_encode"] = {
+                    "class_type": "ZombiehausImg2ImgVAEEncode",
+                    "inputs": {
+                        "image_upload": i2iUploadedFilename,
+                        "image": ["source_image", 0],
+                        "pipe": ["4", 5],
+                        "fidelity": fidelityVal,
+                        "preset": "Custom (Use Slider)",
+                        "target_model": "Chroma 1-HD",
+                        "auto_resize": true,
+                        "target_width": parseInt(el.width?.value || "1024", 10),
+                        "target_height": parseInt(el.height?.value || "1024", 10),
+                        "alignment": "Auto (16px for Flux/Chroma, 8px for SD)",
+                        "resize_mode": "Crop to Multiple",
+                        "curve": "Smooth S-Curve",
+                        "base_steps": parseInt(el.steps?.value || "30", 10),
+                        "step_compensation": true,
+                        "min_denoise": 0.20,
+                        "max_denoise": 0.95
+                    }
+                };
+                promptGraph["5_i2i_sampler"] = {
+                    "class_type": "ZombiehausKSampler",
+                    "inputs": {
+                        "pipe": ["4", 5],
+                        "latent_image": ["5_i2i_encode", 0],
+                        "seed": actualSeed,
+                        "steps": ["5_i2i_encode", 2],
+                        "cfg": parseFloat(el.cfg?.value || "3.5"),
+                        "sampler_name": el.sampler?.value || "euler_ancestral",
+                        "scheduler": el.scheduler?.value || "simple",
+                        "denoise": ["5_i2i_encode", 1],
+                        "use_cudnn": true
+                    }
+                };
+                currentPipe = ["5_i2i_sampler", 9];
             }
-        };
+        } else {
+            const is16ch = el.architecture?.value === "chroma" || el.architecture?.value === "flux";
+            promptGraph["3"] = {
+                "class_type": "ZombiehausLatentPreset",
+                "inputs": {
+                    "pipe": ["2", 5],
+                    "resolution": "Manual",
+                    "width": parseInt(el.width?.value || "1024", 10),
+                    "height": parseInt(el.height?.value || "1024", 10),
+                    "batch_size": parseInt(el.batch?.value || "1", 10),
+                    "latent_channels": is16ch ? 16 : 4,
+                    "downscale": 8,
+                    "architecture": is16ch ? "Chroma / Flux (16ch)" : "SDXL / Pony (4ch)"
+                }
+            };
 
-        // ZombiehausKSampler outputs: 0=LATENT, 1=IMAGE, 2=AUDIO, 3=INT, 4=MODEL, 5=CLIP, 6=VAE, 7=POS, 8=NEG, 9=PIPE
-        let currentPipe = ["5", 9];
+            let posText = el.positiveEditor?.value || "";
+            let negText = el.muteNegativeCheckbox?.checked ? "" : (el.negativeEditor?.value || "");
+
+            // Inject glamour sculpting if enabled
+            const glamourTokens = getGlamourPromptTokens();
+            if (glamourTokens) {
+                posText = posText.trim() ? `${posText.trim()}, ${glamourTokens}` : glamourTokens;
+            }
+
+            let samplerPipe = ["4", 5];
+
+            if (currentMode === "screenplay") {
+                let scriptText = el.scriptEditor?.value || "";
+                if (glamourTokens) {
+                    scriptText = `${scriptText.trim()}\n\n// Glamour & Anatomy Directives\n${glamourTokens}`;
+                }
+                promptGraph["4_text"] = {
+                    "class_type": "ZombiehausTextEditor",
+                    "inputs": {
+                        "pipe": ["3", 1],
+                        "positive": scriptText,
+                        "negative": negText,
+                        "saved_prompt": "--select prompt--",
+                        "weight_mode": "Translate for Chroma / Flux (Linguistic Emphasis)"
+                    }
+                };
+                promptGraph["4"] = {
+                    "class_type": "ZombiehausSceneScriptDirector",
+                    "inputs": {
+                        "pipe": ["4_text", 5],
+                        "script": ["4_text", 0],
+                        "default_lora_strength": 0.85,
+                        "default_overlap_blend": 0.25
+                    }
+                };
+                samplerPipe = ["4", 0];
+            } else {
+                promptGraph["4"] = {
+                    "class_type": "ZombiehausTextEditor",
+                    "inputs": {
+                        "pipe": ["3", 1],
+                        "positive": posText,
+                        "negative": negText,
+                        "saved_prompt": "--select prompt--",
+                        "weight_mode": "Translate for Chroma / Flux (Linguistic Emphasis)"
+                    }
+                };
+                samplerPipe = ["4", 5];
+            }
+
+            promptGraph["5"] = {
+                "class_type": "ZombiehausKSampler",
+                "inputs": {
+                    "pipe": samplerPipe,
+                    "latent_image": ["3", 0],
+                    "seed": actualSeed,
+                    "steps": parseInt(el.steps?.value || "30", 10),
+                    "cfg": parseFloat(el.cfg?.value || "3.5"),
+                    "sampler_name": el.sampler?.value || "euler_ancestral",
+                    "scheduler": el.scheduler?.value || "simple",
+                    "denoise": 1.0,
+                    "use_cudnn": true
+                }
+            };
+
+            // ZombiehausKSampler outputs: 0=LATENT, 1=IMAGE, 2=AUDIO, 3=INT, 4=MODEL, 5=CLIP, 6=VAE, 7=POS, 8=NEG, 9=PIPE
+            currentPipe = ["5", 9];
+        }
 
         // 1. Hi-Res Fix Stage
         if (el.enableHires?.checked) {

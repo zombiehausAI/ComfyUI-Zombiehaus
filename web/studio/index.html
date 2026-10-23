@@ -36,6 +36,10 @@
                 <span class="zh-mode-icon">✍️</span>
                 <span>Image</span>
             </button>
+            <button id="mode-btn-i2i" class="zh-mode-btn" data-mode="i2i">
+                <span class="zh-mode-icon">🖼️</span>
+                <span>Image Edit</span>
+            </button>
             <button id="mode-btn-video" class="zh-mode-btn" data-mode="video">
                 <span class="zh-mode-icon">🎥</span>
                 <span>Video</span>
@@ -625,6 +629,142 @@ talking and laughing together at sunset"></textarea>
                         <div class="zh-syntax-wrap">
                             <div id="negative-backdrop" class="zh-syntax-backdrop"></div>
                             <textarea id="negative-editor" class="zh-prompt-textarea zh-syntax-textarea zh-negative-textarea" spellcheck="false" placeholder="blurry, low quality, deformed, watermark, distorted..."></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2.5 Image Edit (i2i / Wardrobe Inpaint) View -->
+            <div id="view-i2i" class="zh-view">
+                <!-- Operation Sub-mode Pills -->
+                <div class="zh-prompt-toolbar">
+                    <div class="zh-preset-rack">
+                        <span class="zh-toolbar-label">🎯 Edit Mode:</span>
+                        <div class="zh-i2i-mode-pills">
+                            <button class="zh-tab-btn active" data-i2i-task="wardrobe">👗 Change Clothes</button>
+                            <button class="zh-tab-btn" data-i2i-task="realism">✨ Make Realistic</button>
+                            <button class="zh-tab-btn" data-i2i-task="style">🎨 Style Transfer</button>
+                            <button class="zh-tab-btn" data-i2i-task="refine">🔄 High-Fidelity Refine</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Source Image Dropzone & Operation Parameters -->
+                <div class="zh-card zh-i2i-workspace-card">
+                    <div class="zh-i2i-workspace-grid">
+                        <!-- Dropzone / Image Uploader -->
+                        <div id="i2i-dropzone" class="zh-i2i-dropzone">
+                            <input type="file" id="i2i-file-input" accept="image/*" style="display: none;">
+                            <div id="i2i-drop-placeholder" class="zh-i2i-drop-content">
+                                <span class="zh-i2i-drop-icon">📤</span>
+                                <div class="zh-i2i-drop-text">Drop source image here or <span class="zh-link">browse</span></div>
+                                <div class="zh-i2i-drop-sub">PNG, JPG, WEBP — Auto-aligned for DiT</div>
+                            </div>
+                            <div id="i2i-preview-container" class="zh-i2i-preview-box" style="display: none;">
+                                <img id="i2i-preview-img" class="zh-i2i-img" alt="Source Image">
+                                <div class="zh-i2i-overlay">
+                                    <span id="i2i-info-badge" class="zh-badge zh-badge-cyan">1024 × 1024</span>
+                                    <button id="btn-i2i-clear" class="zh-btn zh-btn-danger zh-btn-mini" title="Remove image">✕ Clear</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Dynamic Control Pane based on Sub-mode -->
+                        <div class="zh-i2i-controls-pane">
+                            <!-- Wardrobe Controls (Visible when data-i2i-task="wardrobe") -->
+                            <div id="i2i-pane-wardrobe" class="zh-i2i-task-pane">
+                                <div class="zh-card-title mb-6">👗 Wardrobe & Garment Target</div>
+                                <div class="zh-field mb-8">
+                                    <label>Garment to Replace</label>
+                                    <select id="i2i-garment-preset" class="zh-select">
+                                        <option value="all_garments" selected>All Garments (Complete Wardrobe)</option>
+                                        <option value="torso">Torso (Shirts, Tops, Blouses, Jackets)</option>
+                                        <option value="lower">Lower (Pants, Jeans, Skirts, Shorts)</option>
+                                        <option value="lower_and_legs">Lower & Legs (For converting shorts to dress)</option>
+                                        <option value="full_outfit">Full Outfit (Tops + Bottoms)</option>
+                                        <option value="full_outfit_and_limbs">Full Outfit & Limbs</option>
+                                        <option value="shoes">Shoes & Footwear</option>
+                                    </select>
+                                </div>
+                                <div class="zh-field-row mb-6">
+                                    <div class="zh-field flex-1">
+                                        <div class="zh-label-row">
+                                            <label>Mask Grow (px)</label>
+                                            <input id="val-i2i-grow-mask" type="number" min="-64" max="128" step="1" value="16" class="zh-slider-val-input" style="width: 44px;">
+                                        </div>
+                                        <input id="i2i-grow-mask" type="range" min="-64" max="128" step="1" value="16" class="zh-slider zh-slider-mini">
+                                    </div>
+                                    <div class="zh-field flex-1">
+                                        <div class="zh-label-row">
+                                            <label>Mask Blur (px)</label>
+                                            <input id="val-i2i-blur-mask" type="number" min="0" max="64" step="1" value="8" class="zh-slider-val-input" style="width: 44px;">
+                                        </div>
+                                        <input id="i2i-blur-mask" type="range" min="0" max="64" step="1" value="8" class="zh-slider zh-slider-mini">
+                                    </div>
+                                </div>
+                                <div class="zh-hint-box">
+                                    SegFormer automatically segments the selected clothes cleanly without altering face, skin, or background.
+                                </div>
+                            </div>
+
+                            <!-- Realism & Img2Img Controls (Visible when task is realism, style, or refine) -->
+                            <div id="i2i-pane-general" class="zh-i2i-task-pane" style="display: none;">
+                                <div class="zh-card-title mb-6">⚡ Similarity & Denoise Curve</div>
+                                <div class="zh-field mb-6">
+                                    <div class="zh-label-row">
+                                        <label id="i2i-fidelity-label">Fidelity to Original</label>
+                                        <span class="zh-val-chip"><input id="val-i2i-fidelity" type="number" min="0" max="100" step="1" value="75" class="zh-slider-val-input" style="width: 48px;">%</span>
+                                    </div>
+                                    <input id="i2i-fidelity-slider" type="range" min="0" max="100" step="1" value="75" class="zh-slider">
+                                </div>
+                                <div class="zh-fidelity-quick-rack mb-8">
+                                    <button class="zh-tag-chip" data-fidelity="90">90% Replica</button>
+                                    <button class="zh-tag-chip active" data-fidelity="75">75% Photoreal Polish</button>
+                                    <button class="zh-tag-chip" data-fidelity="50">50% Re-imagine</button>
+                                    <button class="zh-tag-chip" data-fidelity="25">25% Diverge</button>
+                                </div>
+                                <div id="i2i-fidelity-summary" class="zh-hint-box">
+                                    75% Fidelity: Preserves subject pose and composition while re-rendering photorealistic textures, skin pores, and lifelike lighting.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Prompting Layout for i2i -->
+                <div class="zh-prompt-layout">
+                    <div class="zh-prompt-card">
+                        <div class="zh-editor-header">
+                            <span class="zh-editor-label">Replacement & Style Prompt</span>
+                            <div class="zh-prompt-meta">
+                                <span class="zh-toolbar-label">Suggestions:</span>
+                                <div id="i2i-quick-tags" class="zh-quick-tags">
+                                    <button class="zh-tag-chip" data-i2i-tag="haute couture silk evening gown, tailored, luxurious fabric">Silk Gown</button>
+                                    <button class="zh-tag-chip" data-i2i-tag="casual denim jacket over white cotton t-shirt and blue jeans">Denim & Tee</button>
+                                    <button class="zh-tag-chip" data-i2i-tag="sharp black tailored tuxedo with satin lapels, white dress shirt">Black Tuxedo</button>
+                                    <button class="zh-tag-chip" data-i2i-tag="leather biker jacket, silver zippers, rugged rebel chic">Biker Leather</button>
+                                    <button class="zh-tag-chip" data-i2i-tag="bohemian summer floral sundress, light breezy fabric">Floral Dress</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="zh-syntax-wrap">
+                            <div id="i2i-positive-backdrop" class="zh-syntax-backdrop"></div>
+                            <textarea id="i2i-positive-editor" class="zh-prompt-textarea zh-syntax-textarea" spellcheck="false" placeholder="Describe the new clothing or desired photorealistic transformation..."></textarea>
+                        </div>
+                    </div>
+
+                    <div class="zh-prompt-card">
+                        <div class="zh-editor-header">
+                            <span class="zh-editor-label">Negative Prompt (Quality & Fit Guard)</span>
+                            <div class="zh-pedalboard-row">
+                                <button class="zh-pedal-chip active" data-i2i-neg="unreal" title="Anti-CGI/Illustration">🎨 Anti-CGI</button>
+                                <button class="zh-pedal-chip active" data-i2i-neg="badclothes" title="Anti-Wrinkles/Distortion">👗 Clean Fits</button>
+                                <button class="zh-pedal-chip active" data-i2i-neg="quality" title="Quality Guard">✦ Quality</button>
+                            </div>
+                        </div>
+                        <div class="zh-syntax-wrap">
+                            <div id="i2i-negative-backdrop" class="zh-syntax-backdrop"></div>
+                            <textarea id="i2i-negative-editor" class="zh-prompt-textarea zh-syntax-textarea zh-negative-textarea" spellcheck="false" placeholder="blurry, low quality, cartoon, cgi, 3d render, deformed clothes, ill-fitting..."></textarea>
                         </div>
                     </div>
                 </div>

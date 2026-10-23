@@ -17,7 +17,7 @@ You can launch Zombiehaus Studio through any of the following convenient entry p
 
 ---
 
-## The 5 Creative Modes
+## The 6 Creative Modes
 
 Zombiehaus Studio features a seamless mode switcher in the top header bar:
 
@@ -34,13 +34,28 @@ Zombiehaus Studio features a seamless mode switcher in the top header bar:
 - **Aspect Ratio Buttons**: Instant 1-click presets for `1:1 Square`, `16:9 Cinema`, `9:16 Portrait/Shorts`, and `2:3 Classic`.
 - **Modular Refinement Stages**: Toggleable Hi-Res Fix, Face/Eye Detailer, De-Wax Film Grain, Restormer, and Model Upscaler.
 
-### 3. 🎥 Video Studio Mode
+### 3. 🖼️ Image Edit (i2i / Wardrobe) Studio Mode
+Dedicated workstation mode for high-fidelity image-to-image editing, restyling, and targeted outfit replacement:
+- **Instant Drag-and-Drop Uploader**: Drop or browse source images with instant thumbnail preview, resolution badge, and automatic alignment.
+- **👗 Virtual Try-On / Clothes Change**:
+  - Leverages HuggingFace SegFormer clothing segmentation (`ZombiehausWardrobeInpaint`) across ATR classes.
+  - Target presets: `All Garments`, `Torso / Upper`, `Lower / Pants / Skirt`, `Lower & Legs` (for converting shorts to gowns), `Full Outfit`, and `Shoes`.
+  - Mask grow & blur feathering sliders for seamless garment transitions.
+  - Clean latent inpainting that replaces old fabric patterns completely without ghost textures or gray wash.
+- **✨ Make Realistic / Photoreal Polish**:
+  - Automatically configures fidelity curve (~75%) to retain subject pose, lighting, and composition while re-rendering hyperrealistic skin textures, pores, and photoreal reflections.
+- **🎨 Style Transfer & Divergence**:
+  - Smooth S-curve fidelity mapping from 0% to 100% with quick presets (`90% Replica`, `75% Photoreal Polish`, `50% Re-imagine`, `25% Diverge`).
+- **One-Click Suggestion Tags**: Quick chips for silk evening gowns, black tuxedos, leather biker jackets, 8K raw photography, and cyberpunk synthwave.
+- **Negative Fit & Realism Guards**: Toggleable guards against CGI/3D look, deformed clothing, and low resolution.
+
+### 4. 🎥 Video Studio Mode
 - **Video DiT Architecture Support**: Generate dynamic videos using **Wan 2.1**, **LTX-Video**, **CogVideoX-5B**, **HunyuanVideo**, or **SVD-XT**.
 - **Camera Trajectory Chips**: One-click camera dynamics (`Static Smooth`, `Dolly In`, `Pan Left`, `Pan Right`, `Orbit 360`).
 - **Temporal Controls**: Duration slider (2s–10s), FPS selector (24, 30, 60 FPS), Codec selection (H.264 MP4, HEVC H.265, VP9 WebM), and motion flow sliders.
 - **Looping Video Viewport**: Embedded HTML5 looping video player with real-time frame scrubber.
 
-### 4. 🎵 Suno-Grade Music & Songwriting Studio Mode
+### 5. 🎵 Suno-Grade Music & Songwriting Studio Mode
 Built for radio-ready, high-fidelity vocal songs and complete musical accompaniment:
 - **Multiple Model Engines**:
   - **`DiffRhythm`**: State-of-the-art diffusion-based singing voice synthesis with full multi-instrument accompaniment aligned to verse and chorus lyrics.
@@ -53,7 +68,7 @@ Built for radio-ready, high-fidelity vocal songs and complete musical accompanim
 - **`✨ Write Hit Lyrics (AI Ollama)`**: Generates complete, radio-ready lyrics formatted with musical structure tags tailored to your chosen genre and vibe.
 - **Interactive Waveform Player**: Instant playback with dynamic audio waveform canvas visualization.
 
-### 5. 📚 List & Wildcard Curator Mode
+### 6. 📚 List & Wildcard Curator Mode
 Integrated directly into the workstation for managing wildcard files and variable dictionaries:
 - **Browse & Load**: Instant switching across all wildcard files stored in `saved_prompts/wildcards/`.
 - **Live Search & Filter**: Real-time line search with live match counters.

@@ -222,19 +222,27 @@ const el = {
 // ── 1. Initialization & API Loading ──────────────────────────────────────────
 
 let availableLoraList = ["None"];
+let availableSamplers = ["euler_ancestral", "euler", "dpmpp_2m", "dpmpp_sde", "ddim", "uni_pc"];
+let availableSchedulers = ["karras", "simple", "sgm_uniform", "normal", "exponential"];
 
 const defaultDetectorOptions = [
-    { value: "bbox/face_yolov8m.pt", label: "Face (YOLOv8m Face)" },
-    { value: "bbox/eyes_yolov8m.pt", label: "Eyes (YOLOv8m Eyes)" },
-    { value: "bbox/hand_yolov8s.pt", label: "Hands (YOLOv8s Hand)" },
-    { value: "segm/person_yolov8m-seg.pt", label: "Full Body (YOLOv8m Seg)" },
-    { value: "bbox/clothing_yolov8m.pt", label: "Clothing (YOLOv8m Garment)" }
+    { value: "face_yolov8m.pt", label: "Face (face_yolov8m)" },
+    { value: "Eyes.pt", label: "Eyes (Eyes.pt)" },
+    { value: "hand_yolov8s.pt", label: "Hands (hand_yolov8s)" },
+    { value: "person_yolov8m-seg.pt", label: "Full Body (person_yolov8m-seg)" },
+    { value: "deepfashion2_yolov8s-seg.pt", label: "Clothing (deepfashion2_yolov8s-seg)" },
+    { value: "hair_yolov8n-seg_60.pt", label: "Hair (hair_yolov8n-seg)" },
+    { value: "lips_v1.pt", label: "Lips (lips_v1)" }
 ];
 
+let availableDetectorList = [...defaultDetectorOptions];
+
 async function initStudio() {
+    injectDetailerStyles();
     setupUiScale();
     setupSliders();
     setupDynamicStacks();
+    ensureDetailerGlobalControls();
     setupModeSwitcher();
     setupAspectRatios();
     setupEditorHelpers();
@@ -339,85 +347,345 @@ function getLoraStackData() {
     return items;
 }
 
-function addDetailerItem(model = "bbox/face_yolov8m.pt", denoise = 0.45, steps = 20) {
+function injectDetailerStyles() {
+    if (document.getElementById("zh-detailer-custom-styles")) return;
+    const style = document.createElement("style");
+    style.id = "zh-detailer-custom-styles";
+    style.textContent = `
+        .zh-detailer-item {
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .zh-detailer-item:hover {
+            border-color: rgba(56, 189, 248, 0.45);
+            box-shadow: 0 6px 16px rgba(56, 189, 248, 0.12);
+        }
+        .zh-detailer-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .zh-detailer-header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+        }
+        .zh-detailer-pass-badge {
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(99, 102, 241, 0.25));
+            border: 1px solid rgba(56, 189, 248, 0.5);
+            color: #38bdf8;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 4px;
+            letter-spacing: 0.5px;
+            user-select: none;
+        }
+        .zh-detailer-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .zh-detailer-toggle-adv {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: var(--text-muted);
+            font-size: 10px;
+            padding: 3px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .zh-detailer-toggle-adv:hover {
+            color: #fff;
+            background: rgba(56, 189, 248, 0.2);
+            border-color: rgba(56, 189, 248, 0.4);
+        }
+        .zh-detailer-main-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            background: rgba(0, 0, 0, 0.25);
+            padding: 8px 10px;
+            border-radius: 6px;
+            margin-bottom: 6px;
+        }
+        .zh-detailer-param label {
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+        .zh-detailer-advanced-drawer {
+            border-top: 1px dashed rgba(255, 255, 255, 0.12);
+            padding-top: 8px;
+            margin-top: 6px;
+            animation: fadeIn 0.2s ease-in-out;
+        }
+        .zh-detailer-adv-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        .zh-adv-field label {
+            font-size: 9px;
+            color: var(--text-muted);
+            display: block;
+            margin-bottom: 2px;
+        }
+        .zh-adv-field .zh-input, .zh-adv-field .zh-select {
+            height: 24px;
+            padding: 1px 6px;
+            font-size: 11px;
+        }
+        .zh-detailer-global-bar {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 10px;
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+function ensureDetailerGlobalControls() {
     if (!el.detailerStackContainer) return;
+    if (document.getElementById("detailer-global-controls")) return;
+
+    const bar = document.createElement("div");
+    bar.id = "detailer-global-controls";
+    bar.className = "zh-detailer-global-bar";
+    bar.innerHTML = `
+        <div class="zh-label-row" style="margin-bottom: 4px;">
+            <label style="font-size: 11px; font-weight: 600; color: var(--accent-cyan); display: flex; align-items: center; gap: 4px;">
+                <span>🎯 Detection Confidence Threshold</span>
+            </label>
+            <input id="detailer-global-confidence" type="number" step="0.05" min="0.05" max="0.95" value="0.30" class="zh-slider-val-input" title="Sensitivity threshold (lower = detects more, higher = only high confidence)">
+        </div>
+        <input id="detailer-global-confidence-slider" type="range" min="0.05" max="0.95" step="0.05" value="0.30" class="zh-slider">
+    `;
+    el.detailerStackContainer.parentNode.insertBefore(bar, el.detailerStackContainer);
+
+    const slider = document.getElementById("detailer-global-confidence-slider");
+    const numInput = document.getElementById("detailer-global-confidence");
+    slider?.addEventListener("input", () => { numInput.value = Number(slider.value).toFixed(2); });
+    numInput?.addEventListener("input", () => { slider.value = numInput.value; });
+}
+
+function populateDetectorSelect(selectEl, selectedVal) {
+    if (!selectEl) return;
+    selectEl.innerHTML = "";
+    const cleanSelected = (selectedVal || "").replace(/^(bbox|segm)\//, "");
+
+    const allModels = availableDetectorList.map(d => typeof d === "string" ? d : d.value);
+
+    const cats = {
+        "Face & Expressions": [],
+        "Eyes & Gaze": [],
+        "Hands & Limbs": [],
+        "Body & Silhouette": [],
+        "Clothing & Fashion": [],
+        "Anatomy & Intimate": [],
+        "Other / Utility": []
+    };
+
+    allModels.forEach(m => {
+        const name = m.toLowerCase();
+        if (name.includes("face") || name.includes("mouth") || name.includes("lips") || name.includes("teeth") || name.includes("chin")) {
+            cats["Face & Expressions"].push(m);
+        } else if (name.includes("eye") || name.includes("pupil") || name.includes("iris")) {
+            cats["Eyes & Gaze"].push(m);
+        } else if (name.includes("hand") || name.includes("finger") || name.includes("palm")) {
+            cats["Hands & Limbs"].push(m);
+        } else if (name.includes("breast") || name.includes("nipple") || name.includes("penis") || name.includes("vagina") || name.includes("anus") || name.includes("ass") || name.includes("cock") || name.includes("ball")) {
+            cats["Anatomy & Intimate"].push(m);
+        } else if (name.includes("fashion") || name.includes("garment") || name.includes("dress") || name.includes("cloth") || name.includes("heels")) {
+            cats["Clothing & Fashion"].push(m);
+        } else if (name.includes("person") || name.includes("body") || name.includes("hair") || name.includes("belly") || name.includes("foot") || name.includes("feet") || name.includes("nail")) {
+            cats["Body & Silhouette"].push(m);
+        } else {
+            cats["Other / Utility"].push(m);
+        }
+    });
+
+    let found = false;
+    for (const [catName, models] of Object.entries(cats)) {
+        if (models.length === 0) continue;
+        const group = document.createElement("optgroup");
+        group.label = `${catName} (${models.length})`;
+        for (const m of models) {
+            const opt = document.createElement("option");
+            opt.value = m;
+            const niceName = m.replace(/\.(pt|pth)$/i, "").replace(/[-_]/g, " ");
+            opt.textContent = `${niceName} (${m})`;
+            if (m === cleanSelected) {
+                opt.selected = true;
+                found = true;
+            }
+            group.appendChild(opt);
+        }
+        selectEl.appendChild(group);
+    }
+
+    if (!found && cleanSelected) {
+        const opt = document.createElement("option");
+        opt.value = cleanSelected;
+        opt.textContent = cleanSelected;
+        opt.selected = true;
+        selectEl.appendChild(opt);
+    }
+}
+
+function refreshAllDetailerDropdowns() {
+    if (!el.detailerStackContainer) return;
+    el.detailerStackContainer.querySelectorAll(".zh-detailer-select").forEach(sel => {
+        const currentVal = sel.value;
+        populateDetectorSelect(sel, currentVal);
+    });
+}
+
+function addDetailerItem(config = {}) {
+    if (!el.detailerStackContainer) return;
+    ensureDetailerGlobalControls();
+
+    const model = (typeof config === "string" ? config : config.model) || "face_yolov8m.pt";
+    const cleanModel = model.replace(/^(bbox|segm)\//, "");
+    const denoise = config.denoise !== undefined ? config.denoise : 0.45;
+    const steps = config.steps !== undefined ? config.steps : 20;
+    const cfg = config.cfg !== undefined ? config.cfg : 7.0;
+    const padding = config.padding !== undefined ? config.padding : 32;
+    const maskBlur = config.mask_blur !== undefined ? config.mask_blur : 4;
+    const blendFeather = config.blend_feather !== undefined ? config.blend_feather : 16;
+    const contextPad = config.context_pad !== undefined ? config.context_pad : 32;
+    const sampler = config.sampler || (el.sampler?.value || "euler_ancestral");
+    const scheduler = config.scheduler || (el.scheduler?.value || "karras");
+    const enabled = config.enabled !== undefined ? config.enabled : true;
+    const inpaintPrompt = config.inpaint_prompt || "";
+
+    const passIndex = el.detailerStackContainer.querySelectorAll(".zh-detailer-item").length + 1;
 
     const item = document.createElement("div");
     item.className = "zh-stack-item zh-detailer-item";
+    item.setAttribute("data-detailer-pass", passIndex);
 
-    const row1 = document.createElement("div");
-    row1.className = "zh-stack-item-row";
+    item.innerHTML = `
+        <div class="zh-detailer-header">
+            <div class="zh-detailer-header-left">
+                <input type="checkbox" class="zh-detailer-enable-toggle" ${enabled ? "checked" : ""} title="Enable or bypass this detailer pass">
+                <span class="zh-detailer-pass-badge">#${passIndex}</span>
+                <select class="zh-select zh-detailer-select flex-1" title="Select detector model"></select>
+            </div>
+            <div class="zh-detailer-header-actions">
+                <button type="button" class="zh-detailer-toggle-adv zh-btn-mini" title="Expand advanced settings">⚙️ Settings</button>
+                <button type="button" class="zh-btn-delete-item" title="Remove Detailer pass">✕</button>
+            </div>
+        </div>
 
-    const select = document.createElement("select");
-    select.className = "zh-select zh-detailer-select flex-1";
-    for (const optDef of defaultDetectorOptions) {
-        const opt = document.createElement("option");
-        opt.value = optDef.value;
-        opt.textContent = optDef.label;
-        if (optDef.value === model) opt.selected = true;
-        select.appendChild(opt);
-    }
+        <div class="zh-detailer-main-grid">
+            <div class="zh-detailer-param">
+                <div class="zh-label-row">
+                    <label>Denoise</label>
+                    <input type="number" step="0.05" min="0.05" max="1.0" value="${Number(denoise).toFixed(2)}" class="zh-slider-val-input zh-det-denoise-num">
+                </div>
+                <input type="range" min="0.05" max="1.0" step="0.05" value="${denoise}" class="zh-slider zh-det-denoise-slider">
+            </div>
 
-    const delBtn = document.createElement("button");
-    delBtn.type = "button";
-    delBtn.className = "zh-btn-delete-item";
-    delBtn.innerHTML = "✕";
-    delBtn.title = "Remove Detailer pass";
-    delBtn.addEventListener("click", () => item.remove());
+            <div class="zh-detailer-param">
+                <div class="zh-label-row">
+                    <label>Steps</label>
+                    <input type="number" step="1" min="5" max="80" value="${steps}" class="zh-slider-val-input zh-det-steps-num">
+                </div>
+                <input type="range" min="5" max="80" step="1" value="${steps}" class="zh-slider zh-det-steps-slider">
+            </div>
 
-    row1.appendChild(select);
-    row1.appendChild(delBtn);
+            <div class="zh-detailer-param">
+                <div class="zh-label-row">
+                    <label>CFG Scale</label>
+                    <input type="number" step="0.5" min="1.0" max="20.0" value="${Number(cfg).toFixed(1)}" class="zh-slider-val-input zh-det-cfg-num">
+                </div>
+                <input type="range" min="1.0" max="20.0" step="0.5" value="${cfg}" class="zh-slider zh-det-cfg-slider">
+            </div>
+        </div>
 
-    const row2 = document.createElement("div");
-    row2.className = "zh-stack-item-row";
+        <div class="zh-detailer-advanced-drawer" style="display: none;">
+            <div class="zh-detailer-adv-grid">
+                <div class="zh-adv-field">
+                    <label>Padding (px)</label>
+                    <input type="number" min="0" max="256" step="8" value="${padding}" class="zh-input zh-det-padding">
+                </div>
+                <div class="zh-adv-field">
+                    <label>Context Pad</label>
+                    <input type="number" min="0" max="256" step="8" value="${contextPad}" class="zh-input zh-det-context-pad">
+                </div>
+                <div class="zh-adv-field">
+                    <label>Mask Blur (px)</label>
+                    <input type="number" min="0" max="64" step="2" value="${maskBlur}" class="zh-input zh-det-mask-blur">
+                </div>
+                <div class="zh-adv-field">
+                    <label>Blend Feather</label>
+                    <input type="number" min="0" max="128" step="4" value="${blendFeather}" class="zh-input zh-det-blend-feather">
+                </div>
+                <div class="zh-adv-field">
+                    <label>Sampler</label>
+                    <select class="zh-select zh-det-sampler"></select>
+                </div>
+                <div class="zh-adv-field">
+                    <label>Scheduler</label>
+                    <select class="zh-select zh-det-scheduler"></select>
+                </div>
+            </div>
+            <div class="zh-detailer-prompt-row" style="margin-top: 6px;">
+                <label style="font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 2px;">Inpaint Focus Prompt (Optional)</label>
+                <input type="text" class="zh-input zh-det-inpaint-prompt" placeholder="e.g. highly detailed iris, sharp eyelashes, realistic skin" value="${inpaintPrompt}" style="width: 100%; font-size: 11px;">
+            </div>
+        </div>
+    `;
 
-    const denoiseCol = document.createElement("div");
-    denoiseCol.className = "flex-1";
+    const select = item.querySelector(".zh-detailer-select");
+    populateDetectorSelect(select, cleanModel);
 
-    const labelRow = document.createElement("div");
-    labelRow.className = "zh-label-row";
-    const lbl = document.createElement("label");
-    lbl.style.fontSize = "10px";
-    lbl.textContent = "Denoise";
-    const valSpan = document.createElement("span");
-    valSpan.className = "zh-slider-val zh-denoise-val";
-    valSpan.textContent = Number(denoise).toFixed(2);
-    labelRow.appendChild(lbl);
-    labelRow.appendChild(valSpan);
+    const samplerSelect = item.querySelector(".zh-det-sampler");
+    const schedSelect = item.querySelector(".zh-det-scheduler");
+    populateSelect(samplerSelect, availableSamplers, sampler);
+    populateSelect(schedSelect, availableSchedulers, scheduler);
 
-    const slider = document.createElement("input");
-    slider.type = "range";
-    slider.min = "0.1";
-    slider.max = "0.9";
-    slider.step = "0.05";
-    slider.value = denoise;
-    slider.className = "zh-slider zh-detailer-denoise";
-    slider.addEventListener("input", () => {
-        valSpan.textContent = Number(slider.value).toFixed(2);
+    const bindPair = (sliderClass, numClass, decimals = 2) => {
+        const slider = item.querySelector(sliderClass);
+        const num = item.querySelector(numClass);
+        if (slider && num) {
+            slider.addEventListener("input", () => { num.value = Number(slider.value).toFixed(decimals); });
+            num.addEventListener("input", () => { slider.value = num.value; });
+        }
+    };
+    bindPair(".zh-det-denoise-slider", ".zh-det-denoise-num", 2);
+    bindPair(".zh-det-steps-slider", ".zh-det-steps-num", 0);
+    bindPair(".zh-det-cfg-slider", ".zh-det-cfg-num", 1);
+
+    const advBtn = item.querySelector(".zh-detailer-toggle-adv");
+    const advDrawer = item.querySelector(".zh-detailer-advanced-drawer");
+    advBtn?.addEventListener("click", () => {
+        const isHidden = advDrawer.style.display === "none";
+        advDrawer.style.display = isHidden ? "block" : "none";
+        advBtn.textContent = isHidden ? "▲ Less" : "⚙️ Settings";
+        advBtn.style.color = isHidden ? "var(--accent-cyan)" : "";
     });
-    denoiseCol.appendChild(labelRow);
-    denoiseCol.appendChild(slider);
 
-    const stepsCol = document.createElement("div");
-    stepsCol.style.width = "70px";
-    const stepsLbl = document.createElement("label");
-    stepsLbl.style.fontSize = "10px";
-    stepsLbl.textContent = "Steps";
-    const stepsInput = document.createElement("input");
-    stepsInput.type = "number";
-    stepsInput.min = "5";
-    stepsInput.max = "80";
-    stepsInput.value = steps;
-    stepsInput.className = "zh-input zh-detailer-steps";
-    stepsInput.style.cssText = "height: 26px; padding: 2px 6px; font-size: 11px;";
-    stepsCol.appendChild(stepsLbl);
-    stepsCol.appendChild(stepsInput);
+    const delBtn = item.querySelector(".zh-btn-delete-item");
+    delBtn?.addEventListener("click", () => {
+        item.remove();
+        el.detailerStackContainer?.querySelectorAll(".zh-detailer-item").forEach((elItem, idx) => {
+            const badge = elItem.querySelector(".zh-detailer-pass-badge");
+            if (badge) badge.textContent = `#${idx + 1}`;
+        });
+    });
 
-    row2.appendChild(denoiseCol);
-    row2.appendChild(stepsCol);
-
-    item.appendChild(row1);
-    item.appendChild(row2);
     el.detailerStackContainer.appendChild(item);
 }
 
@@ -425,14 +693,33 @@ function getDetailerStackData() {
     const items = [];
     if (!el.detailerStackContainer) return items;
     el.detailerStackContainer.querySelectorAll(".zh-detailer-item").forEach(item => {
+        const enabled = item.querySelector(".zh-detailer-enable-toggle")?.checked ?? true;
         const select = item.querySelector(".zh-detailer-select");
-        const slider = item.querySelector(".zh-detailer-denoise");
-        const stepsInput = item.querySelector(".zh-detailer-steps");
+        const denoise = parseFloat(item.querySelector(".zh-det-denoise-num")?.value || "0.45");
+        const steps = parseInt(item.querySelector(".zh-det-steps-num")?.value || "20", 10);
+        const cfg = parseFloat(item.querySelector(".zh-det-cfg-num")?.value || "7.0");
+        const padding = parseInt(item.querySelector(".zh-det-padding")?.value || "32", 10);
+        const contextPad = parseInt(item.querySelector(".zh-det-context-pad")?.value || "32", 10);
+        const maskBlur = parseInt(item.querySelector(".zh-det-mask-blur")?.value || "4", 10);
+        const blendFeather = parseInt(item.querySelector(".zh-det-blend-feather")?.value || "16", 10);
+        const sampler = item.querySelector(".zh-det-sampler")?.value || "euler_ancestral";
+        const scheduler = item.querySelector(".zh-det-scheduler")?.value || "karras";
+        const inpaintPrompt = item.querySelector(".zh-det-inpaint-prompt")?.value || "";
+
+        const rawModel = select ? select.value : "face_yolov8m.pt";
         items.push({
-            model: select ? select.value : "bbox/face_yolov8m.pt",
-            denoise: parseFloat(slider?.value || "0.45"),
-            steps: parseInt(stepsInput?.value || "20", 10),
-            enabled: true
+            model: rawModel.replace(/^(bbox|segm)\//, ""),
+            denoise: isNaN(denoise) ? 0.45 : denoise,
+            steps: isNaN(steps) ? 20 : steps,
+            cfg: isNaN(cfg) ? 7.0 : cfg,
+            padding: isNaN(padding) ? 32 : padding,
+            context_pad: isNaN(contextPad) ? 32 : contextPad,
+            mask_blur: isNaN(maskBlur) ? 4 : maskBlur,
+            blend_feather: isNaN(blendFeather) ? 16 : blendFeather,
+            sampler,
+            scheduler,
+            enabled,
+            inpaint_prompt: inpaintPrompt
         });
     });
     return items;
@@ -1197,8 +1484,35 @@ async function loadModelAssets() {
                 addLoraItem("None", 1.0);
             }
         }
+        // Dynamically discover all detector models, samplers, and schedulers directly from ComfyUI
+        try {
+            const slotResp = await fetch("/object_info/ZombiehausDetailerSlot");
+            if (slotResp.ok) {
+                const slotData = await slotResp.json();
+                const nodeInfo = slotData?.ZombiehausDetailerSlot?.input?.required;
+                if (nodeInfo?.model?.[0] && Array.isArray(nodeInfo.model[0])) {
+                    const scanned = nodeInfo.model[0].filter(m => m && m !== "disabled" && m !== "(no models found)");
+                    if (scanned.length > 0) {
+                        data.detectors = scanned;
+                    }
+                }
+                if (nodeInfo?.sampler?.[0] && Array.isArray(nodeInfo.sampler[0])) {
+                    availableSamplers = nodeInfo.sampler[0];
+                }
+                if (nodeInfo?.scheduler?.[0] && Array.isArray(nodeInfo.scheduler[0])) {
+                    availableSchedulers = nodeInfo.scheduler[0];
+                }
+            }
+        } catch (e) {
+            console.warn("Could not query /object_info/ZombiehausDetailerSlot:", e);
+        }
+
+        if (data.detectors && data.detectors.length > 0) {
+            availableDetectorList = data.detectors;
+            refreshAllDetailerDropdowns();
+        }
         if (el.detailerStackContainer && el.detailerStackContainer.children.length === 0) {
-            addDetailerItem("bbox/face_yolov8m.pt", 0.45, 20);
+            addDetailerItem({ model: "face_yolov8m.pt", denoise: 0.45, steps: 20 });
         }
 
         if (el.videoModel) {
@@ -1307,12 +1621,18 @@ function applyProfileData(data) {
         }
         if (data.loras.length === 0) addLoraItem("None", 1.0);
     }
+    if (data.detailer_confidence !== undefined) {
+        const confNum = document.getElementById("detailer-global-confidence");
+        const confSlider = document.getElementById("detailer-global-confidence-slider");
+        if (confNum) confNum.value = Number(data.detailer_confidence).toFixed(2);
+        if (confSlider) confSlider.value = data.detailer_confidence;
+    }
     if (Array.isArray(data.detailers) && el.detailerStackContainer) {
         el.detailerStackContainer.innerHTML = "";
         for (const d of data.detailers) {
-            addDetailerItem(d.model, d.denoise !== undefined ? d.denoise : 0.45, d.steps !== undefined ? d.steps : 20);
+            addDetailerItem(d);
         }
-        if (data.detailers.length === 0) addDetailerItem("bbox/face_yolov8m.pt", 0.45, 20);
+        if (data.detailers.length === 0) addDetailerItem({ model: "face_yolov8m.pt", denoise: 0.45, steps: 20 });
     }
 }
 
@@ -1331,7 +1651,8 @@ function gatherCurrentProfileData() {
         sampler_name: el.sampler?.value || "euler_ancestral",
         scheduler: el.scheduler?.value || "simple",
         loras: getLoraStackData(),
-        detailers: getDetailerStackData()
+        detailers: getDetailerStackData(),
+        detailer_confidence: parseFloat(document.getElementById("detailer-global-confidence")?.value || "0.3")
     };
 }
 
@@ -1532,32 +1853,51 @@ async function triggerGenerate() {
             "inputs": {
                 "unet_name": el.unet?.value || "None",
                 "weight_dtype": el.dtype?.value || "default",
-                "checkpoint_name": el.checkpoint?.value || "None",
+                "use_dual_clip_loader": false,
+                "dual_clip_type": "sdxl",
                 "clip1_name": el.clipName?.value || "disabled",
                 "clip1_type": el.clipType?.value || "flux2",
-                "vae_name": el.vae?.value || "None"
+                "clip1_device": "auto",
+                "clip2_name": "disabled",
+                "clip2_type": "stable_diffusion",
+                "clip2_device": "auto",
+                "clip3_name": "disabled",
+                "clip3_type": "stable_diffusion",
+                "clip3_device": "auto",
+                "clip4_name": "disabled",
+                "clip4_type": "stable_diffusion",
+                "clip4_device": "auto",
+                "clip_skip": 0,
+                "checkpoint_name": el.checkpoint?.value || "None",
+                "use_checkpoint_clip": false,
+                "vae_name": el.vae?.value || "None",
+                "t5_min_length": 256,
+                "t5_min_padding": 0
             }
         };
 
         promptGraph["2"] = {
             "class_type": "ZombiehausLoraLoader",
             "inputs": {
-                "pipe": ["1", 0],
+                "pipe": ["1", 7],
                 "lora_stack": loraStackJson,
                 "base_model_name": "None",
                 "enable_dynamic_lora": true
             }
         };
 
+        const is16ch = el.architecture?.value === "chroma" || el.architecture?.value === "flux";
         promptGraph["3"] = {
             "class_type": "ZombiehausLatentPreset",
             "inputs": {
-                "pipe": ["2", 0],
-                "preset": "Manual",
-                "custom_width": parseInt(el.width?.value || "1024", 10),
-                "custom_height": parseInt(el.height?.value || "1024", 10),
+                "pipe": ["2", 5],
+                "resolution": "Manual",
+                "width": parseInt(el.width?.value || "1024", 10),
+                "height": parseInt(el.height?.value || "1024", 10),
                 "batch_size": parseInt(el.batch?.value || "1", 10),
-                "architecture": el.architecture?.value === "sdxl" || el.architecture?.value === "pony" || el.architecture?.value === "sd15" ? "SDXL / Pony (4-channel)" : "Chroma / Flux (16-channel)"
+                "latent_channels": is16ch ? 16 : 4,
+                "downscale": 8,
+                "architecture": is16ch ? "Chroma / Flux (16ch)" : "SDXL / Pony (4ch)"
             }
         };
 
@@ -1570,89 +1910,172 @@ async function triggerGenerate() {
             posText = posText.trim() ? `${posText.trim()}, ${glamourTokens}` : glamourTokens;
         }
 
+        let samplerPipe = ["4", 5];
+
         if (currentMode === "screenplay") {
             let scriptText = el.scriptEditor?.value || "";
             if (glamourTokens) {
                 scriptText = `${scriptText.trim()}\n\n// Glamour & Anatomy Directives\n${glamourTokens}`;
             }
+            promptGraph["4_text"] = {
+                "class_type": "ZombiehausTextEditor",
+                "inputs": {
+                    "pipe": ["3", 1],
+                    "positive": scriptText,
+                    "negative": negText,
+                    "saved_prompt": "--select prompt--",
+                    "weight_mode": "Translate for Chroma / Flux (Linguistic Emphasis)"
+                }
+            };
             promptGraph["4"] = {
                 "class_type": "ZombiehausSceneScriptDirector",
                 "inputs": {
-                    "pipe": ["3", 0],
-                    "script_text": scriptText
+                    "pipe": ["4_text", 5],
+                    "script": ["4_text", 0],
+                    "default_lora_strength": 0.85,
+                    "default_overlap_blend": 0.25
                 }
             };
+            samplerPipe = ["4", 0];
         } else {
             promptGraph["4"] = {
                 "class_type": "ZombiehausTextEditor",
                 "inputs": {
-                    "pipe": ["3", 0],
+                    "pipe": ["3", 1],
                     "positive": posText,
                     "negative": negText,
-                    "prompt_style": el.promptStyle?.value || "Natural Prose (FLUX / SD3)"
+                    "saved_prompt": "--select prompt--",
+                    "weight_mode": "Translate for Chroma / Flux (Linguistic Emphasis)"
                 }
             };
+            samplerPipe = ["4", 5];
         }
 
         promptGraph["5"] = {
             "class_type": "ZombiehausKSampler",
             "inputs": {
-                "pipe": ["4", 0],
+                "pipe": samplerPipe,
+                "latent_image": ["3", 0],
                 "seed": actualSeed,
                 "steps": parseInt(el.steps?.value || "30", 10),
                 "cfg": parseFloat(el.cfg?.value || "3.5"),
                 "sampler_name": el.sampler?.value || "euler_ancestral",
                 "scheduler": el.scheduler?.value || "simple",
-                "denoise": 1.0
+                "denoise": 1.0,
+                "use_cudnn": true
             }
         };
 
-        let finalPipe = ["5", 0];
+        // ZombiehausKSampler outputs: 0=LATENT, 1=IMAGE, 2=AUDIO, 3=INT, 4=MODEL, 5=CLIP, 6=VAE, 7=POS, 8=NEG, 9=PIPE
+        let currentPipe = ["5", 9];
 
-        // Multi-Pass Detailer Refiners
+        // 1. Hi-Res Fix Stage
+        if (el.enableHires?.checked) {
+            const hiresScale = parseFloat(el.hiresScale?.value || "1.5");
+            const hiresDenoise = parseFloat(el.hiresDenoise?.value || "0.35");
+            promptGraph["6_hires"] = {
+                "class_type": "ZombiehausHiresFix",
+                "inputs": {
+                    "pipe": currentPipe,
+                    "scale_by": hiresScale,
+                    "upscale_method": "bicubic",
+                    "denoise": hiresDenoise,
+                    "steps": 20,
+                    "cfg": parseFloat(el.cfg?.value || "5.0"),
+                    "sampler_name": el.sampler?.value || "euler",
+                    "scheduler": el.scheduler?.value || "karras",
+                    "seed": actualSeed,
+                    "restore_face": false,
+                    "dewax_texture": false
+                }
+            };
+            currentPipe = ["6_hires", 1];
+        }
+
+        // 2. Multi-Pass Detailer Refiners
         if (el.enableDetailer?.checked) {
-            const detailers = getDetailerStackData();
+            const detailers = getDetailerStackData().filter(d => d.enabled);
+            const globalConfidence = parseFloat(document.getElementById("detailer-global-confidence")?.value || "0.3");
             if (detailers.length > 0) {
                 const detailerInputs = {
-                    "pipe": ["5", 0],
-                    "confidence": 0.3
+                    "pipe": currentPipe,
+                    "confidence": isNaN(globalConfidence) ? 0.3 : globalConfidence
                 };
                 detailers.forEach((det, idx) => {
                     const slotKey = `slot_${idx + 1}`;
                     const slotId = `slot_node_${idx + 1}`;
+                    const cleanModel = det.model.replace(/^(bbox|segm)\//, "");
                     promptGraph[slotId] = {
                         "class_type": "ZombiehausDetailerSlot",
                         "inputs": {
-                            "model": det.model,
+                            "model": cleanModel,
                             "steps": det.steps,
-                            "cfg": 7.0,
+                            "cfg": det.cfg,
                             "denoise": det.denoise,
-                            "padding": 32,
-                            "mask_blur": 4,
-                            "blend_feather": 16,
-                            "context_pad": 32,
-                            "sampler": el.sampler?.value || "euler_ancestral",
-                            "scheduler": el.scheduler?.value || "karras",
+                            "padding": det.padding,
+                            "mask_blur": det.mask_blur,
+                            "blend_feather": det.blend_feather,
+                            "context_pad": det.context_pad,
+                            "sampler": det.sampler || (el.sampler?.value || "euler_ancestral"),
+                            "scheduler": det.scheduler || (el.scheduler?.value || "karras"),
                             "enabled": true,
-                            "pipe": ["5", 0]
+                            "pipe": currentPipe
                         }
                     };
                     detailerInputs[slotKey] = [slotId, 0];
                 });
 
-                promptGraph["6_detailer"] = {
+                promptGraph["7_detailer"] = {
                     "class_type": "ZombiehausAllInOneDetailer",
                     "inputs": detailerInputs
                 };
-                finalPipe = ["6_detailer", 1];
+                currentPipe = ["7_detailer", 1];
             }
+        }
+
+        // 3. De-Wax & Texture Restore Stage
+        if (el.enableDewax?.checked) {
+            const grain = parseFloat(el.dewaxGrain?.value || "0.12");
+            promptGraph["8_dewax"] = {
+                "class_type": "ZombiehausDeWaxTextureRestore",
+                "inputs": {
+                    "pipe": currentPipe,
+                    "micro_texture": 0.30,
+                    "grain_intensity": grain,
+                    "blur_radius": 3
+                }
+            };
+            currentPipe = ["8_dewax", 1];
+        }
+
+        // 4. Neural Model Upscaler Stage
+        if (el.enableUpscale?.checked && el.upscaleModel?.value && el.upscaleModel.value !== "None") {
+            promptGraph["9_upscale"] = {
+                "class_type": "ZombiehausModelUpscale",
+                "inputs": {
+                    "pipe": currentPipe,
+                    "upscale_model_name": el.upscaleModel.value,
+                    "upscale_mode": "target",
+                    "target_size": 2560,
+                    "downscale_enabled": true,
+                    "scale_down_by": 0.5,
+                    "rescale_method": "lanczos",
+                    "tile_size": 512,
+                    "tile_overlap": 32
+                }
+            };
+            currentPipe = ["9_upscale", 1];
         }
 
         promptGraph["final_save"] = {
             "class_type": "ZombiehausSaveImage",
             "inputs": {
-                "pipe": finalPipe,
-                "filename_prefix": currentMode === "screenplay" ? "Zombiehaus_Director" : "Zombiehaus_Studio"
+                "pipe": currentPipe,
+                "filename_prefix": currentMode === "screenplay" ? "Zombiehaus_Director" : "Zombiehaus_Studio",
+                "format": "png",
+                "quality": 95,
+                "embed_metadata": "enabled",
+                "clean_vram": false
             }
         };
     } else if (currentMode === "video") {

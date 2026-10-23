@@ -247,8 +247,12 @@ async def get_studio_models_api(request):
         clips = ["disabled"] + safe_list("clip")
         loras = ["None"] + safe_list("loras")
         upscalers = ["None"] + safe_list("upscale_models")
-        samplers = list(comfy.samplers.KSampler.SAMPLERS)
-        schedulers = list(comfy.samplers.KSampler.SCHEDULERS)
+        detectors = []
+        try:
+            from .modules.allinone_detailer_node import scan_detector_models
+            detectors = [m for m in scan_detector_models() if m not in ("disabled", "(no models found)")]
+        except Exception:
+            pass
 
         return web.json_response({
             "success": True,
@@ -258,6 +262,7 @@ async def get_studio_models_api(request):
             "clips": clips,
             "loras": loras,
             "upscalers": upscalers,
+            "detectors": detectors,
             "samplers": samplers,
             "schedulers": schedulers
         })

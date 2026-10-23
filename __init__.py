@@ -254,6 +254,17 @@ async def get_studio_models_api(request):
         except Exception:
             pass
 
+        samplers = []
+        schedulers = []
+        try:
+            samplers = list(comfy.samplers.KSampler.SAMPLERS)
+        except Exception:
+            pass
+        try:
+            schedulers = list(comfy.samplers.KSampler.SCHEDULERS)
+        except Exception:
+            pass
+
         return web.json_response({
             "success": True,
             "checkpoints": checkpoints,

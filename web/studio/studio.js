@@ -79,6 +79,7 @@ const el = {
 
     // Workflow / Profile controls
     profileSelect: document.getElementById("profile-select"),
+    btnUpdateProfile: document.getElementById("btn-update-profile"),
     btnSaveProfile: document.getElementById("btn-save-profile"),
     btnExportWorkflow: document.getElementById("btn-export-workflow"),
     btnImportWorkflow: document.getElementById("btn-import-workflow"),
@@ -273,7 +274,10 @@ async function initStudio() {
     setupUiScale();
     setupSliders();
     setupDynamicStacks();
+    setupFlowDynamics();
     ensureDetailerGlobalControls();
+    setupProfileRack();
+    setupActionRackControls();
     setupModeSwitcher();
     setupAspectRatios();
     setupEditorHelpers();
@@ -395,136 +399,311 @@ function getLoraStackData() {
     return items;
 }
 
+let detailerPasses = [];
+
+const WORKFLOW_13_PRESET = [
+    { model: "person_yolov8n-seg.pt", denoise: 0.25, steps: 20, cfg: 7.0, enabled: true },
+    { model: "deepfashion2_yolov8s-seg.pt", denoise: 0.35, steps: 20, cfg: 7.0, enabled: true },
+    { model: "face-yolo8n.pt", denoise: 0.40, steps: 20, cfg: 7.0, enabled: true },
+    { model: "eyes-full-v1.pt", denoise: 0.35, steps: 20, cfg: 7.0, enabled: true },
+    { model: "hand_yolov8n.pt", denoise: 0.45, steps: 20, cfg: 7.0, enabled: true },
+    { model: "adetailerFootYolov8x_v20.pt", denoise: 0.40, steps: 20, cfg: 7.0, enabled: true },
+    { model: "female_breast-v4.2.pt", denoise: 0.35, steps: 20, cfg: 7.0, enabled: true },
+    { model: "nipples_yolov8s.pt", denoise: 0.35, steps: 20, cfg: 7.0, enabled: false },
+    { model: "penis.pt", denoise: 0.35, steps: 20, cfg: 7.0, enabled: false },
+    { model: "vagina-v3.2.pt", denoise: 0.35, steps: 20, cfg: 7.0, enabled: false },
+    { model: "JTeethSeg.pt", denoise: 0.30, steps: 20, cfg: 7.0, enabled: true },
+    { model: "lips_v1.pt", denoise: 0.35, steps: 20, cfg: 7.0, enabled: true },
+    { model: "nails_seg_s_yolov8_v1.pt", denoise: 0.35, steps: 20, cfg: 7.0, enabled: true }
+];
+
+const PORTRAIT_4_PRESET = [
+    { model: "face-yolo8n.pt", denoise: 0.40, steps: 20, cfg: 7.0, enabled: true },
+    { model: "eyes-full-v1.pt", denoise: 0.35, steps: 20, cfg: 7.0, enabled: true },
+    { model: "lips_v1.pt", denoise: 0.35, steps: 20, cfg: 7.0, enabled: true },
+    { model: "JTeethSeg.pt", denoise: 0.30, steps: 20, cfg: 7.0, enabled: true }
+];
+
+function getDetectorIcon(modelName) {
+    const name = (modelName || "").toLowerCase();
+    if (name.includes("face")) return "👤";
+    if (name.includes("eye") || name.includes("pupil") || name.includes("iris")) return "👁️";
+    if (name.includes("hand") || name.includes("finger")) return "✋";
+    if (name.includes("fashion") || name.includes("garment") || name.includes("dress")) return "👗";
+    if (name.includes("breast") || name.includes("nipple") || name.includes("penis") || name.includes("vagina")) return "✨";
+    if (name.includes("lips") || name.includes("mouth")) return "👄";
+    if (name.includes("teeth")) return "🦷";
+    if (name.includes("nail")) return "💅";
+    if (name.includes("foot") || name.includes("feet")) return "🦶";
+    if (name.includes("person") || name.includes("body")) return "🧍";
+    return "🎯";
+}
+
+function formatModelName(modelName) {
+    if (!modelName) return "Detector";
+    const clean = modelName.replace(/^(bbox|segm)\//, "").replace(/\.(pt|pth)$/i, "");
+    return clean.replace(/[-_]/g, " ");
+}
+
 function injectDetailerStyles() {
     if (document.getElementById("zh-detailer-custom-styles")) return;
     const style = document.createElement("style");
     style.id = "zh-detailer-custom-styles";
     style.textContent = `
-        .zh-detailer-item {
-            background: rgba(15, 23, 42, 0.75);
-            border: 1px solid rgba(56, 189, 248, 0.25);
-            border-radius: 8px;
-            padding: 10px 12px;
-            margin-bottom: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }
-        .zh-detailer-item:hover {
-            border-color: rgba(56, 189, 248, 0.45);
-            box-shadow: 0 6px 16px rgba(56, 189, 248, 0.12);
-        }
-        .zh-detailer-header {
+        /* Main UI Compact Detailer Stack */
+        .zh-det-summary-bar {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 8px;
-            margin-bottom: 8px;
+            background: rgba(15, 23, 42, 0.65);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 6px;
+            padding: 5px 10px;
+            margin-bottom: 6px;
+            font-size: 11px;
         }
-        .zh-detailer-header-left {
+        .zh-det-summary-info {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+        .zh-det-summary-badge {
+            background: rgba(56, 189, 248, 0.15);
+            color: #38bdf8;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-weight: 700;
+            font-size: 10px;
+        }
+        .zh-det-compact-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-left: 3px solid #38bdf8;
+            border-radius: 6px;
+            padding: 6px 10px;
+            margin-bottom: 4px;
+            transition: all 0.15s ease;
+        }
+        .zh-det-compact-card:hover {
+            border-color: rgba(56, 189, 248, 0.4);
+            background: rgba(15, 23, 42, 0.9);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        .zh-det-compact-card.is-disabled {
+            opacity: 0.55;
+            border-left-color: rgba(255, 255, 255, 0.2);
+            background: rgba(15, 23, 42, 0.4);
+        }
+        .zh-det-compact-card.is-disabled .zh-det-compact-name {
+            text-decoration: line-through;
+            color: var(--text-muted);
+        }
+        .zh-det-compact-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+            min-width: 0;
+            cursor: pointer;
+        }
+        .zh-det-compact-toggle {
+            cursor: pointer;
+            accent-color: #38bdf8;
+            width: 14px;
+            height: 14px;
+        }
+        .zh-det-compact-badge {
+            font-size: 10px;
+            font-weight: 700;
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.15);
+            padding: 1px 5px;
+            border-radius: 3px;
+            user-select: none;
+        }
+        .zh-det-compact-name {
+            font-size: 11px;
+            font-weight: 600;
+            color: #f1f5f9;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .zh-det-compact-stats {
+            font-size: 10px;
+            color: var(--text-muted);
+            background: rgba(0, 0, 0, 0.3);
+            padding: 1px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+        .zh-det-compact-actions {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-left: 6px;
+        }
+        .zh-det-compact-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-muted);
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 10px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .zh-det-compact-btn:hover {
+            color: #fff;
+            background: rgba(56, 189, 248, 0.2);
+            border-color: rgba(56, 189, 248, 0.4);
+        }
+        .zh-det-empty-state {
+            text-align: center;
+            padding: 14px;
+            color: var(--text-muted);
+            font-size: 11px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px dashed rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+        }
+
+        /* Detailer Modal Dialog */
+        .zh-detailer-modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(3, 7, 18, 0.82);
+            backdrop-filter: blur(10px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            animation: zhFadeIn 0.2s ease-out;
+        }
+        @keyframes zhFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .zh-detailer-modal-card {
+            background: #0b1120;
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 30px rgba(56, 189, 248, 0.12);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 920px;
+            max-height: 88vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .zh-detailer-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 20px;
+            background: rgba(15, 23, 42, 0.85);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .zh-detailer-modal-title {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 700;
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .zh-detailer-modal-subtitle {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .zh-detailer-modal-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 18px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            line-height: 1;
+        }
+        .zh-detailer-modal-close:hover {
+            color: #ef4444;
+            background: rgba(239, 68, 68, 0.15);
+        }
+        .zh-detailer-modal-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 20px;
+            background: rgba(15, 23, 42, 0.5);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .zh-modal-conf-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .zh-modal-cards-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .zh-modal-pass-card {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            border-radius: 8px;
+            padding: 12px 14px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transition: all 0.2s ease;
+        }
+        .zh-modal-pass-card.highlight-focus {
+            border-color: #38bdf8;
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+        }
+        .zh-modal-pass-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .zh-modal-pass-header-left {
             display: flex;
             align-items: center;
             gap: 8px;
             flex: 1;
         }
-        .zh-detailer-pass-badge {
-            background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(99, 102, 241, 0.25));
-            border: 1px solid rgba(56, 189, 248, 0.5);
-            color: #38bdf8;
-            font-size: 11px;
-            font-weight: 700;
-            padding: 2px 7px;
-            border-radius: 4px;
-            letter-spacing: 0.5px;
-            user-select: none;
-        }
-        .zh-detailer-header-actions {
+        .zh-detailer-modal-footer {
             display: flex;
             align-items: center;
-            gap: 6px;
-        }
-        .zh-detailer-toggle-adv {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            color: var(--text-muted);
-            font-size: 10px;
-            padding: 3px 8px;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-        .zh-detailer-toggle-adv:hover {
-            color: #fff;
-            background: rgba(56, 189, 248, 0.2);
-            border-color: rgba(56, 189, 248, 0.4);
-        }
-        .zh-detailer-main-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            background: rgba(0, 0, 0, 0.25);
-            padding: 8px 10px;
-            border-radius: 6px;
-            margin-bottom: 6px;
-        }
-        .zh-detailer-param label {
-            font-size: 10px;
-            color: var(--text-muted);
-        }
-        .zh-detailer-advanced-drawer {
-            border-top: 1px dashed rgba(255, 255, 255, 0.12);
-            padding-top: 8px;
-            margin-top: 6px;
-            animation: fadeIn 0.2s ease-in-out;
-        }
-        .zh-detailer-adv-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-        }
-        .zh-adv-field label {
-            font-size: 9px;
-            color: var(--text-muted);
-            display: block;
-            margin-bottom: 2px;
-        }
-        .zh-adv-field .zh-input, .zh-adv-field .zh-select {
-            height: 24px;
-            padding: 1px 6px;
-            font-size: 11px;
-        }
-        .zh-detailer-global-bar {
-            background: rgba(0, 0, 0, 0.25);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 6px;
-            padding: 8px 10px;
-            margin-bottom: 10px;
+            justify-content: space-between;
+            padding: 12px 20px;
+            background: rgba(15, 23, 42, 0.9);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
         }
     `;
     document.head.appendChild(style);
 }
 
 function ensureDetailerGlobalControls() {
-    if (!el.detailerStackContainer) return;
-    if (document.getElementById("detailer-global-controls")) return;
-
-    const bar = document.createElement("div");
-    bar.id = "detailer-global-controls";
-    bar.className = "zh-detailer-global-bar";
-    bar.innerHTML = `
-        <div class="zh-label-row" style="margin-bottom: 4px;">
-            <label style="font-size: 11px; font-weight: 600; color: var(--accent-cyan); display: flex; align-items: center; gap: 4px;">
-                <span>🎯 Detection Confidence Threshold</span>
-            </label>
-            <input id="detailer-global-confidence" type="number" step="0.05" min="0.05" max="0.95" value="0.30" class="zh-slider-val-input" title="Sensitivity threshold (lower = detects more, higher = only high confidence)">
-        </div>
-        <input id="detailer-global-confidence-slider" type="range" min="0.05" max="0.95" step="0.05" value="0.30" class="zh-slider">
-    `;
-    el.detailerStackContainer.parentNode.insertBefore(bar, el.detailerStackContainer);
-
-    const slider = document.getElementById("detailer-global-confidence-slider");
-    const numInput = document.getElementById("detailer-global-confidence");
-    slider?.addEventListener("input", () => { numInput.value = Number(slider.value).toFixed(2); });
-    numInput?.addEventListener("input", () => { slider.value = numInput.value; });
+    injectDetailerStyles();
+    ensureDetailerModal();
+    renderMainDetailerList();
 }
 
 function populateDetectorSelect(selectEl, selectedVal) {
@@ -592,190 +771,823 @@ function populateDetectorSelect(selectEl, selectedVal) {
 }
 
 function refreshAllDetailerDropdowns() {
-    if (!el.detailerStackContainer) return;
-    el.detailerStackContainer.querySelectorAll(".zh-detailer-select").forEach(sel => {
-        const currentVal = sel.value;
-        populateDetectorSelect(sel, currentVal);
-    });
+    renderMainDetailerList();
+    const modal = document.getElementById("zh-detailer-modal");
+    if (modal && modal.style.display !== "none") {
+        renderModalDetailerCards();
+    }
 }
 
-function addDetailerItem(config = {}) {
-    if (!el.detailerStackContainer) return;
-    ensureDetailerGlobalControls();
+function ensureDetailerModal() {
+    if (document.getElementById("zh-detailer-modal")) return;
 
-    const model = (typeof config === "string" ? config : config.model) || "face_yolov8m.pt";
-    const cleanModel = model.replace(/^(bbox|segm)\//, "");
-    const denoise = config.denoise !== undefined ? config.denoise : 0.45;
-    const steps = config.steps !== undefined ? config.steps : 20;
-    const cfg = config.cfg !== undefined ? config.cfg : 7.0;
-    const padding = config.padding !== undefined ? config.padding : 32;
-    const maskBlur = config.mask_blur !== undefined ? config.mask_blur : 4;
-    const blendFeather = config.blend_feather !== undefined ? config.blend_feather : 16;
-    const contextPad = config.context_pad !== undefined ? config.context_pad : 32;
-    const sampler = config.sampler || (el.sampler?.value || "euler_ancestral");
-    const scheduler = config.scheduler || (el.scheduler?.value || "karras");
-    const enabled = config.enabled !== undefined ? config.enabled : true;
-    const inpaintPrompt = config.inpaint_prompt || "";
+    const modal = document.createElement("div");
+    modal.id = "zh-detailer-modal";
+    modal.className = "zh-detailer-modal-backdrop";
+    modal.style.display = "none";
 
-    const passIndex = el.detailerStackContainer.querySelectorAll(".zh-detailer-item").length + 1;
-
-    const item = document.createElement("div");
-    item.className = "zh-stack-item zh-detailer-item";
-    item.setAttribute("data-detailer-pass", passIndex);
-
-    item.innerHTML = `
-        <div class="zh-detailer-header">
-            <div class="zh-detailer-header-left">
-                <input type="checkbox" class="zh-detailer-enable-toggle" ${enabled ? "checked" : ""} title="Enable or bypass this detailer pass">
-                <span class="zh-detailer-pass-badge">#${passIndex}</span>
-                <select class="zh-select zh-detailer-select flex-1" title="Select detector model"></select>
-            </div>
-            <div class="zh-detailer-header-actions">
-                <button type="button" class="zh-detailer-toggle-adv zh-btn-mini" title="Expand advanced settings">⚙️ Settings</button>
-                <button type="button" class="zh-btn-delete-item" title="Remove Detailer pass">✕</button>
-            </div>
-        </div>
-
-        <div class="zh-detailer-main-grid">
-            <div class="zh-detailer-param">
-                <div class="zh-label-row">
-                    <label>Denoise</label>
-                    <input type="number" step="0.05" min="0.05" max="1.0" value="${Number(denoise).toFixed(2)}" class="zh-slider-val-input zh-det-denoise-num">
+    modal.innerHTML = `
+        <div class="zh-detailer-modal-card">
+            <div class="zh-detailer-modal-header">
+                <div>
+                    <h3 class="zh-detailer-modal-title">🎯 Multi-Pass Detailer Configuration</h3>
+                    <div class="zh-detailer-modal-subtitle">Configure detection models, denoise strength, steps, padding, and inpaint prompts</div>
                 </div>
-                <input type="range" min="0.05" max="1.0" step="0.05" value="${denoise}" class="zh-slider zh-det-denoise-slider">
+                <button type="button" class="zh-detailer-modal-close" id="btn-detailer-modal-close" title="Close">✕</button>
             </div>
 
-            <div class="zh-detailer-param">
-                <div class="zh-label-row">
-                    <label>Steps</label>
-                    <input type="number" step="1" min="5" max="80" value="${steps}" class="zh-slider-val-input zh-det-steps-num">
+            <div class="zh-detailer-modal-toolbar">
+                <div class="zh-modal-conf-group">
+                    <span style="font-weight: 600; color: #38bdf8;">🎯 Sensitivity Threshold:</span>
+                    <input id="detailer-modal-conf-slider" type="range" min="0.05" max="0.95" step="0.05" value="0.30" class="zh-slider" style="width: 110px;">
+                    <input id="detailer-global-confidence" type="number" step="0.05" min="0.05" max="0.95" value="0.30" class="zh-slider-val-input" style="width: 48px;">
                 </div>
-                <input type="range" min="5" max="80" step="1" value="${steps}" class="zh-slider zh-det-steps-slider">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <select id="sel-detailer-presets" class="zh-select" style="font-size: 11px; padding: 2px 8px; height: 26px;">
+                        <option value="">⚡ Presets & Templates...</option>
+                        <option value="workflow-13">⚡ Workflow Full (13 Passes)</option>
+                        <option value="portrait-4">✨ Portrait Essentials (4 Passes)</option>
+                    </select>
+                    <button type="button" id="btn-modal-add-pass" class="zh-btn zh-btn-primary zh-btn-mini" style="height: 26px;">+ Add Pass</button>
+                </div>
             </div>
 
-            <div class="zh-detailer-param">
-                <div class="zh-label-row">
-                    <label>CFG Scale</label>
-                    <input type="number" step="0.5" min="1.0" max="20.0" value="${Number(cfg).toFixed(1)}" class="zh-slider-val-input zh-det-cfg-num">
-                </div>
-                <input type="range" min="1.0" max="20.0" step="0.5" value="${cfg}" class="zh-slider zh-det-cfg-slider">
-            </div>
-        </div>
+            <div id="zh-detailer-modal-cards" class="zh-modal-cards-container"></div>
 
-        <div class="zh-detailer-advanced-drawer" style="display: none;">
-            <div class="zh-detailer-adv-grid">
-                <div class="zh-adv-field">
-                    <label>Padding (px)</label>
-                    <input type="number" min="0" max="256" step="8" value="${padding}" class="zh-input zh-det-padding">
+            <div class="zh-detailer-modal-footer">
+                <div id="zh-detailer-modal-stats" style="font-size: 11px; color: var(--text-muted); font-weight: 500;"></div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <button type="button" id="btn-detailer-toggle-all" class="zh-btn zh-btn-mini zh-btn-secondary">Toggle All</button>
+                    <button type="button" id="btn-detailer-clear-all" class="zh-btn zh-btn-mini zh-btn-danger">Clear All</button>
+                    <button type="button" id="btn-detailer-modal-done" class="zh-btn zh-btn-primary" style="padding: 4px 16px; font-weight: 600;">Done</button>
                 </div>
-                <div class="zh-adv-field">
-                    <label>Context Pad</label>
-                    <input type="number" min="0" max="256" step="8" value="${contextPad}" class="zh-input zh-det-context-pad">
-                </div>
-                <div class="zh-adv-field">
-                    <label>Mask Blur (px)</label>
-                    <input type="number" min="0" max="64" step="2" value="${maskBlur}" class="zh-input zh-det-mask-blur">
-                </div>
-                <div class="zh-adv-field">
-                    <label>Blend Feather</label>
-                    <input type="number" min="0" max="128" step="4" value="${blendFeather}" class="zh-input zh-det-blend-feather">
-                </div>
-                <div class="zh-adv-field">
-                    <label>Sampler</label>
-                    <select class="zh-select zh-det-sampler"></select>
-                </div>
-                <div class="zh-adv-field">
-                    <label>Scheduler</label>
-                    <select class="zh-select zh-det-scheduler"></select>
-                </div>
-            </div>
-            <div class="zh-detailer-prompt-row" style="margin-top: 6px;">
-                <label style="font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 2px;">Inpaint Focus Prompt (Optional)</label>
-                <input type="text" class="zh-input zh-det-inpaint-prompt" placeholder="e.g. highly detailed iris, sharp eyelashes, realistic skin" value="${inpaintPrompt}" style="width: 100%; font-size: 11px;">
             </div>
         </div>
     `;
 
-    const select = item.querySelector(".zh-detailer-select");
-    populateDetectorSelect(select, cleanModel);
+    document.body.appendChild(modal);
 
-    const samplerSelect = item.querySelector(".zh-det-sampler");
-    const schedSelect = item.querySelector(".zh-det-scheduler");
-    populateSelect(samplerSelect, availableSamplers, sampler);
-    populateSelect(schedSelect, availableSchedulers, scheduler);
+    const confSlider = document.getElementById("detailer-modal-conf-slider");
+    const confInput = document.getElementById("detailer-global-confidence");
+    confSlider?.addEventListener("input", () => {
+        confInput.value = Number(confSlider.value).toFixed(2);
+    });
+    confInput?.addEventListener("input", () => {
+        confSlider.value = confInput.value;
+    });
 
-    const bindPair = (sliderClass, numClass, decimals = 2) => {
-        const slider = item.querySelector(sliderClass);
-        const num = item.querySelector(numClass);
-        if (slider && num) {
-            slider.addEventListener("input", () => { num.value = Number(slider.value).toFixed(decimals); });
-            num.addEventListener("input", () => { slider.value = num.value; });
+    document.getElementById("btn-detailer-modal-close")?.addEventListener("click", () => closeDetailerModal());
+    document.getElementById("btn-detailer-modal-done")?.addEventListener("click", () => closeDetailerModal());
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) closeDetailerModal();
+    });
+
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && modal.style.display !== "none") {
+            closeDetailerModal();
         }
-    };
-    bindPair(".zh-det-denoise-slider", ".zh-det-denoise-num", 2);
-    bindPair(".zh-det-steps-slider", ".zh-det-steps-num", 0);
-    bindPair(".zh-det-cfg-slider", ".zh-det-cfg-num", 1);
-
-    const advBtn = item.querySelector(".zh-detailer-toggle-adv");
-    const advDrawer = item.querySelector(".zh-detailer-advanced-drawer");
-    advBtn?.addEventListener("click", () => {
-        const isHidden = advDrawer.style.display === "none";
-        advDrawer.style.display = isHidden ? "block" : "none";
-        advBtn.textContent = isHidden ? "▲ Less" : "⚙️ Settings";
-        advBtn.style.color = isHidden ? "var(--accent-cyan)" : "";
     });
 
-    const delBtn = item.querySelector(".zh-btn-delete-item");
-    delBtn?.addEventListener("click", () => {
-        item.remove();
-        el.detailerStackContainer?.querySelectorAll(".zh-detailer-item").forEach((elItem, idx) => {
-            const badge = elItem.querySelector(".zh-detailer-pass-badge");
-            if (badge) badge.textContent = `#${idx + 1}`;
+    document.getElementById("btn-modal-add-pass")?.addEventListener("click", () => {
+        addDetailerItem({ model: "face-yolo8n.pt", denoise: 0.40, steps: 20 });
+        renderModalDetailerCards();
+        const cards = document.getElementById("zh-detailer-modal-cards");
+        if (cards) cards.scrollTop = cards.scrollHeight;
+    });
+
+    document.getElementById("sel-detailer-presets")?.addEventListener("change", (e) => {
+        const val = e.target.value;
+        if (!val) return;
+        if (val === "workflow-13") {
+            detailerPasses = JSON.parse(JSON.stringify(WORKFLOW_13_PRESET));
+        } else if (val === "portrait-4") {
+            detailerPasses = JSON.parse(JSON.stringify(PORTRAIT_4_PRESET));
+        }
+        e.target.value = "";
+        renderModalDetailerCards();
+        renderMainDetailerList();
+    });
+
+    document.getElementById("btn-detailer-toggle-all")?.addEventListener("click", () => {
+        const anyDisabled = detailerPasses.some(p => !p.enabled);
+        detailerPasses.forEach(p => { p.enabled = anyDisabled; });
+        renderModalDetailerCards();
+        renderMainDetailerList();
+    });
+
+    document.getElementById("btn-detailer-clear-all")?.addEventListener("click", () => {
+        if (confirm("Remove all detailer passes?")) {
+            detailerPasses = [];
+            renderModalDetailerCards();
+            renderMainDetailerList();
+        }
+    });
+}
+
+function openDetailerModal(targetPassId = null) {
+    ensureDetailerModal();
+    const modal = document.getElementById("zh-detailer-modal");
+    if (!modal) return;
+    renderModalDetailerCards();
+    modal.style.display = "flex";
+
+    if (targetPassId) {
+        setTimeout(() => {
+            const card = modal.querySelector(`[data-modal-pass-id="${targetPassId}"]`);
+            if (card) {
+                card.scrollIntoView({ behavior: "smooth", block: "center" });
+                card.classList.add("highlight-focus");
+                setTimeout(() => card.classList.remove("highlight-focus"), 1200);
+            }
+        }, 50);
+    }
+}
+
+function closeDetailerModal() {
+    const modal = document.getElementById("zh-detailer-modal");
+    if (modal) modal.style.display = "none";
+    renderMainDetailerList();
+}
+
+function renderMainDetailerList() {
+    if (!el.detailerStackContainer) return;
+    el.detailerStackContainer.innerHTML = "";
+
+    const activeCount = detailerPasses.filter(p => p.enabled).length;
+
+    const summaryBar = document.createElement("div");
+    summaryBar.className = "zh-det-summary-bar";
+    summaryBar.innerHTML = `
+        <div class="zh-det-summary-info">
+            <span class="zh-det-summary-badge">${activeCount} of ${detailerPasses.length} active</span>
+            <span>Detailer Refiner Passes</span>
+        </div>
+        <button type="button" class="zh-btn zh-btn-mini zh-btn-secondary zh-open-modal-btn" style="padding: 2px 8px; font-size: 10px;">⚙️ Configure Passes</button>
+    `;
+    summaryBar.querySelector(".zh-open-modal-btn")?.addEventListener("click", () => openDetailerModal());
+    el.detailerStackContainer.appendChild(summaryBar);
+
+    if (detailerPasses.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "zh-det-empty-state";
+        empty.innerHTML = `
+            <div>No detailer passes configured.</div>
+            <button type="button" class="zh-btn zh-btn-mini zh-btn-primary" style="margin-top: 6px;">+ Configure Passes (Modal)</button>
+        `;
+        empty.querySelector("button")?.addEventListener("click", () => openDetailerModal());
+        el.detailerStackContainer.appendChild(empty);
+        return;
+    }
+
+    detailerPasses.forEach((pass, idx) => {
+        const card = document.createElement("div");
+        card.className = `zh-det-compact-card ${pass.enabled ? "is-enabled" : "is-disabled"}`;
+        card.setAttribute("data-det-id", pass.id);
+
+        const icon = getDetectorIcon(pass.model);
+        const name = formatModelName(pass.model);
+
+        card.innerHTML = `
+            <div class="zh-det-compact-left">
+                <input type="checkbox" class="zh-det-compact-toggle" ${pass.enabled ? "checked" : ""} title="Enable or bypass this pass">
+                <span class="zh-det-compact-badge">#${idx + 1}</span>
+                <span>${icon}</span>
+                <span class="zh-det-compact-name" title="${pass.model}">${name}</span>
+                <span class="zh-det-compact-stats">${Number(pass.denoise).toFixed(2)}d • ${pass.steps}s • ${Number(pass.cfg).toFixed(1)}cfg</span>
+            </div>
+            <div class="zh-det-compact-actions">
+                <button type="button" class="zh-det-compact-btn zh-btn-edit" title="Configure pass in modal">⚙️</button>
+                <button type="button" class="zh-det-compact-btn zh-btn-del" title="Remove pass">✕</button>
+            </div>
+        `;
+
+        const chk = card.querySelector(".zh-det-compact-toggle");
+        chk?.addEventListener("change", (e) => {
+            pass.enabled = e.target.checked;
+            card.classList.toggle("is-enabled", pass.enabled);
+            card.classList.toggle("is-disabled", !pass.enabled);
+            const badge = summaryBar.querySelector(".zh-det-summary-badge");
+            if (badge) {
+                const count = detailerPasses.filter(p => p.enabled).length;
+                badge.textContent = `${count} of ${detailerPasses.length} active`;
+            }
         });
-    });
 
-    el.detailerStackContainer.appendChild(item);
+        card.querySelector(".zh-det-compact-left")?.addEventListener("click", (e) => {
+            if (e.target !== chk) openDetailerModal(pass.id);
+        });
+
+        card.querySelector(".zh-btn-edit")?.addEventListener("click", () => openDetailerModal(pass.id));
+
+        card.querySelector(".zh-btn-del")?.addEventListener("click", () => {
+            detailerPasses = detailerPasses.filter(p => p.id !== pass.id);
+            renderMainDetailerList();
+        });
+
+        el.detailerStackContainer.appendChild(card);
+    });
+}
+
+function renderModalDetailerCards() {
+    const container = document.getElementById("zh-detailer-modal-cards");
+    const statsEl = document.getElementById("zh-detailer-modal-stats");
+    if (!container) return;
+    container.innerHTML = "";
+
+    const activeCount = detailerPasses.filter(p => p.enabled).length;
+    if (statsEl) {
+        statsEl.textContent = `${activeCount} of ${detailerPasses.length} passes active`;
+    }
+
+    if (detailerPasses.length === 0) {
+        container.innerHTML = `
+            <div class="zh-det-empty-state" style="padding: 30px;">
+                <div style="font-size: 13px; font-weight: 600; color: #f1f5f9; margin-bottom: 6px;">No Detailer Passes Configured</div>
+                <div style="margin-bottom: 12px;">Add individual passes or load a complete multi-pass character template above.</div>
+                <button type="button" id="btn-modal-empty-add" class="zh-btn zh-btn-primary">+ Add First Pass</button>
+            </div>
+        `;
+        document.getElementById("btn-modal-empty-add")?.addEventListener("click", () => {
+            addDetailerItem({ model: "face-yolo8n.pt", denoise: 0.40, steps: 20 });
+            renderModalDetailerCards();
+        });
+        return;
+    }
+
+    detailerPasses.forEach((pass, idx) => {
+        const item = document.createElement("div");
+        item.className = "zh-modal-pass-card";
+        item.setAttribute("data-modal-pass-id", pass.id);
+
+        item.innerHTML = `
+            <div class="zh-modal-pass-header">
+                <div class="zh-modal-pass-header-left">
+                    <input type="checkbox" class="zh-modal-pass-toggle zh-det-compact-toggle" ${pass.enabled ? "checked" : ""} title="Enable or bypass this pass">
+                    <span class="zh-det-compact-badge">#${idx + 1}</span>
+                    <select class="zh-select zh-modal-pass-select flex-1" title="Select detector model"></select>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <button type="button" class="zh-detailer-toggle-adv zh-btn-mini">⚙️ Advanced</button>
+                    <button type="button" class="zh-btn-mini zh-btn-danger zh-modal-pass-del" title="Remove pass">✕</button>
+                </div>
+            </div>
+
+            <div class="zh-detailer-main-grid">
+                <div class="zh-detailer-param">
+                    <div class="zh-label-row">
+                        <label>Denoise</label>
+                        <input type="number" step="0.05" min="0.05" max="1.0" value="${Number(pass.denoise).toFixed(2)}" class="zh-slider-val-input zh-det-denoise-num">
+                    </div>
+                    <input type="range" min="0.05" max="1.0" step="0.05" value="${pass.denoise}" class="zh-slider zh-det-denoise-slider">
+                </div>
+
+                <div class="zh-detailer-param">
+                    <div class="zh-label-row">
+                        <label>Steps</label>
+                        <input type="number" step="1" min="5" max="80" value="${pass.steps}" class="zh-slider-val-input zh-det-steps-num">
+                    </div>
+                    <input type="range" min="5" max="80" step="1" value="${pass.steps}" class="zh-slider zh-det-steps-slider">
+                </div>
+
+                <div class="zh-detailer-param">
+                    <div class="zh-label-row">
+                        <label>CFG Scale</label>
+                        <input type="number" step="0.5" min="1.0" max="20.0" value="${Number(pass.cfg).toFixed(1)}" class="zh-slider-val-input zh-det-cfg-num">
+                    </div>
+                    <input type="range" min="1.0" max="20.0" step="0.5" value="${pass.cfg}" class="zh-slider zh-det-cfg-slider">
+                </div>
+            </div>
+
+            <div class="zh-detailer-advanced-drawer" style="display: none;">
+                <div class="zh-detailer-adv-grid">
+                    <div class="zh-adv-field">
+                        <label>Padding (px)</label>
+                        <input type="number" min="0" max="256" step="8" value="${pass.padding}" class="zh-input zh-det-padding">
+                    </div>
+                    <div class="zh-adv-field">
+                        <label>Context Pad</label>
+                        <input type="number" min="0" max="256" step="8" value="${pass.context_pad}" class="zh-input zh-det-context-pad">
+                    </div>
+                    <div class="zh-adv-field">
+                        <label>Mask Blur (px)</label>
+                        <input type="number" min="0" max="64" step="2" value="${pass.mask_blur}" class="zh-input zh-det-mask-blur">
+                    </div>
+                    <div class="zh-adv-field">
+                        <label>Blend Feather</label>
+                        <input type="number" min="0" max="128" step="4" value="${pass.blend_feather}" class="zh-input zh-det-blend-feather">
+                    </div>
+                    <div class="zh-adv-field">
+                        <label>Sampler</label>
+                        <select class="zh-select zh-det-sampler"></select>
+                    </div>
+                    <div class="zh-adv-field">
+                        <label>Scheduler</label>
+                        <select class="zh-select zh-det-scheduler"></select>
+                    </div>
+                </div>
+                <div class="zh-detailer-prompt-row" style="margin-top: 6px;">
+                    <label style="font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 2px;">Inpaint Focus Prompt (Optional)</label>
+                    <input type="text" class="zh-input zh-det-inpaint-prompt" placeholder="e.g. highly detailed iris, sharp eyelashes, realistic skin" value="${pass.inpaint_prompt || ""}" style="width: 100%; font-size: 11px;">
+                </div>
+            </div>
+        `;
+
+        const select = item.querySelector(".zh-modal-pass-select");
+        populateDetectorSelect(select, pass.model);
+        select?.addEventListener("change", (e) => {
+            pass.model = e.target.value;
+            renderMainDetailerList();
+        });
+
+        const samplerSelect = item.querySelector(".zh-det-sampler");
+        const schedSelect = item.querySelector(".zh-det-scheduler");
+        populateSelect(samplerSelect, availableSamplers, pass.sampler);
+        populateSelect(schedSelect, availableSchedulers, pass.scheduler);
+        samplerSelect?.addEventListener("change", (e) => { pass.sampler = e.target.value; });
+        schedSelect?.addEventListener("change", (e) => { pass.scheduler = e.target.value; });
+
+        const chk = item.querySelector(".zh-modal-pass-toggle");
+        chk?.addEventListener("change", (e) => {
+            pass.enabled = e.target.checked;
+            renderMainDetailerList();
+            if (statsEl) {
+                const count = detailerPasses.filter(p => p.enabled).length;
+                statsEl.textContent = `${count} of ${detailerPasses.length} passes active`;
+            }
+        });
+
+        const bindPair = (sliderClass, numClass, propName, decimals = 2) => {
+            const slider = item.querySelector(sliderClass);
+            const num = item.querySelector(numClass);
+            if (slider && num) {
+                slider.addEventListener("input", () => {
+                    const val = parseFloat(slider.value);
+                    num.value = val.toFixed(decimals);
+                    pass[propName] = val;
+                    renderMainDetailerList();
+                });
+                num.addEventListener("input", () => {
+                    const val = parseFloat(num.value);
+                    if (!isNaN(val)) {
+                        slider.value = val;
+                        pass[propName] = val;
+                        renderMainDetailerList();
+                    }
+                });
+            }
+        };
+        bindPair(".zh-det-denoise-slider", ".zh-det-denoise-num", "denoise", 2);
+        bindPair(".zh-det-steps-slider", ".zh-det-steps-num", "steps", 0);
+        bindPair(".zh-det-cfg-slider", ".zh-det-cfg-num", "cfg", 1);
+
+        const bindAdvInt = (inputClass, propName) => {
+            const input = item.querySelector(inputClass);
+            input?.addEventListener("change", () => {
+                const val = parseInt(input.value, 10);
+                if (!isNaN(val)) pass[propName] = val;
+            });
+        };
+        bindAdvInt(".zh-det-padding", "padding");
+        bindAdvInt(".zh-det-context-pad", "context_pad");
+        bindAdvInt(".zh-det-mask-blur", "mask_blur");
+        bindAdvInt(".zh-det-blend-feather", "blend_feather");
+
+        const promptInput = item.querySelector(".zh-det-inpaint-prompt");
+        promptInput?.addEventListener("input", () => {
+            pass.inpaint_prompt = promptInput.value;
+        });
+
+        const advBtn = item.querySelector(".zh-detailer-toggle-adv");
+        const advDrawer = item.querySelector(".zh-detailer-advanced-drawer");
+        advBtn?.addEventListener("click", () => {
+            const isHidden = advDrawer.style.display === "none";
+            advDrawer.style.display = isHidden ? "block" : "none";
+            advBtn.textContent = isHidden ? "▲ Less" : "⚙️ Advanced";
+            advBtn.style.color = isHidden ? "var(--accent-cyan)" : "";
+        });
+
+        item.querySelector(".zh-modal-pass-del")?.addEventListener("click", () => {
+            detailerPasses = detailerPasses.filter(p => p.id !== pass.id);
+            renderModalDetailerCards();
+            renderMainDetailerList();
+        });
+
+        container.appendChild(item);
+    });
+}
+
+function addDetailerItem(config = {}) {
+    const rawModel = (typeof config === "string" ? config : config.model) || "face-yolo8n.pt";
+    const cleanModel = rawModel.replace(/^(bbox|segm)\//, "");
+
+    const pass = {
+        id: "det_" + Math.random().toString(36).substring(2, 9),
+        enabled: config.enabled !== undefined ? Boolean(config.enabled) : true,
+        model: cleanModel,
+        denoise: config.denoise !== undefined ? parseFloat(config.denoise) : 0.40,
+        steps: config.steps !== undefined ? parseInt(config.steps, 10) : 20,
+        cfg: config.cfg !== undefined ? parseFloat(config.cfg) : 7.0,
+        padding: config.padding !== undefined ? parseInt(config.padding, 10) : 32,
+        context_pad: config.context_pad !== undefined ? parseInt(config.context_pad, 10) : 32,
+        mask_blur: config.mask_blur !== undefined ? parseInt(config.mask_blur, 10) : 4,
+        blend_feather: config.blend_feather !== undefined ? parseInt(config.blend_feather, 10) : 16,
+        sampler: config.sampler || (el.sampler?.value || "euler_ancestral"),
+        scheduler: config.scheduler || (el.scheduler?.value || "karras"),
+        inpaint_prompt: config.inpaint_prompt || ""
+    };
+
+    detailerPasses.push(pass);
+    renderMainDetailerList();
+    const modal = document.getElementById("zh-detailer-modal");
+    if (modal && modal.style.display !== "none") {
+        renderModalDetailerCards();
+    }
 }
 
 function getDetailerStackData() {
-    const items = [];
-    if (!el.detailerStackContainer) return items;
-    el.detailerStackContainer.querySelectorAll(".zh-detailer-item").forEach(item => {
-        const enabled = item.querySelector(".zh-detailer-enable-toggle")?.checked ?? true;
-        const select = item.querySelector(".zh-detailer-select");
-        const denoise = parseFloat(item.querySelector(".zh-det-denoise-num")?.value || "0.45");
-        const steps = parseInt(item.querySelector(".zh-det-steps-num")?.value || "20", 10);
-        const cfg = parseFloat(item.querySelector(".zh-det-cfg-num")?.value || "7.0");
-        const padding = parseInt(item.querySelector(".zh-det-padding")?.value || "32", 10);
-        const contextPad = parseInt(item.querySelector(".zh-det-context-pad")?.value || "32", 10);
-        const maskBlur = parseInt(item.querySelector(".zh-det-mask-blur")?.value || "4", 10);
-        const blendFeather = parseInt(item.querySelector(".zh-det-blend-feather")?.value || "16", 10);
-        const sampler = item.querySelector(".zh-det-sampler")?.value || "euler_ancestral";
-        const scheduler = item.querySelector(".zh-det-scheduler")?.value || "karras";
-        const inpaintPrompt = item.querySelector(".zh-det-inpaint-prompt")?.value || "";
-
-        const rawModel = select ? select.value : "face_yolov8m.pt";
-        items.push({
-            model: rawModel.replace(/^(bbox|segm)\//, ""),
-            denoise: isNaN(denoise) ? 0.45 : denoise,
-            steps: isNaN(steps) ? 20 : steps,
-            cfg: isNaN(cfg) ? 7.0 : cfg,
-            padding: isNaN(padding) ? 32 : padding,
-            context_pad: isNaN(contextPad) ? 32 : contextPad,
-            mask_blur: isNaN(maskBlur) ? 4 : maskBlur,
-            blend_feather: isNaN(blendFeather) ? 16 : blendFeather,
-            sampler,
-            scheduler,
-            enabled,
-            inpaint_prompt: inpaintPrompt
-        });
-    });
-    return items;
+    return detailerPasses.map(pass => ({
+        model: (pass.model || "face-yolo8n.pt").replace(/^(bbox|segm)\//, ""),
+        denoise: isNaN(pass.denoise) ? 0.40 : pass.denoise,
+        steps: isNaN(pass.steps) ? 20 : pass.steps,
+        cfg: isNaN(pass.cfg) ? 7.0 : pass.cfg,
+        padding: isNaN(pass.padding) ? 32 : pass.padding,
+        context_pad: isNaN(pass.context_pad) ? 32 : pass.context_pad,
+        mask_blur: isNaN(pass.mask_blur) ? 4 : pass.mask_blur,
+        blend_feather: isNaN(pass.blend_feather) ? 16 : pass.blend_feather,
+        sampler: pass.sampler || (el.sampler?.value || "euler_ancestral"),
+        scheduler: pass.scheduler || (el.scheduler?.value || "karras"),
+        enabled: Boolean(pass.enabled),
+        inpaint_prompt: pass.inpaint_prompt || ""
+    }));
 }
 
 function setupDynamicStacks() {
     el.btnAddLora?.addEventListener("click", () => addLoraItem());
-    el.btnAddDetailer?.addEventListener("click", () => addDetailerItem());
+    el.btnAddDetailer?.addEventListener("click", () => openDetailerModal());
+}
+
+// ── Flow Dynamics & Dynamic Guidance Controllers ─────────────────────────────
+
+function injectFlowDynamicsStyles() {
+    if (document.getElementById("zh-flow-dynamics-styles")) return;
+    const style = document.createElement("style");
+    style.id = "zh-flow-dynamics-styles";
+    style.textContent = `
+        /* Studio Workflow Rack & Queue Controls */
+        #btn-update-profile {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(5, 150, 105, 0.4));
+            border: 1px solid rgba(52, 211, 153, 0.5);
+            color: #6ee7b7;
+            font-weight: 600;
+        }
+        #btn-update-profile:hover {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.4), rgba(5, 150, 105, 0.6));
+            border-color: #34d399;
+            color: #ffffff;
+        }
+        .zh-queue-pill {
+            background: rgba(14, 165, 233, 0.2);
+            border: 1px solid rgba(56, 189, 248, 0.5);
+            color: #38bdf8;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 9px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            animation: zhPulseGlow 2s infinite ease-in-out;
+        }
+        .zh-queue-pulse {
+            width: 6px;
+            height: 6px;
+            background: #38bdf8;
+            border-radius: 50%;
+            box-shadow: 0 0 6px #38bdf8;
+        }
+        @keyframes zhPulseGlow {
+            0%, 100% { opacity: 0.85; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.03); }
+        }
+        .zh-queue-dropdown {
+            font-size: 11px;
+            padding: 2px 6px;
+            height: 32px;
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 6px;
+            color: #e2e8f0;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .zh-queue-dropdown:hover {
+            border-color: #38bdf8;
+        }
+        .zh-btn-generate.is-queuing {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.8), rgba(2, 132, 199, 0.9)) !important;
+            border-color: #38bdf8 !important;
+            box-shadow: 0 0 14px rgba(56, 189, 248, 0.4) !important;
+        }
+
+        /* Flow Dynamics & Dynamic CFG Styles */
+        .zh-flow-card {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .zh-flow-section {
+            background: rgba(15, 23, 42, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 10px;
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .zh-flow-section.cfg-section {
+            border-color: rgba(56, 189, 248, 0.22);
+        }
+        .zh-flow-section.cfg-section:hover {
+            border-color: rgba(56, 189, 248, 0.4);
+            background: rgba(15, 23, 42, 0.8);
+        }
+        .zh-flow-section.shift-section {
+            border-color: rgba(168, 85, 247, 0.22);
+        }
+        .zh-flow-section.shift-section:hover {
+            border-color: rgba(168, 85, 247, 0.4);
+            background: rgba(15, 23, 42, 0.8);
+        }
+        .zh-flow-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+        .zh-flow-toggle-title {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+        }
+        .zh-flow-toggle-title input[type="checkbox"] {
+            margin: 0;
+            cursor: pointer;
+        }
+        .zh-flow-info-callout {
+            display: none;
+            background: rgba(2, 6, 23, 0.85);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 11px;
+            line-height: 1.45;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .zh-flow-info-callout strong {
+            color: #38bdf8;
+        }
+        .zh-flow-body {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .zh-flow-body.is-disabled {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+function updateFlowBadges() {
+    const dynCfgEnable = document.getElementById("dyn-cfg-enable");
+    const dynCfgStart = document.getElementById("dyn-cfg-start");
+    const dynCfgEnd = document.getElementById("dyn-cfg-end");
+    const dynCfgProfile = document.getElementById("dyn-cfg-profile");
+    const badgeDynCfg = document.getElementById("badge-dyn-cfg");
+
+    if (badgeDynCfg) {
+        if (dynCfgEnable && !dynCfgEnable.checked) {
+            badgeDynCfg.textContent = "Bypassed";
+            badgeDynCfg.className = "zh-badge zh-badge-gray";
+        } else {
+            const startVal = parseFloat(dynCfgStart?.value || "3.5").toFixed(1);
+            const endVal = parseFloat(dynCfgEnd?.value || "1.8").toFixed(1);
+            const prof = dynCfgProfile?.value || "cosine";
+            badgeDynCfg.textContent = `${startVal} ➔ ${endVal} (${prof})`;
+            badgeDynCfg.className = "zh-badge zh-badge-cyan";
+        }
+    }
+
+    const shiftEnable = document.getElementById("flow-shift-enable");
+    const shiftBase = document.getElementById("flow-base-shift");
+    const shiftMax = document.getElementById("flow-max-shift");
+    const shiftMode = document.getElementById("flow-shift-mode");
+    const badgeShift = document.getElementById("badge-flow-shift");
+
+    if (badgeShift) {
+        if (shiftEnable && !shiftEnable.checked) {
+            badgeShift.textContent = "Bypassed";
+            badgeShift.className = "zh-badge zh-badge-gray";
+        } else {
+            const baseVal = parseFloat(shiftBase?.value || "0.35").toFixed(2);
+            const maxVal = parseFloat(shiftMax?.value || "1.15").toFixed(2);
+            const m = (shiftMode?.value || "Auto").split(" ")[0];
+            badgeShift.textContent = `${baseVal} ➔ ${maxVal} (${m})`;
+            badgeShift.className = "zh-badge zh-badge-purple";
+        }
+    }
+}
+
+function setupFlowDynamics() {
+    injectFlowDynamicsStyles();
+
+    const flowCard = document.getElementById("engine-chroma-shift")?.closest(".zh-card")
+        || document.querySelector(".zh-col-engine .zh-card:nth-of-type(3)");
+    if (!flowCard) return;
+
+    flowCard.innerHTML = `
+        <div class="zh-label-row" style="margin-bottom: 8px;">
+            <div class="zh-card-title" style="margin: 0;">🌊 Flow Dynamics & Dynamic CFG</div>
+            <button type="button" id="btn-flow-info-toggle" class="zh-btn zh-btn-mini zh-btn-subtle" title="Explain Dynamic Guidance & Flow Timestep Shifting" style="font-size: 10px; padding: 2px 7px;">ℹ️ Info</button>
+        </div>
+
+        <div id="flow-info-callout" class="zh-flow-info-callout">
+            <div><strong>Dynamic CFG Decay:</strong> Adjusts CFG guidance scale across timesteps from Start Scale down to End Scale. Captures composition early, then decays to prevent plastic/waxy skin, over-baking, and burned saturation.</div>
+            <div style="margin-top: 4px;"><strong>Resolution Timestep Shift:</strong> Scales continuous Flow-Matching timesteps between Base Shift and Max Shift based on canvas token density for clean micro-details.</div>
+        </div>
+
+        <div class="zh-flow-card">
+            <!-- Dynamic CFG Section -->
+            <div class="zh-flow-section cfg-section">
+                <div class="zh-flow-header-row">
+                    <label class="zh-flow-toggle-title" style="color: #38bdf8;">
+                        <input type="checkbox" id="dyn-cfg-enable" checked>
+                        <span>Dynamic CFG Decay</span>
+                    </label>
+                    <span id="badge-dyn-cfg" class="zh-badge zh-badge-cyan" style="font-size: 10px;">3.5 ➔ 1.8 (cosine)</span>
+                </div>
+
+                <div id="dyn-cfg-body" class="zh-flow-body">
+                    <div class="zh-field-row" style="gap: 6px;">
+                        <div class="zh-field flex-1">
+                            <label style="font-size: 10px; color: var(--text-muted);">Guidance Mode</label>
+                            <select id="dyn-cfg-mode" class="zh-select" style="font-size: 11px; padding: 2px 6px; height: 26px;">
+                                <option value="CFG Scale (Chroma / SDXL / SD1.5)" selected>CFG Scale (Chroma / SDXL / SD1.5)</option>
+                                <option value="Flux / SD3 (Distilled Guidance)">Flux / SD3 (Distilled Guidance)</option>
+                            </select>
+                        </div>
+                        <div class="zh-field" style="width: 105px;">
+                            <label style="font-size: 10px; color: var(--text-muted);">Decay Curve</label>
+                            <select id="dyn-cfg-profile" class="zh-select" style="font-size: 11px; padding: 2px 6px; height: 26px;">
+                                <option value="cosine" selected>Cosine (S-Curve)</option>
+                                <option value="linear">Linear</option>
+                                <option value="exponential">Exponential</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="zh-field">
+                        <div class="zh-label-row">
+                            <label style="font-size: 11px;" title="CFG scale applied during early steps for prompt fidelity">Start Scale (Prompt fidelity)</label>
+                            <input id="val-dyn-cfg-start" type="number" step="0.1" min="0.5" max="15.0" value="3.5" class="zh-slider-val-input" style="width: 50px;">
+                        </div>
+                        <input id="dyn-cfg-start" type="range" min="0.5" max="15.0" step="0.1" value="3.5" class="zh-slider">
+                    </div>
+
+                    <div class="zh-field">
+                        <div class="zh-label-row">
+                            <label style="font-size: 11px;" title="CFG scale decayed to at late steps to avoid plastic burn">End Scale (Natural skin / tone)</label>
+                            <input id="val-dyn-cfg-end" type="number" step="0.1" min="0.5" max="10.0" value="1.8" class="zh-slider-val-input" style="width: 50px;">
+                        </div>
+                        <input id="dyn-cfg-end" type="range" min="0.5" max="10.0" step="0.1" value="1.8" class="zh-slider">
+                    </div>
+
+                    <div class="zh-field">
+                        <div class="zh-label-row">
+                            <label style="font-size: 11px;" title="Decay curve exponent">Decay Power</label>
+                            <input id="val-dyn-cfg-power" type="number" step="0.1" min="0.1" max="4.0" value="1.0" class="zh-slider-val-input" style="width: 50px;">
+                        </div>
+                        <input id="dyn-cfg-power" type="range" min="0.1" max="4.0" step="0.1" value="1.0" class="zh-slider">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Resolution Timestep Shift Section -->
+            <div class="zh-flow-section shift-section">
+                <div class="zh-flow-header-row">
+                    <label class="zh-flow-toggle-title" style="color: #c084fc;">
+                        <input type="checkbox" id="flow-shift-enable" checked>
+                        <span>Resolution Timestep Shift</span>
+                    </label>
+                    <span id="badge-flow-shift" class="zh-badge zh-badge-purple" style="font-size: 10px;">0.35 ➔ 1.15 (Auto)</span>
+                </div>
+
+                <div id="flow-shift-body" class="zh-flow-body">
+                    <div class="zh-field">
+                        <label style="font-size: 10px; color: var(--text-muted);">Shift Mode</label>
+                        <select id="flow-shift-mode" class="zh-select" style="font-size: 11px; padding: 2px 6px; height: 26px;">
+                            <option value="Auto (from Latent / Image)" selected>Auto (Scales to Canvas Resolution)</option>
+                            <option value="Manual Resolution">Manual Resolution</option>
+                            <option value="Fixed Shift">Fixed Constant Shift</option>
+                            <option value="Bypass">Bypass</option>
+                        </select>
+                    </div>
+
+                    <div class="zh-field">
+                        <div class="zh-label-row">
+                            <label style="font-size: 11px;" title="Low-resolution base shift for coarse flow convergence">Base Shift (Coarse baseline)</label>
+                            <input id="val-flow-base-shift" type="number" step="0.05" min="0.0" max="5.0" value="0.35" class="zh-slider-val-input" style="width: 50px;">
+                        </div>
+                        <input id="flow-base-shift" type="range" min="0.0" max="5.0" step="0.05" value="0.35" class="zh-slider">
+                    </div>
+
+                    <div class="zh-field">
+                        <div class="zh-label-row">
+                            <label style="font-size: 11px;" title="Maximum shift applied for high-resolution micro-details">Max Shift (High-res limit)</label>
+                            <input id="val-flow-max-shift" type="number" step="0.05" min="0.0" max="5.0" value="1.15" class="zh-slider-val-input" style="width: 50px;">
+                        </div>
+                        <input id="flow-max-shift" type="range" min="0.0" max="5.0" step="0.05" value="1.15" class="zh-slider">
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Re-bind cached element pointers if referenced elsewhere
+    el.chromaShift = document.getElementById("flow-max-shift");
+    el.valChromaShift = document.getElementById("val-flow-max-shift");
+    el.guidance = document.getElementById("dyn-cfg-start");
+    el.valGuidance = document.getElementById("val-dyn-cfg-start");
+
+    // Slider two-way sync helper
+    const bindFlowSlider = (sliderId, inputId, decimals = 1) => {
+        const slider = document.getElementById(sliderId);
+        const input = document.getElementById(inputId);
+        if (!slider || !input) return;
+        slider.addEventListener("input", () => {
+            input.value = Number(slider.value).toFixed(decimals);
+            updateFlowBadges();
+        });
+        input.addEventListener("input", () => {
+            const num = parseFloat(input.value);
+            if (!isNaN(num)) {
+                slider.value = num;
+                updateFlowBadges();
+            }
+        });
+        input.addEventListener("change", () => {
+            const num = parseFloat(input.value);
+            if (!isNaN(num)) {
+                slider.value = num;
+                input.value = Number(slider.value).toFixed(decimals);
+                updateFlowBadges();
+            }
+        });
+    };
+
+    bindFlowSlider("dyn-cfg-start", "val-dyn-cfg-start", 1);
+    bindFlowSlider("dyn-cfg-end", "val-dyn-cfg-end", 1);
+    bindFlowSlider("dyn-cfg-power", "val-dyn-cfg-power", 1);
+    bindFlowSlider("flow-base-shift", "val-flow-base-shift", 2);
+    bindFlowSlider("flow-max-shift", "val-flow-max-shift", 2);
+
+    // Profile & Mode listeners
+    document.getElementById("dyn-cfg-profile")?.addEventListener("change", updateFlowBadges);
+    document.getElementById("flow-shift-mode")?.addEventListener("change", updateFlowBadges);
+
+    // Enable/disable toggles
+    const dynCfgEnable = document.getElementById("dyn-cfg-enable");
+    const dynCfgBody = document.getElementById("dyn-cfg-body");
+    dynCfgEnable?.addEventListener("change", () => {
+        if (dynCfgBody) {
+            dynCfgBody.classList.toggle("is-disabled", !dynCfgEnable.checked);
+        }
+        updateFlowBadges();
+    });
+
+    const shiftEnable = document.getElementById("flow-shift-enable");
+    const shiftBody = document.getElementById("flow-shift-body");
+    shiftEnable?.addEventListener("change", () => {
+        if (shiftBody) {
+            shiftBody.classList.toggle("is-disabled", !shiftEnable.checked);
+        }
+        updateFlowBadges();
+    });
+
+    // Info toggle button
+    const infoBtn = document.getElementById("btn-flow-info-toggle");
+    const infoCallout = document.getElementById("flow-info-callout");
+    infoBtn?.addEventListener("click", () => {
+        if (infoCallout) {
+            infoCallout.style.display = infoCallout.style.display === "block" ? "none" : "block";
+        }
+    });
+
+    updateFlowBadges();
 }
 
 function setupSliders() {
@@ -1882,25 +2694,68 @@ async function loadModelAssets() {
     }
 }
 
-async function loadProfiles() {
-    try {
-        const resp = await fetch("/zombiehaus/studio/profiles");
-        const data = await resp.json();
-        if (data.success && data.profiles && el.profileSelect) {
-            el.profileSelect.innerHTML = "";
-            for (const p of data.profiles) {
-                const opt = document.createElement("option");
-                opt.value = p.name;
-                opt.textContent = p.name;
-                el.profileSelect.appendChild(opt);
-            }
-            if (data.profiles.length > 0) {
-                applyProfileData(data.profiles[0].data);
-            }
+let profileRackInitialized = false;
+
+function setupProfileRack() {
+    if (profileRackInitialized) return;
+    profileRackInitialized = true;
+
+    const rack = document.querySelector(".zh-profile-rack");
+    if (!rack || !el.profileSelect) return;
+
+    // Inject Update button if missing
+    let btnUpdate = document.getElementById("btn-update-profile");
+    if (!btnUpdate) {
+        btnUpdate = document.createElement("button");
+        btnUpdate.id = "btn-update-profile";
+        btnUpdate.className = "zh-btn zh-btn-primary";
+        btnUpdate.title = "Update and overwrite current workflow without prompting";
+        btnUpdate.innerHTML = "🔄 Update";
+        if (el.btnSaveProfile) {
+            rack.insertBefore(btnUpdate, el.btnSaveProfile);
+        } else {
+            rack.appendChild(btnUpdate);
         }
-    } catch (err) {
-        console.error("Error loading profiles:", err);
     }
+    el.btnUpdateProfile = btnUpdate;
+
+    if (el.btnSaveProfile) {
+        el.btnSaveProfile.innerHTML = "💾 Save As...";
+        el.btnSaveProfile.title = "Save current setup as a new Studio Workflow";
+    }
+
+    // Attach listeners ONCE
+    btnUpdate.addEventListener("click", async () => {
+        const currentName = el.profileSelect?.value;
+        if (!currentName || currentName === "Untitled Workflow") {
+            const name = prompt("Enter workflow name to save:", currentName && currentName !== "Untitled Workflow" ? currentName : "My Studio Workflow");
+            if (!name || !name.trim()) return;
+            await saveProfileWithName(name.trim());
+            return;
+        }
+
+        const pData = gatherCurrentProfileData();
+        const resp = await fetch("/zombiehaus/studio/profiles/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: currentName, data: pData })
+        });
+        const res = await resp.json();
+        if (res.success) {
+            await loadProfiles(currentName);
+            showStudioToast(`Updated workflow "${currentName}"!`, "success");
+        } else {
+            showStudioToast("Update failed: " + (res.message || "Unknown error"), "error");
+        }
+    });
+
+    el.btnSaveProfile?.addEventListener("click", async () => {
+        const currentName = el.profileSelect?.value || "My Studio Workflow";
+        const defaultName = currentName === "Untitled Workflow" ? "My Studio Workflow" : `${currentName} (Copy)`;
+        const name = prompt("Enter new workflow name to save:", defaultName);
+        if (!name || !name.trim()) return;
+        await saveProfileWithName(name.trim());
+    });
 
     el.profileSelect?.addEventListener("change", async (e) => {
         const name = e.target.value;
@@ -1910,26 +2765,6 @@ async function loadProfiles() {
         if (found && found.data) {
             applyProfileData(found.data);
             showStudioToast(`Loaded workflow: "${name}"`, "info");
-        }
-    });
-
-    el.btnSaveProfile?.addEventListener("click", async () => {
-        const name = prompt("Enter workflow name to save:", el.profileSelect?.value || "My Studio Workflow");
-        if (!name || !name.trim()) return;
-
-        const pData = gatherCurrentProfileData();
-        const resp = await fetch("/zombiehaus/studio/profiles/save", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: name.trim(), data: pData })
-        });
-        const res = await resp.json();
-        if (res.success) {
-            await loadProfiles();
-            if (el.profileSelect) el.profileSelect.value = name.trim();
-            showStudioToast(`Saved workflow "${name.trim()}"!`, "success");
-        } else {
-            showStudioToast("Save failed: " + (res.message || "Unknown error"), "error");
         }
     });
 
@@ -1970,6 +2805,47 @@ async function loadProfiles() {
             alert(res.message || "Failed to delete profile (built-in profiles cannot be deleted)");
         }
     });
+}
+
+async function saveProfileWithName(name) {
+    const pData = gatherCurrentProfileData();
+    const resp = await fetch("/zombiehaus/studio/profiles/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name, data: pData })
+    });
+    const res = await resp.json();
+    if (res.success) {
+        await loadProfiles(name);
+        showStudioToast(`Saved workflow "${name}"!`, "success");
+    } else {
+        showStudioToast("Save failed: " + (res.message || "Unknown error"), "error");
+    }
+}
+
+async function loadProfiles(preferredSelection = null) {
+    try {
+        const resp = await fetch("/zombiehaus/studio/profiles");
+        const data = await resp.json();
+        if (data.success && data.profiles && el.profileSelect) {
+            const currentSelected = preferredSelection || el.profileSelect.value;
+            el.profileSelect.innerHTML = "";
+            for (const p of data.profiles) {
+                const opt = document.createElement("option");
+                opt.value = p.name;
+                opt.textContent = p.name;
+                el.profileSelect.appendChild(opt);
+            }
+            if (currentSelected && data.profiles.some(p => p.name === currentSelected)) {
+                el.profileSelect.value = currentSelected;
+            } else if (data.profiles.length > 0) {
+                el.profileSelect.value = data.profiles[0].name;
+                applyProfileData(data.profiles[0].data);
+            }
+        }
+    } catch (err) {
+        console.error("Error loading profiles:", err);
+    }
 }
 
 function showStudioToast(message, type = "info") {
@@ -2162,8 +3038,18 @@ function resetDefaultStudioWorkflow() {
         clip_name: "disabled",
         clip_type: "flux2",
         vae_name: "None",
-        chroma_shift: 3.0,
+        chroma_shift: 1.15,
         guidance: 3.5,
+        dyn_cfg_enable: true,
+        dyn_cfg_mode: "CFG Scale (Chroma / SDXL / SD1.5)",
+        dyn_cfg_profile: "cosine",
+        dyn_cfg_start: 3.5,
+        dyn_cfg_end: 1.8,
+        dyn_cfg_power: 1.0,
+        flow_shift_enable: true,
+        flow_shift_mode: "Auto (from Latent / Image)",
+        flow_base_shift: 0.35,
+        flow_max_shift: 1.15,
         loras: [],
         width: 1024,
         height: 1024,
@@ -2280,6 +3166,64 @@ function applyProfileData(data) {
     setVal(el.vae, data.vae_name);
     setVal(el.chromaShift, data.chroma_shift);
     setVal(el.guidance, data.guidance);
+
+    // Flow Dynamics & Dynamic CFG
+    if (data.dyn_cfg_enable !== undefined) {
+        const dynEnable = document.getElementById("dyn-cfg-enable");
+        if (dynEnable) {
+            dynEnable.checked = Boolean(data.dyn_cfg_enable);
+            dynEnable.dispatchEvent(new Event("change"));
+        }
+    }
+    setVal(document.getElementById("dyn-cfg-mode"), data.dyn_cfg_mode);
+    setVal(document.getElementById("dyn-cfg-profile"), data.dyn_cfg_profile);
+    if (data.dyn_cfg_start !== undefined) {
+        setVal(document.getElementById("dyn-cfg-start"), data.dyn_cfg_start);
+        const valInput = document.getElementById("val-dyn-cfg-start");
+        if (valInput) valInput.value = Number(data.dyn_cfg_start).toFixed(1);
+    } else if (data.guidance !== undefined) {
+        setVal(document.getElementById("dyn-cfg-start"), data.guidance);
+        const valInput = document.getElementById("val-dyn-cfg-start");
+        if (valInput) valInput.value = Number(data.guidance).toFixed(1);
+    }
+    if (data.dyn_cfg_end !== undefined) {
+        setVal(document.getElementById("dyn-cfg-end"), data.dyn_cfg_end);
+        const valInput = document.getElementById("val-dyn-cfg-end");
+        if (valInput) valInput.value = Number(data.dyn_cfg_end).toFixed(1);
+    }
+    if (data.dyn_cfg_power !== undefined) {
+        setVal(document.getElementById("dyn-cfg-power"), data.dyn_cfg_power);
+        const valInput = document.getElementById("val-dyn-cfg-power");
+        if (valInput) valInput.value = Number(data.dyn_cfg_power).toFixed(1);
+    }
+
+    if (data.flow_shift_enable !== undefined) {
+        const shiftEnable = document.getElementById("flow-shift-enable");
+        if (shiftEnable) {
+            shiftEnable.checked = Boolean(data.flow_shift_enable);
+            shiftEnable.dispatchEvent(new Event("change"));
+        }
+    }
+    setVal(document.getElementById("flow-shift-mode"), data.flow_shift_mode);
+    if (data.flow_base_shift !== undefined) {
+        setVal(document.getElementById("flow-base-shift"), data.flow_base_shift);
+        const valInput = document.getElementById("val-flow-base-shift");
+        if (valInput) valInput.value = Number(data.flow_base_shift).toFixed(2);
+    }
+    if (data.flow_max_shift !== undefined) {
+        setVal(document.getElementById("flow-max-shift"), data.flow_max_shift);
+        const valInput = document.getElementById("val-flow-max-shift");
+        if (valInput) valInput.value = Number(data.flow_max_shift).toFixed(2);
+    } else if (data.chroma_shift !== undefined) {
+        setVal(document.getElementById("flow-max-shift"), data.chroma_shift);
+        const valInput = document.getElementById("val-flow-max-shift");
+        if (valInput) valInput.value = Number(data.chroma_shift).toFixed(2);
+    }
+
+    if (typeof updateFlowBadges === "function") {
+        updateFlowBadges();
+    }
+
     if (el.badgeArch && data.architecture) {
         el.badgeArch.textContent = data.architecture.toUpperCase();
     }
@@ -2330,11 +3274,11 @@ function applyProfileData(data) {
         if (confSlider) confSlider.value = data.detailer_confidence;
     }
     if (Array.isArray(data.detailers) && el.detailerStackContainer) {
-        el.detailerStackContainer.innerHTML = "";
+        detailerPasses = [];
         for (const d of data.detailers) {
             addDetailerItem(d);
         }
-        if (data.detailers.length === 0) addDetailerItem({ model: "face_yolov8m.pt", denoise: 0.45, steps: 20 });
+        if (data.detailers.length === 0) addDetailerItem({ model: "face-yolo8n.pt", denoise: 0.40, steps: 20 });
     }
 
     if (data.enable_dewax !== undefined) setChecked(el.enableDewax, data.enable_dewax);
@@ -2437,8 +3381,20 @@ function gatherCurrentProfileData() {
         clip_name: el.clipName?.value || "disabled",
         clip_type: el.clipType?.value || "flux2",
         vae_name: el.vae?.value || "None",
-        chroma_shift: parseFloat(el.chromaShift?.value || "3.0"),
-        guidance: parseFloat(el.guidance?.value || "3.5"),
+        chroma_shift: parseFloat(document.getElementById("flow-max-shift")?.value || el.chromaShift?.value || "1.15"),
+        guidance: parseFloat(document.getElementById("dyn-cfg-start")?.value || el.guidance?.value || "3.5"),
+
+        // Flow Dynamics & Dynamic CFG Decay
+        dyn_cfg_enable: document.getElementById("dyn-cfg-enable") ? document.getElementById("dyn-cfg-enable").checked : true,
+        dyn_cfg_mode: document.getElementById("dyn-cfg-mode")?.value || "CFG Scale (Chroma / SDXL / SD1.5)",
+        dyn_cfg_profile: document.getElementById("dyn-cfg-profile")?.value || "cosine",
+        dyn_cfg_start: parseFloat(document.getElementById("dyn-cfg-start")?.value || "3.5"),
+        dyn_cfg_end: parseFloat(document.getElementById("dyn-cfg-end")?.value || "1.8"),
+        dyn_cfg_power: parseFloat(document.getElementById("dyn-cfg-power")?.value || "1.0"),
+        flow_shift_enable: document.getElementById("flow-shift-enable") ? document.getElementById("flow-shift-enable").checked : true,
+        flow_shift_mode: document.getElementById("flow-shift-mode")?.value || "Auto (from Latent / Image)",
+        flow_base_shift: parseFloat(document.getElementById("flow-base-shift")?.value || "0.35"),
+        flow_max_shift: parseFloat(document.getElementById("flow-max-shift")?.value || "1.15"),
 
         // LoRAs
         loras: getLoraStackData(),
@@ -2561,7 +3517,10 @@ function connectWebSocket() {
 }
 
 function handleWsMessage(msg) {
-    if (msg.type === "progress") {
+    if (msg.type === "status") {
+        const remaining = msg.data?.status?.exec_info?.queue_remaining ?? 0;
+        updateQueueDisplay(remaining);
+    } else if (msg.type === "progress") {
         const val = msg.data.value;
         const max = msg.data.max;
         const pct = Math.round((val / max) * 100);
@@ -2571,8 +3530,18 @@ function handleWsMessage(msg) {
         if (el.progressPercent) el.progressPercent.textContent = `${pct}%`;
     } else if (msg.type === "executing") {
         if (msg.data.node === null) {
-            setGeneratingState(false);
-            if (el.progressWrap) el.progressWrap.style.display = "none";
+            if (el.progressFill) el.progressFill.style.width = "100%";
+            setTimeout(async () => {
+                try {
+                    const qRes = await fetch("/queue");
+                    const qData = await qRes.json();
+                    const pendingCount = (qData.queue_running?.length || 0) + (qData.queue_pending?.length || 0);
+                    updateQueueDisplay(pendingCount);
+                    if (pendingCount === 0 && el.progressWrap) {
+                        el.progressWrap.style.display = "none";
+                    }
+                } catch (_) {}
+            }, 250);
         } else {
             setGeneratingState(true);
         }
@@ -2599,9 +3568,17 @@ function handleWsMessage(msg) {
             }
         }
     } else if (msg.type === "execution_error") {
-        setGeneratingState(false);
-        if (el.progressWrap) el.progressWrap.style.display = "none";
-        alert("Generation Error: " + (msg.data.exception_message || "Unknown error"));
+        showStudioToast("Generation Error: " + (msg.data.exception_message || "Unknown error"), "error");
+        setTimeout(async () => {
+            try {
+                const qRes = await fetch("/queue");
+                const qData = await qRes.json();
+                const pendingCount = (qData.queue_running?.length || 0) + (qData.queue_pending?.length || 0);
+                updateQueueDisplay(pendingCount);
+            } catch (_) {
+                setGeneratingState(false);
+            }
+        }, 300);
     }
 }
 
@@ -2682,39 +3659,80 @@ function drawWaveformAnimation() {
     el.previewAudio.onpause = () => cancelAnimationFrame(animFrameId);
 }
 
+function setupActionRackControls() {
+    const actionRack = document.querySelector(".zh-action-rack");
+    if (!actionRack) return;
+
+    // Inject Queue Pill if missing
+    if (!document.getElementById("zh-queue-pill")) {
+        const pill = document.createElement("span");
+        pill.id = "zh-queue-pill";
+        pill.className = "zh-queue-pill";
+        pill.style.display = "none";
+        pill.innerHTML = `<span class="zh-queue-pulse"></span><span id="zh-queue-text">Queue: 0</span>`;
+        const connPill = document.getElementById("connection-pill");
+        if (connPill && connPill.nextSibling) {
+            actionRack.insertBefore(pill, connPill.nextSibling);
+        } else {
+            actionRack.prepend(pill);
+        }
+    }
+
+    // Inject Batch Queue Select if missing
+    if (!document.getElementById("zh-batch-queue-select") && el.btnGenerate) {
+        const select = document.createElement("select");
+        select.id = "zh-batch-queue-select";
+        select.className = "zh-select zh-queue-dropdown";
+        select.title = "Batch Queue Count: Queue multiple generations at once";
+        select.innerHTML = `
+            <option value="1">1x</option>
+            <option value="2">2x</option>
+            <option value="3">3x</option>
+            <option value="4">4x</option>
+            <option value="5">5x</option>
+            <option value="10">10x</option>
+        `;
+        actionRack.insertBefore(select, el.btnGenerate);
+    }
+}
+
 function setGeneratingState(isGenerating) {
     if (isGenerating) {
         if (el.btnGenerate) {
-            el.btnGenerate.disabled = true;
-            el.btnGenerate.style.opacity = "0.6";
+            el.btnGenerate.disabled = false;
+            el.btnGenerate.classList.add("is-queuing");
         }
+        if (el.genBtnLabel) el.genBtnLabel.textContent = "QUEUE (+1)";
         if (el.btnInterrupt) el.btnInterrupt.style.display = "inline-flex";
     } else {
         if (el.btnGenerate) {
             el.btnGenerate.disabled = false;
-            el.btnGenerate.style.opacity = "1";
+            el.btnGenerate.classList.remove("is-queuing");
         }
+        if (el.genBtnLabel) el.genBtnLabel.textContent = "GENERATE";
         if (el.btnInterrupt) el.btnInterrupt.style.display = "none";
+        const qPill = document.getElementById("zh-queue-pill");
+        if (qPill) qPill.style.display = "none";
+    }
+}
+
+function updateQueueDisplay(remainingCount) {
+    const qPill = document.getElementById("zh-queue-pill");
+    const qText = document.getElementById("zh-queue-text");
+
+    if (remainingCount > 0) {
+        if (qPill) qPill.style.display = "inline-flex";
+        if (qText) qText.textContent = `Queue: ${remainingCount}`;
+        setGeneratingState(true);
+    } else {
+        if (qPill) qPill.style.display = "none";
+        setGeneratingState(false);
     }
 }
 
 // ── 6. Prompt Construction & Execution Across All 4 Modes ────────────────────
 
-async function triggerGenerate() {
-    setGeneratingState(true);
-    if (el.progressWrap) {
-        el.progressWrap.style.display = "block";
-        el.progressFill.style.width = "0%";
-        el.progressStep.textContent = "Initializing pipeline...";
-        el.progressPercent.textContent = "0%";
-    }
-
-    const seedVal = parseInt(el.seed?.value || "0", 10);
-    const actualSeed = seedVal === 0 ? Math.floor(Math.random() * 1000000000) : seedVal;
-    if (el.seed && seedVal === 0) {
-        el.seed.value = actualSeed;
-    }
-
+function buildCurrentPromptGraph(actualSeed) {
     let promptGraph = {};
 
     if (currentMode === "screenplay" || currentMode === "prompt" || currentMode === "i2i") {
@@ -2760,6 +3778,54 @@ async function triggerGenerate() {
         };
 
         let currentPipe;
+        let modelPipe = ["2", 5];
+
+        // 1. Resolution Timestep Shift (ZombiehausChromaShift)
+        const shiftCheckbox = document.getElementById("flow-shift-enable");
+        const shiftEnabled = shiftCheckbox ? shiftCheckbox.checked : true;
+        if (shiftEnabled) {
+            const baseShift = parseFloat(document.getElementById("flow-base-shift")?.value || "0.35");
+            const maxShift = parseFloat(document.getElementById("flow-max-shift")?.value || "1.15");
+            const shiftMode = document.getElementById("flow-shift-mode")?.value || "Auto (from Latent / Image)";
+            promptGraph["2_shift"] = {
+                "class_type": "ZombiehausChromaShift",
+                "inputs": {
+                    "pipe": modelPipe,
+                    "base_shift": isNaN(baseShift) ? 0.35 : baseShift,
+                    "max_shift": isNaN(maxShift) ? 1.15 : maxShift,
+                    "width": parseInt(el.width?.value || "1024", 10),
+                    "height": parseInt(el.height?.value || "1024", 10),
+                    "mode": shiftMode,
+                    "fixed_shift": 1.0
+                }
+            };
+            modelPipe = ["2_shift", 1];
+        }
+
+        // 2. Dynamic CFG Guidance Decay (ZombiehausDynamicGuidance)
+        const dynCfgCheckbox = document.getElementById("dyn-cfg-enable");
+        const dynCfgEnabled = dynCfgCheckbox ? dynCfgCheckbox.checked : true;
+        let dynCfgStartVal = parseFloat(el.cfg?.value || "3.5");
+        if (dynCfgEnabled) {
+            const scaleStart = parseFloat(document.getElementById("dyn-cfg-start")?.value || "3.5");
+            const scaleEnd = parseFloat(document.getElementById("dyn-cfg-end")?.value || "1.8");
+            const decayPower = parseFloat(document.getElementById("dyn-cfg-power")?.value || "1.0");
+            const decayProfile = document.getElementById("dyn-cfg-profile")?.value || "cosine";
+            const guidanceMode = document.getElementById("dyn-cfg-mode")?.value || "CFG Scale (Chroma / SDXL / SD1.5)";
+            dynCfgStartVal = isNaN(scaleStart) ? 3.5 : scaleStart;
+            promptGraph["2_guidance"] = {
+                "class_type": "ZombiehausDynamicGuidance",
+                "inputs": {
+                    "pipe": modelPipe,
+                    "scale_start": dynCfgStartVal,
+                    "scale_end": isNaN(scaleEnd) ? 1.8 : scaleEnd,
+                    "decay_power": isNaN(decayPower) ? 1.0 : decayPower,
+                    "decay_profile": decayProfile,
+                    "guidance_mode": guidanceMode
+                }
+            };
+            modelPipe = ["2_guidance", 1];
+        }
 
         if (currentMode === "i2i") {
             if (!i2iUploadedFilename) {
@@ -2790,7 +3856,7 @@ async function triggerGenerate() {
             promptGraph["4"] = {
                 "class_type": "ZombiehausTextEditor",
                 "inputs": {
-                    "pipe": ["2", 5],
+                    "pipe": modelPipe,
                     "positive": posText,
                     "negative": negText,
                     "saved_prompt": "--select prompt--",
@@ -2861,7 +3927,7 @@ async function triggerGenerate() {
             promptGraph["3"] = {
                 "class_type": "ZombiehausLatentPreset",
                 "inputs": {
-                    "pipe": ["2", 5],
+                    "pipe": modelPipe,
                     "resolution": "Manual",
                     "width": parseInt(el.width?.value || "1024", 10),
                     "height": parseInt(el.height?.value || "1024", 10),
@@ -3183,38 +4249,98 @@ async function triggerGenerate() {
         }
     }
 
-    try {
-        const studioWorkflowPayload = gatherCurrentProfileData();
-        const resp = await fetch("/prompt", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                client_id: clientId,
-                prompt: promptGraph,
-                extra_data: {
-                    extra_pnginfo: {
-                        zombiehaus_studio_workflow: studioWorkflowPayload
-                    }
+    return promptGraph;
+}
+
+async function submitSinglePrompt(customSeed = null) {
+    const seedVal = parseInt(el.seed?.value || "0", 10);
+    const actualSeed = customSeed !== null ? customSeed : (seedVal === 0 ? Math.floor(Math.random() * 1000000000) : seedVal);
+    const promptGraph = buildCurrentPromptGraph(actualSeed);
+    if (!promptGraph) return { success: false, error: "Validation failed" };
+
+    const studioWorkflowPayload = gatherCurrentProfileData();
+    const resp = await fetch("/prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            client_id: clientId,
+            prompt: promptGraph,
+            extra_data: {
+                extra_pnginfo: {
+                    zombiehaus_studio_workflow: studioWorkflowPayload
                 }
-            })
-        });
-        const data = await resp.json();
-        if (data.prompt_id) {
-            currentPromptId = data.prompt_id;
-        } else if (data.error) {
-            setGeneratingState(false);
-            alert("Prompt Error: " + JSON.stringify(data.error));
+            }
+        })
+    });
+    const data = await resp.json();
+    if (data.prompt_id) {
+        currentPromptId = data.prompt_id;
+        return { success: true, promptId: data.prompt_id };
+    } else if (data.error) {
+        return { success: false, error: data.error };
+    }
+    return { success: false, error: "Unknown response from server" };
+}
+
+async function triggerGenerate() {
+    const countSelect = document.getElementById("zh-batch-queue-select");
+    const count = parseInt(countSelect?.value || "1", 10);
+
+    setGeneratingState(true);
+    if (el.progressWrap) {
+        el.progressWrap.style.display = "block";
+        el.progressFill.style.width = "0%";
+        el.progressStep.textContent = count > 1 ? `Queueing ${count} generations...` : "Initializing pipeline...";
+        el.progressPercent.textContent = "0%";
+    }
+
+    const baseSeedVal = parseInt(el.seed?.value || "0", 10);
+    let queuedCount = 0;
+
+    for (let i = 0; i < count; i++) {
+        let jobSeed;
+        if (baseSeedVal === 0) {
+            jobSeed = Math.floor(Math.random() * 1000000000);
+        } else {
+            jobSeed = baseSeedVal + i;
         }
-    } catch (err) {
-        setGeneratingState(false);
-        console.error("Queue prompt failed:", err);
+
+        const res = await submitSinglePrompt(jobSeed);
+        if (res.success) {
+            queuedCount++;
+        } else {
+            setGeneratingState(false);
+            showStudioToast("Prompt Error: " + JSON.stringify(res.error), "error");
+            break;
+        }
+    }
+
+    if (queuedCount > 0) {
+        showStudioToast(
+            queuedCount === 1 ? "Generation queued!" : `Queued ${queuedCount} generations!`,
+            "success"
+        );
+        try {
+            const qRes = await fetch("/queue");
+            const qData = await qRes.json();
+            const pendingCount = (qData.queue_running?.length || 0) + (qData.queue_pending?.length || 0);
+            updateQueueDisplay(pendingCount);
+        } catch (_) {}
     }
 }
 
 async function triggerInterrupt() {
     try {
         await fetch("/interrupt", { method: "POST" });
+        await fetch("/queue", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ clear: true })
+        });
         setGeneratingState(false);
+        updateQueueDisplay(0);
+        if (el.progressWrap) el.progressWrap.style.display = "none";
+        showStudioToast("Generation stopped & queue cleared.", "info");
     } catch (err) {
         console.error("Interrupt failed:", err);
     }

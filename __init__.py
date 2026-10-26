@@ -716,6 +716,94 @@ async def gallery_metadata(request):
         print(f"[Zombiehaus Gallery] {msg}")
         return web.json_response({"success": False, "message": msg})
 
+@server.PromptServer.instance.routes.get("/zombiehaus/gallery/thumbnail")
+async def gallery_thumbnail(request):
+    """API endpoint to get a fast, cached thumbnail of an image for filmstrip and gallery views."""
+    try:
+        filename = request.query.get("filename", "").strip()
+        subpath = request.query.get("path", request.query.get("subfolder", "")).strip()
+        image_type = request.query.get("type", "output").strip()
+        
+        if not filename:
+            return web.json_response({"success": False, "message": "No filename provided"}, status=400)
+            
+        try:
+            size = max(64, min(int(request.query.get("size", 256)), 512))
+        except (ValueError, TypeError):
+            size = 256
+            
+        if image_type == "input":
+            base_dir = folder_paths.get_input_directory()
+        elif image_type == "temp":
+            base_dir = folder_paths.get_temp_directory()
+        else:
+            base_dir = folder_paths.get_output_directory()
+            
+        if subpath:
+            full_path = os.path.join(base_dir, subpath, filename)
+        else:
+            full_path = os.path.join(base_dir, filename)
+            
+        full_path = os.path.normpath(full_path)
+        base_dir_norm = os.path.normpath(base_dir)
+        if not full_path.startswith(base_dir_norm):
+            return web.json_response({"success": False, "message": "Invalid path"}, status=403)
+            
+        if not os.path.isfile(full_path):
+            return web.json_response({"success": False, "message": "File not found"}, status=404)
+            
+        # Check thumbnail cache in temp directory
+        file_stat = os.stat(full_path)
+        thumb_dir = os.path.join(folder_paths.get_temp_directory(), "zombiehaus_thumbnails")
+        os.makedirs(thumb_dir, exist_ok=True)
+        
+        cache_key = f"{full_path}_{file_stat.st_mtime}_{file_stat.st_size}_{size}"
+        hash_name = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()[:24]
+        cached_path = os.path.join(thumb_dir, f"thumb_{hash_name}.webp")
+        
+        if os.path.isfile(cached_path):
+            return web.FileResponse(cached_path, headers={
+                "Cache-Control": "public, max-age=86400",
+                "Content-Type": "image/webp"
+            })
+            
+        def _make_thumbnail():
+            try:
+                with Image.open(full_path) as img:
+                    # Select frame 0 for animated formats
+                    if hasattr(img, "seek"):
+                        try:
+                            img.seek(0)
+                        except Exception:
+                            pass
+                    
+                    if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+                        thumb = img.convert("RGBA")
+                    else:
+                        thumb = img.convert("RGB")
+                    
+                    # Pillow thumbnail preserves aspect ratio fitting within size x size
+                    thumb.thumbnail((size, size), Image.Resampling.BILINEAR)
+                    thumb.save(cached_path, "WEBP", quality=82, method=2)
+                    return True
+            except Exception as ex:
+                print(f"[Zombiehaus Gallery] Thumbnail generation error for {filename}: {ex}")
+                return False
+                
+        success = await asyncio.to_thread(_make_thumbnail)
+        if success and os.path.isfile(cached_path):
+            return web.FileResponse(cached_path, headers={
+                "Cache-Control": "public, max-age=86400",
+                "Content-Type": "image/webp"
+            })
+        else:
+            # Fallback to serving original file directly
+            return web.FileResponse(full_path)
+    except Exception as e:
+        msg = f"API Error generating thumbnail: {e}"
+        print(f"[Zombiehaus Gallery] {msg}")
+        return web.json_response({"success": False, "message": msg}, status=500)
+
 @server.PromptServer.instance.routes.get("/zombiehaus/refresh_input_files")
 async def refresh_input_files(request):
     """API endpoint to get an updated list of images and folders from the input directory."""

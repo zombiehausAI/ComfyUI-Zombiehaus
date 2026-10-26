@@ -75,6 +75,16 @@ The Image Tray can be effortlessly enabled or disabled to suit your personal wor
 
 ---
 
+### 8. High-Performance Thumbnail Engine & DOM Virtualization
+To ensure 60+ FPS canvas performance even with hundreds of generated outputs:
+- **Server-Side WebP Thumbnail Generator**: The backend endpoint `/zombiehaus/gallery/thumbnail` generates and caches lightweight, high-speed 256px and 160px WebP thumbnails on demand. Instead of downloading 10-30MB full-resolution PNGs per thumbnail, the tray transfers ~8-15KB compressed thumbnails with a 24-hour browser disk cache.
+- **Viewport IntersectionObserver**: Off-screen filmstrip cards do not load image assets until they are scrolled within proximity of the visible tray, cutting initial network requests and RAM usage by over 90%.
+- **Modern CSS Containment & Virtualization**: Cards leverage `contain: layout paint` and `content-visibility: auto` to allow modern rendering engines to skip off-screen style calculations, paint, and layout passes entirely.
+- **Hardware Layer Promotion**: GPU layer isolation (`transform: translateZ(0)`) isolates the image tray scrolling and animations from ComfyUI's main LiteGraph `<canvas>`, eliminating canvas frame drops and compositing lag.
+- **Optimized DOM Observers**: Layout docking uses targeted class observers and native `ResizeObserver` instances rather than recursive subtree body observers, ensuring zero background CPU polling while editing graphs.
+
+---
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |

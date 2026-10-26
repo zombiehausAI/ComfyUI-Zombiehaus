@@ -28,8 +28,10 @@ class ZombiehausImageTray {
             }
         } catch (_) {}
         this.isEnabled = savedEnabled;
+        this.imageObserver = null;
 
         this.initDOM();
+        this.initImageObserver();
         this.setupEventListeners();
         this.setupKeyboardShortcuts();
 
@@ -44,6 +46,49 @@ class ZombiehausImageTray {
             setTimeout(() => this.syncSettingsState(false), 250);
             setTimeout(() => this.syncSettingsState(false), 1200);
         }
+    }
+
+    getViewUrl(item) {
+        if (!item) return "";
+        const filename = typeof item === "object" ? item.filename : item;
+        const subfolder = (typeof item === "object" ? item.subfolder : "") || "";
+        const type = (typeof item === "object" ? item.type : "output") || "output";
+        return `/view?filename=${encodeURIComponent(filename)}&subfolder=${encodeURIComponent(subfolder)}&type=${encodeURIComponent(type)}`;
+    }
+
+    getThumbnailUrl(item, size = 256) {
+        if (!item) return "";
+        const filename = typeof item === "object" ? item.filename : item;
+        const subfolder = (typeof item === "object" ? item.subfolder : "") || "";
+        const type = (typeof item === "object" ? item.type : "output") || "output";
+        return `/zombiehaus/gallery/thumbnail?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(subfolder)}&type=${encodeURIComponent(type)}&size=${size}`;
+    }
+
+    initImageObserver() {
+        if (!("IntersectionObserver" in window)) return;
+        if (this.imageObserver) {
+            this.imageObserver.disconnect();
+        }
+        this.imageObserver = new IntersectionObserver((entries, observer) => {
+            for (const entry of entries) {
+                if (entry.isIntersecting) {
+                    const card = entry.target;
+                    const img = card.querySelector("img.zit-card-img");
+                    if (img && img.dataset.src && !img.src) {
+                        img.src = img.dataset.src;
+                        if (img.complete) {
+                            img.classList.add("zit-loaded");
+                        } else {
+                            img.onload = () => { img.classList.add("zit-loaded"); };
+                        }
+                    }
+                    observer.unobserve(card);
+                }
+            }
+        }, {
+            root: this.filmstripEl || null,
+            rootMargin: "350px"
+        });
     }
 
     // ── Enable / Disable State Control ────────────────────────────────────────
@@ -327,18 +372,34 @@ class ZombiehausImageTray {
         this.updateBottomOffset();
         window.addEventListener("resize", () => this.updateBottomOffset());
 
-        // React dynamically to ComfyUI DOM / style / class changes
+        // React dynamically to Deck Studio activation without subtree recursion
         try {
-            const observer = new MutationObserver(() => {
+            const bodyObserver = new MutationObserver(() => {
                 if (this.isUpdatingBottom) return;
                 if (this.offsetDebounce) clearTimeout(this.offsetDebounce);
-                this.offsetDebounce = setTimeout(() => this.updateBottomOffset(), 100);
+                this.offsetDebounce = setTimeout(() => this.updateBottomOffset(), 120);
             });
-            observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+            bodyObserver.observe(document.body, { attributes: true, attributeFilter: ["class"] });
         } catch (_) {}
 
-        // Periodic check to ensure flawless positioning across async workflow loads
-        setInterval(() => this.updateBottomOffset(), 2000);
+        // React to bottom container layout changes via efficient ResizeObserver
+        try {
+            const bodyBottom = document.querySelector(".comfyui-body-bottom") || document.getElementById("comfyui-body-bottom");
+            if (bodyBottom && window.ResizeObserver) {
+                const ro = new ResizeObserver(() => {
+                    if (this.isUpdatingBottom) return;
+                    this.updateBottomOffset();
+                });
+                ro.observe(bodyBottom);
+            }
+        } catch (_) {}
+
+        // Lightweight heartbeat to ensure positioning if DOM moved
+        setInterval(() => {
+            if (this.isEnabled && !this.trayEl.isConnected) {
+                this.updateBottomOffset();
+            }
+        }, 8000);
 
         // Header click toggles collapse (unless clicking action buttons)
         header.onclick = (e) => {
@@ -517,10 +578,11 @@ class ZombiehausImageTray {
             card.classList.add("zit-card-new");
         }
 
-        const url = `/view?filename=${encodeURIComponent(item.filename)}&subfolder=${encodeURIComponent(item.subfolder || "")}&type=${encodeURIComponent(item.type || "output")}`;
+        const fullUrl = this.getViewUrl(item);
+        const thumbUrl = this.getThumbnailUrl(item, 256);
 
         card.innerHTML = `
-            <img src="${url}" class="zit-card-img" loading="lazy" decoding="async" alt="${item.filename}" />
+            <img data-src="${thumbUrl}" class="zit-card-img" decoding="async" alt="${item.filename}" />
             <div class="zit-card-actions">
                 <div class="zit-card-top-bar">
                     <span class="zit-dim-badge">OUTPUT</span>
@@ -534,18 +596,32 @@ class ZombiehausImageTray {
             </div>
         `;
 
+        const imgEl = card.querySelector("img.zit-card-img");
+        imgEl.onerror = () => {
+            if (imgEl.src && imgEl.src !== fullUrl) {
+                imgEl.src = fullUrl;
+            }
+        };
+
+        if (this.imageObserver) {
+            this.imageObserver.observe(card);
+        } else {
+            imgEl.src = thumbUrl;
+            imgEl.onload = () => { imgEl.classList.add("zit-loaded"); };
+        }
+
         // Card Click -> Open Lightbox
-        card.onclick = () => this.openLightbox(item, url);
+        card.onclick = () => this.openLightbox(item, fullUrl);
 
         // Button actions
         card.querySelector(".zit-btn-view").onclick = (e) => {
             e.stopPropagation();
-            this.openLightbox(item, url);
+            this.openLightbox(item, fullUrl);
         };
 
         card.querySelector(".zit-btn-workflow").onclick = (e) => {
             e.stopPropagation();
-            this.loadWorkflowFromImage(url);
+            this.loadWorkflowFromImage(fullUrl);
         };
 
         card.querySelector(".zit-btn-send").onclick = (e) => {
@@ -555,7 +631,7 @@ class ZombiehausImageTray {
 
         card.querySelector(".zit-btn-copy").onclick = async (e) => {
             e.stopPropagation();
-            await this.copyImageToClipboard(url);
+            await this.copyImageToClipboard(fullUrl);
         };
 
         return card;
@@ -586,6 +662,9 @@ class ZombiehausImageTray {
             const escapedName = (window.CSS && CSS.escape ? CSS.escape(imgObj.filename) : imgObj.filename.replace(/"/g, '\\"'));
             const existingCard = this.filmstripEl.querySelector(`.zit-card[data-filename="${escapedName}"]`);
             if (existingCard) {
+                if (this.imageObserver) {
+                    this.imageObserver.unobserve(existingCard);
+                }
                 existingCard.remove();
             }
 
@@ -594,7 +673,13 @@ class ZombiehausImageTray {
 
             // Trim trailing cards from DOM if exceeding maxItems
             while (this.filmstripEl.children.length > this.maxItems) {
-                this.filmstripEl.lastElementChild?.remove();
+                const removed = this.filmstripEl.lastElementChild;
+                if (removed) {
+                    if (this.imageObserver) {
+                        this.imageObserver.unobserve(removed);
+                    }
+                    removed.remove();
+                }
             }
         }
 
@@ -611,10 +696,17 @@ class ZombiehausImageTray {
         this.countBadge.textContent = this.items.length;
 
         if (this.items.length === 0) {
+            if (this.imageObserver) {
+                this.imageObserver.disconnect();
+            }
             this.filmstripEl.innerHTML = `
                 <div class="zit-empty-msg">No images yet. Generated outputs will appear here in real time.</div>
             `;
             return;
+        }
+
+        if (this.imageObserver) {
+            this.imageObserver.disconnect();
         }
 
         // Batch DOM update with DocumentFragment to prevent repeated layout reflows
@@ -888,12 +980,16 @@ class ZombiehausImageTray {
                 thumb.title = it.filename || `Image ${idx + 1}`;
 
                 const thumbImg = document.createElement("img");
-                const thumbUrl = it.url || `/view?filename=${encodeURIComponent(it.filename)}&subfolder=${encodeURIComponent(it.subfolder || "")}&type=${encodeURIComponent(it.type || "output")}`;
+                const thumbUrl = this.getThumbnailUrl(it, 160);
+                const fullViewUrl = this.getViewUrl(it);
                 thumbImg.src = thumbUrl;
                 thumbImg.alt = it.filename || "";
                 thumbImg.loading = "lazy";
                 thumbImg.decoding = "async";
                 thumbImg.draggable = false;
+                thumbImg.onerror = () => {
+                    if (thumbImg.src !== fullViewUrl) thumbImg.src = fullViewUrl;
+                };
 
                 thumb.appendChild(thumbImg);
                 thumb.onclick = (e) => {

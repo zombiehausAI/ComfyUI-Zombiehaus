@@ -178,7 +178,7 @@ const DEFAULT_THEMES = {
 };
 
 let THEMES = { ...DEFAULT_THEMES };
-const MONOSPACE_FONT = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+const MONOSPACE_FONT = "'Cascadia Code', Consolas, Menlo, Monaco, 'Liberation Mono', 'Courier New', monospace";
 
 function getThemeOptions() {
     const names = Object.keys(THEMES);
@@ -248,7 +248,8 @@ function injectSyntaxStyles() {
             }
         }, true);
     }
-    if (document.getElementById("zombiehaus-syntax-style")) return;
+    const existingStyle = document.getElementById("zombiehaus-syntax-style");
+    if (existingStyle) existingStyle.remove();
     const styleEl = document.createElement("style");
     styleEl.id = "zombiehaus-syntax-style";
     styleEl.textContent = `
@@ -299,6 +300,19 @@ function injectSyntaxStyles() {
         .litegraph textarea.zombiehaus-syntax-ta,
         .comfy-multiline-input.zombiehaus-syntax-ta,
         [data-node-id] textarea.zombiehaus-syntax-ta {
+            font-family: 'Cascadia Code', Consolas, Menlo, Monaco, 'Liberation Mono', 'Courier New', monospace !important;
+            font-size: 13px !important;
+            line-height: 1.45 !important;
+            letter-spacing: 0px !important;
+            word-spacing: 0px !important;
+            text-indent: 0px !important;
+            font-variant-ligatures: none !important;
+            font-feature-settings: "liga" 0, "calt" 0 !important;
+            font-kerning: none !important;
+            text-rendering: geometricPrecision !important;
+            tab-size: 4 !important;
+            -moz-tab-size: 4 !important;
+            padding: 8px 8px 28px 8px !important;
             color: transparent !important;
             -webkit-text-fill-color: transparent !important;
             background: transparent !important;
@@ -307,8 +321,9 @@ function injectSyntaxStyles() {
             overflow-x: hidden !important;
             scrollbar-width: thin !important;
             scrollbar-color: rgba(137, 180, 250, 0.45) rgba(17, 17, 27, 0.6) !important;
-            padding-bottom: 28px !important;
             box-sizing: border-box !important;
+            border: 0px none transparent !important;
+            margin: 0 !important;
             resize: none !important;
         }
         .zombiehaus-syntax-ta::-webkit-scrollbar {
@@ -327,16 +342,45 @@ function injectSyntaxStyles() {
             background: rgba(137, 180, 250, 0.8) !important;
         }
         .zombiehaus-syntax-backdrop {
-            position: absolute;
-            pointer-events: none;
-            overflow: hidden;
-            box-sizing: border-box;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            user-select: none;
-            -webkit-user-select: none;
-            z-index: 0;
+            position: absolute !important;
+            pointer-events: none !important;
+            overflow: hidden !important;
+            box-sizing: border-box !important;
+            border: 0px none transparent !important;
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            user-select: none !important;
+            -webkit-user-select: none !important;
+            z-index: 0 !important;
+            font-family: 'Cascadia Code', Consolas, Menlo, Monaco, 'Liberation Mono', 'Courier New', monospace !important;
+            font-size: 13px !important;
+            line-height: 1.45 !important;
+            letter-spacing: 0px !important;
+            word-spacing: 0px !important;
+            text-indent: 0px !important;
+            font-variant-ligatures: none !important;
+            font-feature-settings: "liga" 0, "calt" 0 !important;
+            font-kerning: none !important;
+            text-rendering: geometricPrecision !important;
+            tab-size: 4 !important;
+            -moz-tab-size: 4 !important;
+            margin: 0 !important;
+        }
+        .zombiehaus-syntax-backdrop span,
+        .zombiehaus-popout-backdrop span {
+            font-weight: inherit !important;
+            font-family: inherit !important;
+            font-size: inherit !important;
+            letter-spacing: inherit !important;
+            word-spacing: inherit !important;
+            line-height: inherit !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border-left: 0 !important;
+            border-right: 0 !important;
+            display: inline !important;
+            vertical-align: baseline !important;
         }
         .zombiehaus-editor-status-bar {
             position: absolute;
@@ -466,8 +510,8 @@ function injectSyntaxStyles() {
             background: linear-gradient(90deg, rgba(137, 180, 250, 0.25) 0%, rgba(203, 166, 247, 0.15) 100%);
             border-bottom: 2px solid #89b4fa;
             color: #89b4fa;
-            font-weight: bold;
-            letter-spacing: normal;
+            font-weight: inherit;
+            letter-spacing: inherit;
         }
 
         /* ── Waveform EQ Attention Bar ── */
@@ -852,16 +896,25 @@ function injectSyntaxStyles() {
             color: transparent !important;
             -webkit-text-fill-color: transparent !important;
             caret-color: #ffffff !important;
-            font-family: var(--mf-popout-font-family, ui-monospace, SFMono-Regular, monospace) !important;
+            font-family: var(--mf-popout-font-family, 'Cascadia Code', Consolas, Menlo, Monaco, 'Liberation Mono', 'Courier New', monospace) !important;
             font-size: var(--mf-popout-font-size, 14px) !important;
             line-height: 1.5 !important;
+            letter-spacing: 0px !important;
+            word-spacing: 0px !important;
+            text-indent: 0px !important;
+            font-variant-ligatures: none !important;
+            font-feature-settings: "liga" 0, "calt" 0 !important;
+            font-kerning: none !important;
+            text-rendering: geometricPrecision !important;
             padding: 12px 12px 34px 12px !important;
-            border: none !important;
+            border: 0px none transparent !important;
+            margin: 0px !important;
             outline: none !important;
             resize: none !important;
             position: relative !important;
             z-index: 1 !important;
             tab-size: 4 !important;
+            -moz-tab-size: 4 !important;
             white-space: pre-wrap !important;
             word-wrap: break-word !important;
             overflow-y: auto !important;
@@ -875,14 +928,24 @@ function injectSyntaxStyles() {
             right: 0 !important;
             bottom: 0 !important;
             padding: 12px 12px 34px 12px !important;
-            font-family: var(--mf-popout-font-family, ui-monospace, SFMono-Regular, monospace) !important;
+            border: 0px none transparent !important;
+            margin: 0px !important;
+            text-indent: 0px !important;
+            font-family: var(--mf-popout-font-family, 'Cascadia Code', Consolas, Menlo, Monaco, 'Liberation Mono', 'Courier New', monospace) !important;
             font-size: var(--mf-popout-font-size, 14px) !important;
             line-height: 1.5 !important;
+            letter-spacing: 0px !important;
+            word-spacing: 0px !important;
+            font-variant-ligatures: none !important;
+            font-feature-settings: "liga" 0, "calt" 0 !important;
+            font-kerning: none !important;
+            text-rendering: geometricPrecision !important;
             white-space: pre-wrap !important;
             word-wrap: break-word !important;
             pointer-events: none !important;
             user-select: none !important;
             tab-size: 4 !important;
+            -moz-tab-size: 4 !important;
             overflow: hidden !important;
             color: #cdd6f4 !important;
             box-sizing: border-box !important;
@@ -1602,12 +1665,12 @@ function tokenizeAndHighlight(text, theme) {
         if (iv.type === "section_header") {
             html += `<span class="zombiehaus-section-banner">${tokenText}</span>`;
         } else if (iv.type === "rainbow_paren") {
-            html += `<span style="color: ${iv.color}; font-weight: bold;">${tokenText}</span>`;
+            html += `<span style="color: ${iv.color}; font-weight: inherit;">${tokenText}</span>`;
         } else if (iv.type === "unclosed_paren" || iv.type === "unmatched_paren") {
-            html += `<span style="background: rgba(239, 68, 68, 0.4); color: #f87171; border-radius: 2px; text-decoration: underline wavy #ef4444; font-weight: bold;" title="${iv.type === 'unclosed_paren' ? 'Unclosed opening parenthesis!' : 'Unmatched closing parenthesis!'}">${tokenText}</span>`;
+            html += `<span style="background: rgba(239, 68, 68, 0.4); color: #f87171; border-radius: 2px; text-decoration: underline wavy #ef4444; font-weight: inherit;" title="${iv.type === 'unclosed_paren' ? 'Unclosed opening parenthesis!' : 'Unmatched closing parenthesis!'}">${tokenText}</span>`;
         } else if (iv.type === "hex_color") {
             const rawHex = text.slice(iv.start, iv.end);
-            html += `<span class="zombiehaus-hex-pill" data-hex="${rawHex}" style="color: ${rawHex}; font-weight: bold; background: ${rawHex}33; text-decoration: underline dotted ${rawHex};" title="Hex Color: ${rawHex} (Click to inspect or convert)">${tokenText}</span>`;
+            html += `<span class="zombiehaus-hex-pill" data-hex="${rawHex}" style="color: ${rawHex}; font-weight: inherit; background: ${rawHex}33; text-decoration: underline dotted ${rawHex};" title="Hex Color: ${rawHex} (Click to inspect or convert)">${tokenText}</span>`;
         } else if (iv.type === "weight") {
             const raw = text.slice(iv.start, iv.end);
             const wMatch = raw.match(/:(-?\d+(?:\.\d+)?)\)$/);
@@ -1619,7 +1682,7 @@ function tokenizeAndHighlight(text, theme) {
                 const glowSpread = Math.min(12, Math.round((w - 1.0) * 10));
                 const glowAlpha = Math.min(0.9, 0.25 + (w - 1.0) * 0.45);
                 const bgAlpha = Math.min(0.35, (w - 1.0) * 0.22);
-                extraStyle = `font-weight: bold; text-shadow: 0 0 ${glowSpread}px rgba(251, 191, 36, ${glowAlpha}); background: rgba(245, 158, 11, ${bgAlpha});`;
+                extraStyle = `font-weight: inherit; text-shadow: 0 0 ${glowSpread}px rgba(251, 191, 36, ${glowAlpha}); background: rgba(245, 158, 11, ${bgAlpha});`;
                 if (w > 1.6) {
                     title += " ⚠️ High attention weight (> 1.6)";
                 }
@@ -1633,28 +1696,28 @@ function tokenizeAndHighlight(text, theme) {
             const keywordColor = theme.keyword || theme.choice || "#cba6f7";
             const varColor = theme.variable || "#38bdf8";
             let innerHtml = tokenText;
-            innerHtml = innerHtml.replace(/^(\{)(case\b)/i, (m, b, kw) => `${b}<span style="color: ${keywordColor}; font-weight: bold;">${kw}</span>`);
-            innerHtml = innerHtml.replace(/(\$[a-zA-Z0-9_]+)/g, `<span style="color: ${varColor}; font-weight: 600;">$1</span>`);
-            innerHtml = innerHtml.replace(/(=&gt;|=>)/g, `<span style="color: ${keywordColor}; font-weight: bold;">$1</span>`);
-            html += `<span style="color: ${theme.choice || '#c084fc'}; font-weight: 500;" title="CASE Statement: ${tokenText}">${innerHtml}</span>`;
+            innerHtml = innerHtml.replace(/^(\{)(case\b)/i, (m, b, kw) => `${b}<span style="color: ${keywordColor}; font-weight: inherit;">${kw}</span>`);
+            innerHtml = innerHtml.replace(/(\$[a-zA-Z0-9_]+)/g, `<span style="color: ${varColor}; font-weight: inherit;">$1</span>`);
+            innerHtml = innerHtml.replace(/(=&gt;|=>)/g, `<span style="color: ${keywordColor}; font-weight: inherit;">$1</span>`);
+            html += `<span style="color: ${theme.choice || '#c084fc'}; font-weight: inherit;" title="CASE Statement: ${tokenText}">${innerHtml}</span>`;
         } else if (iv.type === "ternary") {
             const keywordColor = theme.keyword || theme.choice || "#cba6f7";
             const varColor = theme.variable || "#38bdf8";
             let innerHtml = tokenText;
-            innerHtml = innerHtml.replace(/(\$[a-zA-Z0-9_]+)/g, `<span style="color: ${varColor}; font-weight: 600;">$1</span>`);
-            innerHtml = innerHtml.replace(/(\bin\b)/g, `<span style="color: ${keywordColor}; font-weight: bold;">$1</span>`);
-            html += `<span style="color: ${theme.choice || '#c084fc'}; font-weight: 500;" title="Ternary Conditional: ${tokenText}">${innerHtml}</span>`;
+            innerHtml = innerHtml.replace(/(\$[a-zA-Z0-9_]+)/g, `<span style="color: ${varColor}; font-weight: inherit;">$1</span>`);
+            innerHtml = innerHtml.replace(/(\bin\b)/g, `<span style="color: ${keywordColor}; font-weight: inherit;">$1</span>`);
+            html += `<span style="color: ${theme.choice || '#c084fc'}; font-weight: inherit;" title="Ternary Conditional: ${tokenText}">${innerHtml}</span>`;
         } else if (iv.type === "keyword") {
             const color = theme.keyword || theme.choice || "#cba6f7";
-            html += `<span style="color: ${color}; font-weight: bold;" title="Keyword: ${tokenText}">${tokenText}</span>`;
+            html += `<span style="color: ${color}; font-weight: inherit;" title="Keyword: ${tokenText}">${tokenText}</span>`;
         } else if (iv.type === "function") {
             const color = theme.function || theme.variable || "#89b4fa";
-            html += `<span style="color: ${color}; font-weight: 600;" title="Function/Macro: ${tokenText}">${tokenText}</span>`;
+            html += `<span style="color: ${color}; font-weight: inherit;" title="Function/Macro: ${tokenText}">${tokenText}</span>`;
         } else if (iv.type === "inline_neg") {
-            html += `<span style="color: #f87171; background: rgba(239, 68, 68, 0.15); border: 1px dashed rgba(248, 113, 113, 0.4); border-radius: 4px; padding: 0 4px; font-weight: 500;" title="Inline Negative Injection (Automatically extracted & deduplicated into Negative Prompt)">${tokenText}</span>`;
+            html += `<span style="color: #f87171; background: rgba(239, 68, 68, 0.15); outline: 1px dashed rgba(248, 113, 113, 0.4); outline-offset: 0; border-radius: 3px; padding: 0; font-weight: inherit;" title="Inline Negative Injection (Automatically extracted & deduplicated into Negative Prompt)">${tokenText}</span>`;
         } else if (iv.type === "macro") {
             const color = theme.wildcard || theme.variable || "#38bdf8";
-            html += `<span style="color: ${color}; font-weight: bold; background: rgba(56, 189, 248, 0.12); border-radius: 3px; padding: 0 2px;" title="Workflow & Environment Macro: ${tokenText}">${tokenText}</span>`;
+            html += `<span style="color: ${color}; font-weight: inherit; background: rgba(56, 189, 248, 0.12); outline: 1px solid rgba(56, 189, 248, 0.25); outline-offset: 0; border-radius: 3px; padding: 0;" title="Workflow & Environment Macro: ${tokenText}">${tokenText}</span>`;
         } else {
             const color = theme[iv.type] || theme.plain_text || "#e2e8f0";
             html += `<span style="color: ${color};">${tokenText}</span>`;
@@ -1919,20 +1982,32 @@ function attachSyntaxHighlighter(widget, node) {
         }
 
         ta.classList.add("zombiehaus-syntax-ta");
+        ta.spellcheck = false;
+        ta.setAttribute("spellcheck", "false");
+        ta.setAttribute("autocorrect", "off");
+        ta.setAttribute("autocapitalize", "off");
         ta.style.position = "relative";
         ta.style.zIndex = "1";
-        ta.style.fontFamily = MONOSPACE_FONT;
-        ta.style.fontSize = "13px";
-        ta.style.lineHeight = "1.45";
+        ta.style.setProperty("font-family", MONOSPACE_FONT, "important");
+        ta.style.setProperty("font-size", "13px", "important");
+        ta.style.setProperty("line-height", "1.45", "important");
+        ta.style.setProperty("letter-spacing", "0px", "important");
+        ta.style.setProperty("word-spacing", "0px", "important");
+        ta.style.setProperty("text-indent", "0px", "important");
+        ta.style.setProperty("font-variant-ligatures", "none", "important");
+        ta.style.setProperty("font-feature-settings", '"liga" 0, "calt" 0', "important");
+        ta.style.setProperty("font-kerning", "none", "important");
+        ta.style.setProperty("text-rendering", "geometricPrecision", "important");
         ta.style.tabSize = "4";
         ta.style.overflowY = "auto";
         ta.style.overflowX = "hidden";
         ta.style.whiteSpace = "pre-wrap";
         ta.style.wordBreak = "break-word";
         ta.style.overflowWrap = "break-word";
-        ta.style.letterSpacing = "normal";
-        ta.style.paddingBottom = "28px";
-        ta.style.boxSizing = "border-box";
+        ta.style.setProperty("padding", "8px 8px 28px 8px", "important");
+        ta.style.setProperty("box-sizing", "border-box", "important");
+        ta.style.setProperty("border", "0px none transparent", "important");
+        ta.style.setProperty("margin", "0px", "important");
         ta.style.setProperty("color", "transparent", "important");
         ta.style.setProperty("-webkit-text-fill-color", "transparent", "important");
         ta.style.setProperty("background", "transparent", "important");
@@ -1943,37 +2018,48 @@ function attachSyntaxHighlighter(widget, node) {
             if (widget.name === "negative" && ta._ensurePedalboardMounted) {
                 ta._ensurePedalboardMounted();
             }
-            backdrop.style.top = ta.offsetTop + "px";
+
+            const parent = ta.parentElement;
+            if (!parent) return;
+
+            // Geometry synchronization using local element layout offsets (immune to canvas transform/zoom scaling)
             backdrop.style.left = ta.offsetLeft + "px";
+            backdrop.style.top = ta.offsetTop + "px";
             backdrop.style.width = ta.offsetWidth + "px";
             backdrop.style.height = ta.offsetHeight + "px";
+            backdrop.style.setProperty("margin", "0px", "important");
+            backdrop.style.setProperty("border", "0px none transparent", "important");
+            backdrop.style.setProperty("box-sizing", "border-box", "important");
 
             const cs = window.getComputedStyle(ta);
             const borderLeft = parseFloat(cs.borderLeftWidth) || 0;
             const borderRight = parseFloat(cs.borderRightWidth) || 0;
             const scrollbarWidth = Math.max(0, ta.offsetWidth - ta.clientWidth - borderLeft - borderRight);
 
-            backdrop.style.fontFamily = cs.fontFamily || MONOSPACE_FONT;
-            backdrop.style.fontSize = cs.fontSize || "13px";
-            backdrop.style.lineHeight = cs.lineHeight || "1.45";
-            backdrop.style.letterSpacing = cs.letterSpacing || "normal";
-            backdrop.style.wordSpacing = cs.wordSpacing || "normal";
+            backdrop.style.setProperty("font-family", cs.fontFamily || MONOSPACE_FONT, "important");
+            backdrop.style.setProperty("font-size", cs.fontSize || "13px", "important");
+            backdrop.style.setProperty("line-height", cs.lineHeight || "1.45", "important");
+            backdrop.style.setProperty("letter-spacing", "0px", "important");
+            backdrop.style.setProperty("word-spacing", "0px", "important");
+            backdrop.style.setProperty("text-indent", "0px", "important");
+            backdrop.style.setProperty("font-variant-ligatures", "none", "important");
+            backdrop.style.setProperty("font-feature-settings", '"liga" 0, "calt" 0', "important");
+            backdrop.style.setProperty("font-kerning", "none", "important");
+            backdrop.style.setProperty("text-rendering", "geometricPrecision", "important");
             backdrop.style.whiteSpace = "pre-wrap";
             backdrop.style.wordBreak = cs.wordBreak || "break-word";
             backdrop.style.overflowWrap = cs.overflowWrap || "break-word";
             backdrop.style.tabSize = "4";
-            backdrop.style.boxSizing = cs.boxSizing || "border-box";
 
-            backdrop.style.paddingTop = cs.paddingTop;
-            backdrop.style.paddingBottom = "28px";
-            backdrop.style.paddingLeft = cs.paddingLeft;
-            backdrop.style.paddingRight = (parseFloat(cs.paddingRight) || 0) + scrollbarWidth + "px";
+            const padTop = cs.paddingTop || "8px";
+            const padBottom = cs.paddingBottom || "28px";
+            const padLeft = cs.paddingLeft || "8px";
+            const padRight = (parseFloat(cs.paddingRight) || 8) + scrollbarWidth + "px";
 
-            backdrop.style.border = cs.border;
-            backdrop.style.borderColor = "transparent";
-            backdrop.style.borderStyle = cs.borderStyle;
-            backdrop.style.borderWidth = cs.borderWidth;
-            backdrop.style.borderRadius = cs.borderRadius;
+            backdrop.style.setProperty("padding-top", padTop, "important");
+            backdrop.style.setProperty("padding-bottom", padBottom, "important");
+            backdrop.style.setProperty("padding-left", padLeft, "important");
+            backdrop.style.setProperty("padding-right", padRight, "important");
 
             backdrop.scrollTop = ta.scrollTop;
             backdrop.scrollLeft = ta.scrollLeft;
@@ -9371,13 +9457,12 @@ app.registerExtension({
 
                 // ── Typography Controls (Font Family & Font Size with Persistence) ──
                 const POPOUT_FONT_FAMILIES = {
-                    "Monospace": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-                    "JetBrains Mono": "'JetBrains Mono', Consolas, Monaco, monospace",
+                    "Consolas": "Consolas, 'Cascadia Code', 'Courier New', monospace",
+                    "Cascadia Code": "'Cascadia Code', Consolas, 'Courier New', monospace",
+                    "Monospace": "'Cascadia Code', Consolas, Menlo, Monaco, 'Liberation Mono', 'Courier New', monospace",
+                    "JetBrains Mono": "'JetBrains Mono', Consolas, monospace",
                     "Fira Code": "'Fira Code', 'Cascadia Code', Consolas, monospace",
-                    "Consolas": "'Cascadia Code', Consolas, 'Courier New', monospace",
-                    "Clean Sans (Inter)": "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-                    "Editorial Serif": "'Georgia', 'Cambria', 'Times New Roman', serif",
-                    "Readable / Dyslexic": "'Comic Sans MS', 'Chalkboard SE', 'Comic Neue', sans-serif"
+                    "Courier New": "'Courier New', Courier, monospace"
                 };
 
                 let savedFontKey = "Monospace";
@@ -9569,6 +9654,12 @@ app.registerExtension({
 
                 const posTa = document.createElement("textarea");
                 posTa.className = "zombiehaus-popout-ta";
+                posTa.spellcheck = false;
+                posTa.setAttribute("spellcheck", "false");
+                posTa.setAttribute("autocorrect", "off");
+                posTa.setAttribute("autocapitalize", "off");
+                posTa.style.setProperty("border", "0px none transparent", "important");
+                posTa.style.setProperty("margin", "0px", "important");
                 posTa.placeholder = "Enter positive prompt, tags, choices {a|b}, wildcards __style__...";
                 posTa.value = pw.value || "";
                 posBox.appendChild(posTa);
@@ -9666,6 +9757,12 @@ app.registerExtension({
 
                 const negTa = document.createElement("textarea");
                 negTa.className = "zombiehaus-popout-ta";
+                negTa.spellcheck = false;
+                negTa.setAttribute("spellcheck", "false");
+                negTa.setAttribute("autocorrect", "off");
+                negTa.setAttribute("autocapitalize", "off");
+                negTa.style.setProperty("border", "0px none transparent", "important");
+                negTa.style.setProperty("margin", "0px", "important");
                 negTa.placeholder = "Enter negative prompt, unwanted traits...";
                 negTa.value = nw.value || "";
                 negBox.appendChild(negTa);
@@ -9798,16 +9895,21 @@ app.registerExtension({
                     const borderLeft = parseFloat(cs.borderLeftWidth) || 0;
                     const borderRight = parseFloat(cs.borderRightWidth) || 0;
                     const scrollbarWidth = Math.max(0, ta.offsetWidth - ta.clientWidth - borderLeft - borderRight);
-                    backdrop.style.paddingTop = cs.paddingTop || "12px";
-                    backdrop.style.paddingBottom = cs.paddingBottom || "34px";
-                    backdrop.style.paddingLeft = cs.paddingLeft || "12px";
-                    backdrop.style.paddingRight = (parseFloat(cs.paddingRight) || 0) + scrollbarWidth + "px";
-                    backdrop.style.fontSize = cs.fontSize;
-                    backdrop.style.fontFamily = cs.fontFamily;
-                    backdrop.style.lineHeight = cs.lineHeight;
-                    backdrop.style.letterSpacing = cs.letterSpacing;
-                    backdrop.style.wordBreak = cs.wordBreak;
-                    backdrop.style.whiteSpace = cs.whiteSpace;
+                    backdrop.style.setProperty("padding-top", cs.paddingTop || "12px", "important");
+                    backdrop.style.setProperty("padding-bottom", cs.paddingBottom || "34px", "important");
+                    backdrop.style.setProperty("padding-left", cs.paddingLeft || "12px", "important");
+                    backdrop.style.setProperty("padding-right", (parseFloat(cs.paddingRight) || 12) + scrollbarWidth + "px", "important");
+                    backdrop.style.setProperty("border", "0px none transparent", "important");
+                    backdrop.style.setProperty("margin", "0px", "important");
+                    backdrop.style.setProperty("box-sizing", "border-box", "important");
+                    backdrop.style.setProperty("font-size", cs.fontSize, "important");
+                    backdrop.style.setProperty("font-family", cs.fontFamily, "important");
+                    backdrop.style.setProperty("line-height", cs.lineHeight, "important");
+                    backdrop.style.setProperty("letter-spacing", "0px", "important");
+                    backdrop.style.setProperty("word-spacing", "0px", "important");
+                    backdrop.style.setProperty("text-indent", "0px", "important");
+                    backdrop.style.setProperty("word-break", cs.wordBreak || "break-word", "important");
+                    backdrop.style.setProperty("white-space", cs.whiteSpace || "pre-wrap", "important");
                     backdrop.scrollTop = ta.scrollTop;
                     backdrop.scrollLeft = ta.scrollLeft;
                 }

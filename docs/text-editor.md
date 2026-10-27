@@ -1016,3 +1016,10 @@ All comments remain preserved in your editor UI, in saved JSON files, and in wor
   2. Open ComfyUI Settings $\rightarrow$ Zombiehaus and click **"🔍 Check Status / Refresh"** to view the live connection test.
   3. Ensure the URL does not contain typos or accidental trailing characters (e.g. `192.168.x.x.:11434` is automatically cleaned up, but ensure the port is `11434`).
   4. If Ollama is running on a different machine on your local network, ensure that machine has `OLLAMA_HOST=0.0.0.0` set so it listens for network connections, and verify your firewall allows port 11434.
+- **Cursor / Caret Misalignment or Drift**:
+  - The editor synchronizes a transparent `<textarea>` directly on top of a syntax-highlighted backdrop `<div>`. Both elements are locked to identical monospace typography (`'Cascadia Code', Consolas, Menlo, Monaco, monospace`), `letter-spacing: 0px`, `word-spacing: 0px`, `text-indent: 0px`, `font-variant-ligatures: none`, `border: 0px none transparent`, `margin: 0px`, and identical padding.
+  - Geometry alignment uses local parent layout offsets (`ta.offsetLeft`, `ta.offsetWidth`), ensuring pixel-perfect alignment across all canvas zoom levels and CSS transforms without matrix scaling distortion.
+  - All token spans (`weight`, `rainbow_paren`, `keyword`, `macro`, etc.) enforce `font-weight: inherit !important;` and `letter-spacing: inherit !important;`. This prevents bold glyph width variances in system fonts (such as Consolas or fallback monospace fonts) from causing cumulative horizontal character shift or caret offset.
+  - Native browser spellchecking and autocorrect are explicitly disabled (`spellcheck="false"`) on both canvas and popout textareas so browser grammar engines do not perturb word boundaries or caret hit testing.
+  - In the Popout Studio editor, all typography choices use pure monospace fonts with strict geometry synchronization on scroll and resize.
+  - If you experience text drift in custom browser setups, reload the browser tab with `Ctrl + F5` or toggle **Syntax Theme** to `Off (Plain Text)` to switch to single-layer native editing.

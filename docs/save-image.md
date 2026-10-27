@@ -13,6 +13,9 @@ Save images to disk with variable filename support, format selection, and option
 | embed_metadata | dropdown | `enabled` = embed workflow/prompt; `disabled` = strip all metadata |
 | clean_vram | boolean | Clear CUDA VRAM cache after saving |
 | seed | INT (optional) | Seed value for `%seed%` substitution |
+| pipe | PIPE (optional) | Pipe carrying evaluated prompt variables and generation context |
+| filename | STRING (optional) | Direct preformatted filename override (e.g. from Zombiehaus Prompt Variable) |
+| var | STRING (optional) | Direct string variable substitution for `%var%` in filename_prefix |
 
 ## Output
 
@@ -36,11 +39,16 @@ Output node — no data outputs. Saved files appear in the ComfyUI output panel.
 | `%height%` | Image height in pixels |
 | `%batch_num%` | Index within the current batch |
 | `%date:FORMAT%` | Custom date using Java/moment.js format codes |
+| `%name%`, `%character%`, `%object%` | Automatically extracts the object key/name evaluated in prompt (e.g. `Emiru`) |
+| `%{variable}%`, `%variable%` | Value of any variable evaluated in the Text Editor (e.g. `%listitem%`) |
+| `%{var.prop}%`, `%var.prop%` | Value of an object property from the prompt (e.g. `%listitem.name%`, `%listitem.hair%`) |
+| `%var%` | Value connected to the optional `var` input socket |
 
 ## Example Prefixes
 
 ```
-images/%date%/ComfyUI_%seed%
+images/%name%/%seed%
+images/%date%/%listitem.name%_%seed%
 renders/%datetime%_%width%x%height%
 ComfyUI_%date%_%seed%
 ```

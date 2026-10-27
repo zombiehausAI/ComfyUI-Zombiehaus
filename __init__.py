@@ -55,6 +55,7 @@ from .modules.persona_interact_node import ZombiehausPersonaInteract
 from .modules.dual_persona_director_node import ZombiehausDualPersonaDirector
 from .modules.scene_script_director_node import ZombiehausSceneScriptDirector
 from .modules.pipe_bus_node import ZombiehausPipeBus
+from .modules.prompt_variable_node import ZombiehausPromptVariable
 from .modules.studio_node import list_studio_profiles, load_profile_data, get_studio_profiles_dir
 from .modules.model_scryer_node import (
     ZombiehausModelScryer,
@@ -2093,6 +2094,7 @@ NODE_CLASS_MAPPINGS = {
     "ZombiehausDualPersonaDirector": ZombiehausDualPersonaDirector,
     "ZombiehausSceneScriptDirector": ZombiehausSceneScriptDirector,
     "ZombiehausPipeBus": ZombiehausPipeBus,
+    "ZombiehausPromptVariable": ZombiehausPromptVariable,
     "ZombiehausModelScryer": ZombiehausModelScryer,
 }
 
@@ -2158,6 +2160,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZombiehausDualPersonaDirector": "Zombiehaus Dual Persona Director (Regional LoRA)",
     "ZombiehausSceneScriptDirector": "Zombiehaus Scene Script Director (N-Persona)",
     "ZombiehausPipeBus": "Zombiehaus Pipe Bus (Distribution)",
+    "ZombiehausPromptVariable": "Zombiehaus Prompt Variable",
     "ZombiehausModelScryer": "Zombiehaus Model Scryer (WeightScryer)",
 }
 

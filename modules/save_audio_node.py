@@ -40,8 +40,8 @@ def _java_date_format(fmt_str: str, now) -> str:
     return time.strftime(fmt, now)
 
 
-def _expand_shorthand_vars(prefix: str, seed=None, title=None) -> str:
-    """Expand all date/time/seed/title shorthands in a filename prefix."""
+def _expand_shorthand_vars(prefix: str, seed=None, title=None, variables: dict = None) -> str:
+    """Expand all date/time/seed/title/prompt variable shorthands in a filename prefix."""
     now = time.localtime()
     year   = str(now.tm_year)
     month  = str(now.tm_mon).zfill(2)
@@ -72,6 +72,54 @@ def _expand_shorthand_vars(prefix: str, seed=None, title=None) -> str:
         prefix = prefix.replace("%title%", safe_title)
     else:
         prefix = prefix.replace("%title%", "")
+
+    # Expand prompt variables: %var%, %var.prop%, ${var}, $var
+    if variables and isinstance(variables, dict):
+        def repl_var_prop(m):
+            vname = m.group(1)
+            prop = m.group(2)
+            if vname in variables:
+                val = variables[vname]
+                if isinstance(val, dict):
+                    res = val.get(prop)
+                    if res is None and prop.lower() in ("name", "key"):
+                        res = val.get("name") or val.get("key")
+                    if res is not None:
+                        return re.sub(r'[<>:"/\\|?*]', '_', str(res)).strip()
+            return m.group(0)
+
+        prefix = re.sub(r'%([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)%', repl_var_prop, prefix)
+        prefix = re.sub(r'\$\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\}', repl_var_prop, prefix)
+        prefix = re.sub(r'\$([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\b', repl_var_prop, prefix)
+
+        for k, v in variables.items():
+            clean_str = ""
+            if isinstance(v, dict):
+                clean_str = str(v.get("name") or v.get("key") or "")
+                if not clean_str and len(v) == 1:
+                    clean_str = str(next(iter(v.keys())))
+            else:
+                clean_str = str(v)
+            clean_str = re.sub(r'[<>:"/\\|?*]', '_', clean_str).strip()
+            prefix = prefix.replace(f"%{k}%", clean_str)
+            prefix = prefix.replace(f"${{{k}}}", clean_str)
+            prefix = re.sub(rf'\${k}\b', clean_str, prefix)
+
+        # Smart fallback for %name%, %character%, %object% if not directly set
+        if ("%name%" in prefix or "%character%" in prefix or "%object%" in prefix):
+            found_name = ""
+            for v in variables.values():
+                if isinstance(v, dict):
+                    candidate = v.get("name") or v.get("key")
+                    if candidate:
+                        found_name = str(candidate)
+                        break
+            if found_name:
+                clean_name = re.sub(r'[<>:"/\\|?*]', '_', found_name).strip()
+                prefix = prefix.replace("%name%", clean_name)
+                prefix = prefix.replace("%character%", clean_name)
+                prefix = prefix.replace("%object%", clean_name)
+
     return prefix
 
 

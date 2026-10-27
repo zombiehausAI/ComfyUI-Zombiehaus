@@ -2644,9 +2644,13 @@ function resolveVariableOrigin(varName, fullContext, depth = 0) {
 }
 
 const BUILTIN_OBJECT_HELPERS = [
+    { name: "Where", desc: "Filter list by condition: .Where(prop == 'val')" },
+    { name: "random", desc: "Pick random item from list or dictionary" },
+    { name: "name", desc: "Object key or name" },
     { name: "keys", desc: "List all keys" },
     { name: "values", desc: "List all values" },
     { name: "length", desc: "Item count" },
+    { name: "count", desc: "Item count" },
     { name: "first", desc: "First item" },
     { name: "last", desc: "Last item" }
 ];

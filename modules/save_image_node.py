@@ -59,6 +59,8 @@ class ZombiehausSaveImage:
                 "images": ("IMAGE",),
                 "pipe": ("PIPE",),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+                "filename": ("STRING", {"forceInput": True}),
+                "var": ("STRING", {"forceInput": True}),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -71,15 +73,45 @@ class ZombiehausSaveImage:
     OUTPUT_NODE = True
     CATEGORY = "Zombiehaus/Utilities"
 
-    def save_images(self, filename_prefix, format, quality, embed_metadata="enabled", clean_vram=False, images=None, pipe=None, seed=None, prompt=None, extra_pnginfo=None):
+    def save_images(self, filename_prefix, format, quality, embed_metadata="enabled", clean_vram=False, images=None, pipe=None, seed=None, filename=None, var=None, prompt=None, extra_pnginfo=None):
         if images is None and pipe is not None:
             images = pipe.get("image") if isinstance(pipe, dict) else (pipe[7] if len(pipe) > 7 else None)
         if images is None:
             raise ValueError("[ZombiehausSaveImage] IMAGES is required (provide via images input or pipe)")
 
+        if filename is not None and str(filename).strip():
+            filename_prefix = str(filename).strip()
+
         # Intelligent seed resolution from pipe if seed is unset or 0
         from .pipe_bus_node import resolve_pipe_seed
         seed = resolve_pipe_seed(pipe, local_seed=seed)
+
+        # Resolve prompt variables from pipe, conditioning metadata, or TextEditor execution cache
+        resolved_vars = {}
+        if pipe is not None:
+            if isinstance(pipe, dict):
+                resolved_vars.update(pipe.get("variables") or {})
+            elif len(pipe) > 11 and isinstance(pipe[11], dict):
+                resolved_vars.update(pipe[11])
+            pos_c = pipe.get("positive") if isinstance(pipe, dict) else (pipe[3] if len(pipe) > 3 else None)
+            if pos_c and isinstance(pos_c, (list, tuple)):
+                for chunk in pos_c:
+                    if len(chunk) > 1 and isinstance(chunk[1], dict) and "zombiehaus_variables" in chunk[1]:
+                        resolved_vars.update(chunk[1]["zombiehaus_variables"])
+                        break
+
+        if not resolved_vars:
+            try:
+                from .text_editor_node import ZombiehausTextEditor
+                resolved_vars.update(ZombiehausTextEditor.get_last_variables())
+            except Exception:
+                pass
+
+        if var is not None and str(var).strip():
+            v_str = str(var).strip()
+            resolved_vars["var"] = v_str
+            resolved_vars["name"] = v_str
+            resolved_vars["variable"] = v_str
 
         output_dir = folder_paths.get_output_directory()
         results = []
@@ -91,7 +123,7 @@ class ZombiehausSaveImage:
             w, h = img.size
 
             # Expand variables — width/height substituted after expansion
-            prefix = _expand_shorthand_vars(filename_prefix, seed=seed)
+            prefix = _expand_shorthand_vars(filename_prefix, seed=seed, variables=resolved_vars)
             prefix = prefix.replace("%width%", str(w)).replace("%height%", str(h))
             prefix = prefix.replace("%batch_num%", str(batch_number))
 

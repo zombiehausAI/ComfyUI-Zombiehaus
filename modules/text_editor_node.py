@@ -13,7 +13,36 @@ class PromptList(list):
 
 class PromptDict(dict):
     def __str__(self):
-        return ", ".join(f"{k}: {v}" for k, v in self.items())
+        items = []
+        for k, v in self.items():
+            if k in ("key", "_explicit_name"):
+                continue
+            if k == "name" and not self.get("_explicit_name"):
+                continue
+            if str(v).startswith(("<lora:", "<embedding:")):
+                items.append(str(v))
+            else:
+                items.append(f"{k}: {v}")
+        if items:
+            return ", ".join(str(x) for x in items)
+        return ", ".join(f"{k}: {v}" for k, v in self.items() if k != "key")
+
+    def get(self, key, default=None):
+        if key in self:
+            return self[key]
+        k_lower = str(key).lower()
+        if k_lower == "name":
+            if "name" in self and str(self["name"]).strip(): return self["name"]
+            if "key" in self and str(self["key"]).strip(): return self["key"]
+            if len(self) == 1: return next(iter(self.keys()))
+        elif k_lower == "key":
+            if "key" in self and str(self["key"]).strip(): return self["key"]
+            if "name" in self and str(self["name"]).strip(): return self["name"]
+            if len(self) == 1: return next(iter(self.keys()))
+        for k, v in self.items():
+            if str(k).lower() == k_lower:
+                return v
+        return default
 
 class ZombiehausTextEditor:
     """
@@ -93,6 +122,14 @@ class ZombiehausTextEditor:
     OUTPUT_NODE = False
     CATEGORY = "Zombiehaus/Utilities"
     _cycle_counters = {}
+    _last_variables = {}
+    _node_variables = {}
+
+    @classmethod
+    def get_last_variables(cls, unique_id=None) -> dict:
+        if unique_id and str(unique_id) in cls._node_variables:
+            return dict(cls._node_variables[str(unique_id)])
+        return dict(cls._last_variables)
 
     @classmethod
     def IS_CHANGED(cls, seed=0, seed_action="fixed", **kwargs):
@@ -321,7 +358,7 @@ class ZombiehausTextEditor:
         return ", ".join(added_tags)
 
     @staticmethod
-    def resolve_dynamic_prompts(text: str, seed: int = None, cycle_index: int = 0, initial_vars: dict = None, function_lib: dict = None) -> str:
+    def resolve_dynamic_prompts(text: str, seed: int = None, cycle_index: int = 0, initial_vars: dict = None, function_lib: dict = None, out_vars: dict = None) -> str:
         """
         Resolve:
         - Modular File Imports (@import "path/file.txt", @import "subfolder/prompt.json")
@@ -656,7 +693,11 @@ class ZombiehausTextEditor:
             count_spec = m.group(1)
             wc_name = m.group(2).strip()
             base_wc = wc_name[:-4] if wc_name.lower().endswith((".txt", ".json")) else wc_name
-            search_dirs = get_prompts_dirs()
+            search_dirs = list(get_prompts_dirs())
+            repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            for extra in [repo_root, os.path.abspath(os.path.join(repo_root, "..", ".."))]:
+                if extra and os.path.isdir(extra) and extra not in search_dirs:
+                    search_dirs.append(extra)
             candidates = []
             for d in search_dirs:
                 candidates.extend([
@@ -685,7 +726,21 @@ class ZombiehausTextEditor:
                     with open(target_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     if isinstance(data, dict):
-                        return PromptDict({k: parse_complex_value(json.dumps(v) if isinstance(v, (dict, list)) else str(v), local_vars) for k, v in data.items()})
+                        res_dict = PromptDict()
+                        for k, v in data.items():
+                            val = parse_complex_value(json.dumps(v) if isinstance(v, (dict, list)) else str(v), local_vars)
+                            if isinstance(val, dict):
+                                if "name" not in val: val["name"] = k
+                                if "key" not in val: val["key"] = k
+                            res_dict[k] = val
+                        is_all_selection = (count_spec in ("all", "*")) or default_all
+                        if is_all_selection:
+                            return res_dict
+                        k = int(count_spec) if count_spec and count_spec.isdigit() else 1
+                        if k == 1 and res_dict:
+                            chosen_k = rng.choice(list(res_dict.keys()))
+                            return res_dict[chosen_k]
+                        return res_dict
                     elif isinstance(data, list):
                         parsed_list = PromptList([parse_complex_value(json.dumps(x) if isinstance(x, (dict, list)) else str(x), local_vars) for x in data])
                         if count_spec in ("all", "*") or default_all:
@@ -733,6 +788,10 @@ class ZombiehausTextEditor:
             if is_yaml_dict:
                 parsed_full = parse_complex_value("\n".join(lines), local_vars)
                 if isinstance(parsed_full, PromptDict):
+                    for k, v in parsed_full.items():
+                        if isinstance(v, dict):
+                            if "name" not in v: v["name"] = k
+                            if "key" not in v: v["key"] = k
                     is_all_selection = (count_spec in ("all", "*")) or default_all or (count_spec is None and file_mode_all)
                     if is_all_selection:
                         return parsed_full
@@ -748,7 +807,18 @@ class ZombiehausTextEditor:
                     return ""
 
             # Multiple entries
-            parsed_lines = [parse_complex_value(line, local_vars) for line in lines]
+            parsed_lines = []
+            for line in lines:
+                pv = parse_complex_value(line, local_vars)
+                if isinstance(pv, dict) and len(pv) == 1:
+                    only_k = next(iter(pv.keys()))
+                    only_v = pv[only_k]
+                    if isinstance(only_v, dict):
+                        if "name" not in only_v: only_v["name"] = only_k
+                        if "key" not in only_v: only_v["key"] = only_k
+                        pv = only_v
+                parsed_lines.append(pv)
+
             is_all_selection = (count_spec in ("all", "*")) or default_all or (count_spec is None and file_mode_all)
             if is_all_selection:
                 return PromptList(parsed_lines)
@@ -815,7 +885,18 @@ class ZombiehausTextEditor:
                 if not inner:
                     return PromptList()
                 items = split_top_level(inner, delims=(',', '\n'))
-                parsed_items = [parse_complex_value(it, current_vars) for it in items]
+                parsed_items = []
+                for it in items:
+                    pit = parse_complex_value(it, current_vars)
+                    if isinstance(pit, dict) and len(pit) == 1:
+                        ik = next(iter(pit.keys()))
+                        iv = pit[ik]
+                        if isinstance(iv, dict):
+                            if "name" not in iv: iv["name"] = ik
+                            if "key" not in iv: iv["key"] = ik
+                            parsed_items.append(iv)
+                            continue
+                    parsed_items.append(pit)
                 return PromptList(parsed_items)
 
             is_single_braced = False
@@ -900,7 +981,11 @@ class ZombiehausTextEditor:
                 if is_dict and dict_candidates:
                     res_dict = PromptDict()
                     for k, v in dict_candidates:
-                        res_dict[k] = parse_complex_value(v, current_vars)
+                        val = parse_complex_value(v, current_vars)
+                        if isinstance(val, dict):
+                            if "name" not in val: val["name"] = k
+                            if "key" not in val: val["key"] = k
+                        res_dict[k] = val
                     return res_dict
 
             if (s.startswith('"') and s.endswith('"') and len(s) >= 2) or (s.startswith("'") and s.endswith("'") and len(s) >= 2):
@@ -911,104 +996,325 @@ class ZombiehausTextEditor:
 
             return s
 
+        def parse_chain_tokens(chain_str: str):
+            tokens = []
+            i = 0
+            n = len(chain_str)
+            while i < n:
+                if chain_str[i].isspace():
+                    i += 1
+                    continue
+                if chain_str[i] == '.':
+                    i += 1
+                    id_start = i
+                    while i < n and (chain_str[i].isalnum() or chain_str[i] == '_'):
+                        i += 1
+                    prop_name = chain_str[id_start:i].strip()
+                    while i < n and chain_str[i].isspace():
+                        i += 1
+                    if i < n and chain_str[i] == '(':
+                        i += 1
+                        paren_depth = 1
+                        in_q = None
+                        arg_start = i
+                        while i < n and paren_depth > 0:
+                            ch = chain_str[i]
+                            if in_q:
+                                if ch == in_q: in_q = None
+                            elif ch in ('"', "'"):
+                                in_q = ch
+                            elif ch == '(':
+                                paren_depth += 1
+                            elif ch == ')':
+                                paren_depth -= 1
+                            i += 1
+                        arg_content = chain_str[arg_start:i-1].strip()
+                        tokens.append(('call', prop_name, arg_content))
+                    else:
+                        tokens.append(('prop', prop_name, None))
+                elif chain_str[i] == '[':
+                    i += 1
+                    br_depth = 1
+                    in_q = None
+                    br_start = i
+                    while i < n and br_depth > 0:
+                        ch = chain_str[i]
+                        if in_q:
+                            if ch == in_q: in_q = None
+                        elif ch in ('"', "'"):
+                            in_q = ch
+                        elif ch == '[':
+                            br_depth += 1
+                        elif ch == ']':
+                            br_depth -= 1
+                        i += 1
+                    br_content = chain_str[br_start:i-1].strip()
+                    tokens.append(('bracket', br_content, None))
+                else:
+                    i += 1
+            return tokens
+
+        def split_top_level_logic(s: str, delims: list):
+            parts = []
+            i = 0
+            n = len(s)
+            start = 0
+            d_p = d_b = d_br = 0
+            in_q = None
+            while i < n:
+                ch = s[i]
+                if in_q:
+                    if ch == in_q: in_q = None
+                    i += 1
+                    continue
+                if ch in ('"', "'"):
+                    in_q = ch
+                    i += 1
+                    continue
+                if ch == '(': d_p += 1
+                elif ch == ')': d_p = max(0, d_p - 1)
+                elif ch == '{': d_b += 1
+                elif ch == '}': d_b = max(0, d_b - 1)
+                elif ch == '[': d_br += 1
+                elif ch == ']': d_br = max(0, d_br - 1)
+
+                if d_p == 0 and d_b == 0 and d_br == 0:
+                    matched_delim = None
+                    for delim in delims:
+                        if s[i:].startswith(delim):
+                            matched_delim = delim
+                            break
+                    if matched_delim:
+                        parts.append(s[start:i].strip())
+                        i += len(matched_delim)
+                        start = i
+                        continue
+                i += 1
+            parts.append(s[start:].strip())
+            return [p for p in parts if p]
+
+        def find_top_level_op(s: str, ops: list):
+            n = len(s)
+            d_p = d_b = d_br = 0
+            in_q = None
+            for i in range(n):
+                ch = s[i]
+                if in_q:
+                    if ch == in_q: in_q = None
+                    continue
+                if ch in ('"', "'"):
+                    in_q = ch
+                    continue
+                if ch == '(': d_p += 1
+                elif ch == ')': d_p = max(0, d_p - 1)
+                elif ch == '{': d_b += 1
+                elif ch == '}': d_b = max(0, d_b - 1)
+                elif ch == '[': d_br += 1
+                elif ch == ']': d_br = max(0, d_br - 1)
+
+                if d_p == 0 and d_b == 0 and d_br == 0:
+                    for op in ops:
+                        if s[i:].startswith(op):
+                            return (op, i)
+            return (None, -1)
+
+        def resolve_item_property(item, prop: str, key_name: str = None):
+            p_lower = prop.strip().lower()
+            if p_lower in ("name", "key", "id"):
+                if isinstance(item, dict):
+                    if p_lower in item and str(item[p_lower]).strip():
+                        return item[p_lower]
+                    if "name" in item and str(item["name"]).strip():
+                        return item["name"]
+                    if "key" in item and str(item["key"]).strip():
+                        return item["key"]
+                if key_name:
+                    return key_name
+                if isinstance(item, dict) and len(item) == 1:
+                    return next(iter(item.keys()))
+                return ""
+
+            if isinstance(item, dict):
+                if prop in item:
+                    return item[prop]
+                for k, v in item.items():
+                    if str(k).lower() == p_lower:
+                        return v
+                if len(item) == 1:
+                    inner_k = next(iter(item.keys()))
+                    inner_v = item[inner_k]
+                    if isinstance(inner_v, dict):
+                        return resolve_item_property(inner_v, prop, key_name=inner_k)
+                return ""
+
+            if isinstance(item, str):
+                return item
+
+            return ""
+
+        def match_item_predicate(item, pred_str: str, key_name: str = None) -> bool:
+            clause = pred_str.strip()
+            if not clause:
+                return True
+
+            if clause.startswith("(") and clause.endswith(")"):
+                d = 0
+                single = True
+                for ch in clause[:-1]:
+                    if ch == '(': d += 1
+                    elif ch == ')':
+                        d -= 1
+                        if d == 0: single = False; break
+                if single:
+                    clause = clause[1:-1].strip()
+
+            or_parts = split_top_level_logic(clause, [" or ", " || "])
+            if len(or_parts) > 1:
+                return any(match_item_predicate(item, p, key_name=key_name) for p in or_parts)
+
+            and_parts = split_top_level_logic(clause, [" and ", " && "])
+            if len(and_parts) > 1:
+                return all(match_item_predicate(item, p, key_name=key_name) for p in and_parts)
+
+            op, pos = find_top_level_op(clause, ["==", "!=", "<=", ">=", "~=", " contains ", " in ", "<", ">", "="])
+            if op is not None:
+                left_raw = clause[:pos].strip().strip("'\"")
+                right_raw = clause[pos + len(op):].strip().strip("'\"")
+                left_val = resolve_item_property(item, left_raw, key_name=key_name)
+
+                try:
+                    l_num = float(str(left_val).strip())
+                    r_num = float(str(right_raw).strip())
+                    clean_op = op.strip()
+                    if clean_op in ("==", "="): return l_num == r_num
+                    elif clean_op == "!=": return l_num != r_num
+                    elif clean_op == "<": return l_num < r_num
+                    elif clean_op == ">": return l_num > r_num
+                    elif clean_op == "<=": return l_num <= r_num
+                    elif clean_op == ">=": return l_num >= r_num
+                except (ValueError, TypeError):
+                    pass
+
+                l_str = str(left_val).strip().lower()
+                r_str = str(right_raw).strip().lower()
+                clean_op = op.strip()
+
+                if clean_op in ("==", "="):
+                    return l_str == r_str
+                elif clean_op == "!=":
+                    return l_str != r_str
+                elif clean_op in ("contains", "in", "~="):
+                    if clean_op == "in":
+                        return l_str in r_str
+                    return r_str in l_str
+                elif clean_op == "<": return l_str < r_str
+                elif clean_op == ">": return l_str > r_str
+                elif clean_op == "<=": return l_str <= r_str
+                elif clean_op == ">=": return l_str >= r_str
+
+            is_neg = clause.startswith("!")
+            prop_to_check = clause[1:].strip() if is_neg else clause
+            v = resolve_item_property(item, prop_to_check, key_name=key_name)
+            truthy = bool(v and str(v).strip().lower() not in ("false", "0", "none", "null", ""))
+            return not truthy if is_neg else truthy
+
         def evaluate_chain(base_val, chain_str):
-            tokens = re.findall(r'\.([a-zA-Z0-9_]+(?:\(\))?)|\[\s*(-?[0-9]+|"[^"]*"|\'[^\']*\')\s*\]', chain_str)
+            tokens = parse_chain_tokens(chain_str)
             curr = base_val
-            for prop, bracket in tokens:
-                if prop:
-                    prop_clean = prop.strip()
-                    if prop_clean in ("length", "count", "length()", "count()"):
-                        if isinstance(curr, (list, dict, str)):
-                            curr = str(len(curr))
-                        else:
-                            curr = "0"
-                    elif prop_clean in ("keys", "keys()"):
-                        if isinstance(curr, dict):
-                            curr = PromptList(list(curr.keys()))
-                        else:
-                            curr = PromptList()
-                    elif prop_clean in ("values", "values()"):
-                        if isinstance(curr, dict):
-                            curr = PromptList(list(curr.values()))
-                        else:
-                            curr = PromptList()
-                    elif prop_clean in ("first", "first()"):
-                        if isinstance(curr, list) and curr:
-                            curr = curr[0]
-                        else:
-                            curr = ""
-                    elif prop_clean in ("last", "last()"):
-                        if isinstance(curr, list) and curr:
-                            curr = curr[-1]
-                        else:
-                            curr = ""
-                    elif prop_clean in ("random", "rand", "random()", "rand()", "choose", "choose()", "any", "any()"):
-                        if isinstance(curr, list) and curr:
-                            curr = rng.choice(curr)
-                        elif isinstance(curr, dict) and curr:
-                            chosen_k = rng.choice(list(curr.keys()))
-                            chosen_v = curr[chosen_k]
-                            if isinstance(chosen_v, dict):
-                                if "name" not in chosen_v:
-                                    chosen_v["name"] = chosen_k
-                                if "key" not in chosen_v:
-                                    chosen_v["key"] = chosen_k
-                            curr = chosen_v
-                        else:
-                            curr = ""
-                    elif isinstance(curr, dict):
-                        curr = curr.get(prop_clean, "")
+            for t_type, t_name, t_arg in tokens:
+                t_lower = t_name.lower() if t_name else ""
+                if t_type == "call" and t_lower == "where":
+                    if isinstance(curr, dict):
+                        filtered = PromptDict()
+                        for k, v in curr.items():
+                            if match_item_predicate(v, t_arg, key_name=k):
+                                filtered[k] = v
+                        curr = filtered
                     elif isinstance(curr, list):
-                        # 1. Direct match by key or name/id if list items are dicts
-                        found_item = None
-                        for item in curr:
-                            if isinstance(item, dict):
-                                if prop_clean in item:
-                                    found_item = item[prop_clean]
-                                    break
-                                elif item.get("name") == prop_clean or item.get("id") == prop_clean:
-                                    found_item = item
-                                    break
-                        if found_item is not None:
-                            curr = found_item
-                        else:
-                            # 2. Map items by property or collect property values
-                            mapped = PromptDict()
-                            val_list = []
-                            for item in curr:
-                                if isinstance(item, dict) and prop_clean in item:
-                                    mapped[str(item[prop_clean])] = item
-                                    val_list.append(item[prop_clean])
-                            if mapped:
-                                curr = mapped
-                            elif val_list:
-                                curr = PromptList(val_list)
-                            else:
-                                curr = ""
+                        filtered = PromptList()
+                        for it in curr:
+                            k_cand = None
+                            if isinstance(it, dict):
+                                k_cand = it.get("name") or it.get("key")
+                                if not k_cand and len(it) == 1:
+                                    k_cand = next(iter(it.keys()))
+                            if match_item_predicate(it, t_arg, key_name=k_cand):
+                                filtered.append(it)
+                        curr = filtered
+                    elif isinstance(curr, str):
+                        if not match_item_predicate(curr, t_arg):
+                            curr = ""
+                elif t_type in ("call", "prop") and t_lower in ("length", "count"):
+                    if isinstance(curr, (list, dict, str)):
+                        curr = str(len(curr))
+                    else:
+                        curr = "0"
+                elif t_type in ("call", "prop") and t_lower == "keys":
+                    if isinstance(curr, dict):
+                        curr = PromptList(list(curr.keys()))
+                    else:
+                        curr = PromptList()
+                elif t_type in ("call", "prop") and t_lower == "values":
+                    if isinstance(curr, dict):
+                        curr = PromptList(list(curr.values()))
+                    else:
+                        curr = PromptList()
+                elif t_type in ("call", "prop") and t_lower == "first":
+                    if isinstance(curr, list) and curr:
+                        curr = curr[0]
+                    elif isinstance(curr, dict) and curr:
+                        k0 = next(iter(curr.keys()))
+                        v0 = curr[k0]
+                        if isinstance(v0, dict):
+                            if "name" not in v0: v0["name"] = k0
+                            if "key" not in v0: v0["key"] = k0
+                        curr = v0
                     else:
                         curr = ""
-                elif bracket:
-                    bracket_clean = bracket.strip()
-                    if bracket_clean.startswith(('"', "'")) and bracket_clean.endswith(('"', "'")):
-                        key = bracket_clean[1:-1]
-                        if isinstance(curr, dict):
-                            curr = curr.get(key, "")
-                        elif isinstance(curr, list):
-                            found = None
-                            for item in curr:
-                                if isinstance(item, dict):
-                                    if key in item:
-                                        found = item[key]
-                                        break
-                                    elif str(item.get("name", "")) == key or str(item.get("id", "")) == key:
-                                        found = item
-                                        break
-                            curr = found if found is not None else ""
-                        else:
-                            curr = ""
+                elif t_type in ("call", "prop") and t_lower == "last":
+                    if isinstance(curr, list) and curr:
+                        curr = curr[-1]
+                    elif isinstance(curr, dict) and curr:
+                        k_last = list(curr.keys())[-1]
+                        v_last = curr[k_last]
+                        if isinstance(v_last, dict):
+                            if "name" not in v_last: v_last["name"] = k_last
+                            if "key" not in v_last: v_last["key"] = k_last
+                        curr = v_last
+                    else:
+                        curr = ""
+                elif t_type in ("call", "prop") and t_lower in ("random", "rand", "choose", "any"):
+                    if isinstance(curr, list) and curr:
+                        chosen = rng.choice(curr)
+                        if isinstance(chosen, dict) and len(chosen) == 1 and "name" not in chosen:
+                            only_k = next(iter(chosen.keys()))
+                            only_v = chosen[only_k]
+                            if isinstance(only_v, dict):
+                                if "name" not in only_v: only_v["name"] = only_k
+                                if "key" not in only_v: only_v["key"] = only_k
+                                chosen = only_v
+                        curr = chosen
+                    elif isinstance(curr, dict) and curr:
+                        chosen_k = rng.choice(list(curr.keys()))
+                        chosen_v = curr[chosen_k]
+                        if isinstance(chosen_v, dict):
+                            if "name" not in chosen_v:
+                                chosen_v["name"] = chosen_k
+                            if "key" not in chosen_v:
+                                chosen_v["key"] = chosen_k
+                        curr = chosen_v
+                    else:
+                        curr = ""
+                elif t_type in ("call", "prop"):
+                    curr = resolve_item_property(curr, t_name)
+                elif t_type == "bracket":
+                    br_clean = t_name.strip()
+                    if br_clean.startswith(('"', "'")) and br_clean.endswith(('"', "'")):
+                        key = br_clean[1:-1]
+                        curr = resolve_item_property(curr, key)
                     else:
                         try:
-                            idx = int(bracket_clean)
+                            idx = int(br_clean)
                             if isinstance(curr, list):
                                 curr = curr[idx]
                             else:
@@ -1017,10 +1323,15 @@ class ZombiehausTextEditor:
                             curr = ""
             return curr
 
-        def resolve_property_access(in_text, local_vars):
-            chain_pat = re.compile(
-                r'(\{|\$\{)?\$?([a-zA-Z0-9_]+)((?:\.[a-zA-Z0-9_]+(?:\(\))?|\[\s*(?:-?[0-9]+|"[^"]*"|\'[^\']*\')\s*\])+)(\})?'
-            )
+        def resolve_property_access(in_text, local_vars, allow_bare: bool = False):
+            if allow_bare:
+                chain_pat = re.compile(
+                    r'(\{|\$\{)?\$?([a-zA-Z0-9_]+)((?:\.[a-zA-Z0-9_]+(?:\([^)]*\))?|\[\s*(?:-?[0-9]+|"[^"]*"|\'[^\']*\')\s*\])+)(\})?'
+                )
+            else:
+                chain_pat = re.compile(
+                    r'(\{|\$\{)?\$([a-zA-Z0-9_]+)((?:\.[a-zA-Z0-9_]+(?:\([^)]*\))?|\[\s*(?:-?[0-9]+|"[^"]*"|\'[^\']*\')\s*\])+)(\})?'
+                )
             def repl(m):
                 prefix = m.group(1) or ""
                 base = m.group(2)
@@ -1033,6 +1344,91 @@ class ZombiehausTextEditor:
                     return prefix + str(res) + suffix
                 return m.group(0)
             return chain_pat.sub(repl, in_text)
+
+        def eval_assignment_value(clean_val: str, current_vars: dict):
+            s = clean_val.strip()
+            if not s:
+                return None
+
+            m_all_start = re.match(r'^all\s*([\(\{])', s, re.IGNORECASE)
+            if m_all_start:
+                open_ch = m_all_start.group(1)
+                close_ch = ')' if open_ch == '(' else '}'
+                d_c = 0
+                in_q = None
+                matched_idx = -1
+                for idx, c in enumerate(s):
+                    if in_q:
+                        if c == in_q: in_q = None
+                    elif c in ('"', "'"):
+                        in_q = c
+                    elif c == open_ch:
+                        d_c += 1
+                    elif c == close_ch:
+                        d_c -= 1
+                        if d_c == 0:
+                            matched_idx = idx
+                            break
+                if matched_idx != -1:
+                    base_expr = s[:matched_idx+1].strip()
+                    chain_part = s[matched_idx+1:].strip()
+                    base_res = parse_complex_value(base_expr, current_vars)
+                    if chain_part:
+                        return evaluate_chain(base_res, chain_part)
+                    return base_res
+
+            if s.startswith("$"):
+                m_var = re.match(r'^\$([a-zA-Z0-9_]+)(.*)$', s)
+                if m_var:
+                    b_name = m_var.group(1)
+                    chain_part = m_var.group(2).strip()
+                    if b_name in current_vars:
+                        base_res = current_vars[b_name]
+                        if chain_part:
+                            return evaluate_chain(base_res, chain_part)
+                        return base_res
+
+            m_wc = re.match(r'^(__(?:(?:[0-9]+(?:-[0-9]+)?|all|\*)\$\$)?(?:[a-zA-Z0-9_\-/.]+)__)(.*)$', s)
+            if m_wc:
+                wc_spec = m_wc.group(1)
+                chain_part = m_wc.group(2).strip()
+                base_res = load_wildcard_resource(wc_spec, default_all=False, local_vars=current_vars)
+                if chain_part:
+                    return evaluate_chain(base_res, chain_part)
+                return base_res
+
+            if s.startswith(("[", "{")):
+                open_ch = s[0]
+                close_ch = ']' if open_ch == '[' else '}'
+                d_c = 0
+                in_q = None
+                matched_idx = -1
+                for idx, c in enumerate(s):
+                    if in_q:
+                        if c == in_q: in_q = None
+                    elif c in ('"', "'"):
+                        in_q = c
+                    elif c == open_ch:
+                        d_c += 1
+                    elif c == close_ch:
+                        d_c -= 1
+                        if d_c == 0:
+                            matched_idx = idx
+                            break
+                if matched_idx != -1:
+                    base_expr = s[:matched_idx+1].strip()
+                    chain_part = s[matched_idx+1:].strip()
+                    base_res = parse_complex_value(base_expr, current_vars)
+                    if chain_part:
+                        return evaluate_chain(base_res, chain_part)
+                    if isinstance(base_res, (PromptList, PromptDict)):
+                        return base_res
+
+            res = parse_complex_value(s, current_vars)
+            if isinstance(res, (PromptList, PromptDict)):
+                return res
+
+            return None
 
         # 1. Sequentially resolve all definitions (macros, synced tuples, variables) top-to-bottom
         variables = dict(initial_vars) if initial_vars else {}
@@ -1145,6 +1541,12 @@ class ZombiehausTextEditor:
                             lines = [l.strip() for l in inner_content.splitlines() if l.strip()]
                             clean_val = "\n".join(lines)
 
+                            val_eval = eval_assignment_value(clean_val, variables)
+                            if val_eval is not None:
+                                variables[v_name] = val_eval
+                                ti = b_pos
+                                continue
+
                             # First check if this is a dictionary { key: val, ... }
                             parsed_dict = parse_complex_value("{" + clean_val + "}", variables)
                             if isinstance(parsed_dict, PromptDict):
@@ -1189,6 +1591,12 @@ class ZombiehausTextEditor:
                         lines = [l.strip() for l in raw_content.splitlines() if l.strip()]
                         clean_val = "\n".join(lines)
 
+                        val_eval = eval_assignment_value(clean_val, variables)
+                        if val_eval is not None:
+                            variables[v_name] = val_eval
+                            ti = val_start + m_semi.end()
+                            continue
+
                         # Check for list [ ... ], dict { ... }, wildcard __name__, or all(...)
                         is_comp_syntax = (
                             (clean_val.startswith("[") and clean_val.endswith("]")) or
@@ -1231,6 +1639,12 @@ class ZombiehausTextEditor:
                         raw_content = m_line.group(1)
                         raw_content = ZombiehausTextEditor.filter_comments(raw_content)
                         clean_val = raw_content.strip()
+
+                        val_eval = eval_assignment_value(clean_val, variables)
+                        if val_eval is not None:
+                            variables[v_name] = val_eval
+                            ti = val_start + m_line.end()
+                            continue
 
                         # Check for list [ ... ], dict { ... }, wildcard __name__, or all(...)
                         is_comp_syntax = (
@@ -2122,6 +2536,9 @@ class ZombiehausTextEditor:
 
         text = re.sub(arith_pattern, replace_arithmetic, text)
 
+        # Resolve property access chains in text: $var.prop, $var.prop(), $var[0], ${var.prop}, {$var.prop}
+        text = resolve_property_access(text, variables, allow_bare=False)
+
         # 3. Match piped variable calls: $var | filter1 | filter2 or {$var | filter1 | filter2}
         for var_name, var_val in variables.items():
             pipe_pattern = rf'(?:\{{)?\${var_name}\s*\|\s*([a-zA-Z0-9_]+(?:\([^)]*\))?(?:\s*\|\s*[a-zA-Z0-9_]+(?:\([^)]*\))?)*)(?:\}})?'
@@ -2346,6 +2763,9 @@ class ZombiehausTextEditor:
             if not changed:
                 break
 
+        if out_vars is not None and isinstance(out_vars, dict):
+            out_vars.update(variables)
+
         return text
 
     @staticmethod
@@ -2524,8 +2944,13 @@ class ZombiehausTextEditor:
         no_comments_negative = self.filter_comments(clean_negative)
 
         # 5. Resolve dynamic wildcards, choices, and tag shuffles (seed-driven)
-        resolved_positive = self.resolve_dynamic_prompts(no_comments_positive, seed=actual_seed, cycle_index=effective_cycle, function_lib=function_lib)
+        pos_vars = {}
+        resolved_positive = self.resolve_dynamic_prompts(no_comments_positive, seed=actual_seed, cycle_index=effective_cycle, function_lib=function_lib, out_vars=pos_vars)
         resolved_negative = self.resolve_dynamic_prompts(no_comments_negative, seed=actual_seed, cycle_index=effective_cycle, function_lib=function_lib)
+
+        ZombiehausTextEditor._last_variables = dict(pos_vars)
+        if unique_id is not None:
+            ZombiehausTextEditor._node_variables[str(unique_id)] = dict(pos_vars)
 
         # 5.5 Extract inline negative {!neg: ...} from positive prompt and merge with deduplication
         inline_negs = []
@@ -2585,12 +3010,13 @@ class ZombiehausTextEditor:
                 neg_cond = encoder.encode(active_clip, clip_negative)[0]
 
                 # Attach extracted LoRA payload and clean prompt to conditioning metadata
-                if extracted_prompt_loras:
+                if extracted_prompt_loras or pos_vars:
                     for chunk in pos_cond:
                         if len(chunk) > 1 and isinstance(chunk[1], dict):
-                            chunk[1]["zombiehaus_prompt_loras"] = extracted_prompt_loras
-                            chunk[1]["zombiehaus_prompt_loras"] = extracted_prompt_loras
+                            if extracted_prompt_loras:
+                                chunk[1]["zombiehaus_prompt_loras"] = extracted_prompt_loras
                             chunk[1]["clean_prompt"] = clip_positive
+                            chunk[1]["zombiehaus_variables"] = dict(pos_vars)
             except Exception as e:
                 print(f"[Zombiehaus TextEditor] CLIP encode error: {e}")
                 pos_cond = []
@@ -2603,6 +3029,7 @@ class ZombiehausTextEditor:
             pipe.get("mask") if isinstance(pipe, dict) else (pipe[8] if (pipe and len(pipe) > 8) else None),
             output_positive,
             output_negative,
+            pos_vars,
         )) if (pipe is not None or active_clip is not None) else None
 
         # Update the node's widget values in the workflow metadata if available

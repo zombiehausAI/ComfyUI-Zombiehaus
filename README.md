@@ -266,6 +266,7 @@ Edit `config.json` to configure:
 
 **Utilities**
 - [Zombiehaus Pipe Bus (Distribution)](docs/ZombiehausPipeBus.md) (Global Bus Routing, Component Overrides & Unified Unbundling)
+- [Zombiehaus Prompt Variable](docs/ZombiehausPromptVariable.md) (Dynamic Variable & Object Property Extractor for Downstream Nodes & Filename Prefixes)
 - [Model Scryer (WeightScryer)](docs/ModelScryer.md) (Automated Triggers, Safetensors Census & Interactive Tag Board)
 - [Show Text](docs/show-text.md)
 - [Text Editor](docs/text-editor.md) (with Weight Translation, Dynamic Prompts & Wildcards)

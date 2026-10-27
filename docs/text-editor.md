@@ -539,6 +539,28 @@ A rapid, one-click visual dock above the editor to inject curated prompt tokens 
         Amanda: { lora: "<lora:Chroma/Amanda_Chroma_V6:1.0>", eyes: "blue", breasts: "medium", hair: "brunette", ethnicity: "caucasian" }
         ```
         - **Full Catalog Import (`all(...)`)**: Assign to a variable using `$women = all(__women__);` (or `$women = all(women);`). The entire file is loaded into a first-class `PromptDict` lookup table.
+        - **Filtering Catalogs & Lists (`.Where(...)`)**:
+          Filter objects dynamically based on their property values using LINQ-style predicate expressions:
+          ```text
+          $list = all(__listofobjects__).Where(hair == "jet black");
+          $listitem = $list.random;
+
+          1girl, portrait of $listitem.name, $listitem.eyes eyes, $listitem.hair hair, $listitem.lora
+          ```
+          - **Operators**: Supports `==`, `!=`, `<`, `>`, `<=`, `>=`, `contains`, `in`, and regex matching `~=`.
+          - **Compound Conditions**: Combine clauses using `&&` (or `and`) and `||` (or `or`), with optional parentheses:
+            ```text
+            $filtered = all(__characters__).Where((hair == "jet black" || hair == "dark brown") && breasts != "large");
+            ```
+          - **Chaining**: Chain `.Where(...)` with `.random`, `.first`, `.last`, or `.count`:
+            ```text
+            $chosen = all(__women__).Where(ethnicity == "asian").random;
+            ```
+        - **Using Object Names in Filename & Save Image**:
+          When an object like `Emiru: { lora: "...", hair: "jet black" }` is selected in your prompt, its name (`"Emiru"`) is automatically registered in the prompt variable bus. You can use it directly in **Zombiehaus Save Image** filename prefixes:
+          - `%name%` or `%character%`: automatically extracts the name of any selected character object.
+          - `%listitem%` or `%listitem.name%`: uses the specific variable's name or property.
+          - Or use the **Zombiehaus Prompt Variable** node to feed any variable into standard ComfyUI `SaveImage` nodes!
         - **Targeted Entity Lookup**: Access specific characters via dot notation or bracket access:
           ```text
           $women = all(__women__);

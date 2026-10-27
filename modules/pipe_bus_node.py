@@ -19,13 +19,16 @@ class ZombiehausPipe(tuple):
     _KEYS = (
         "model", "clip", "vae", "positive", "negative",
         "seed", "latent", "image", "mask",
-        "positive_text", "negative_text"
+        "positive_text", "negative_text",
+        "variables"
     )
     _ALIASES = {
         "prompt": 9,
         "positive_prompt": 9,
         "negative_prompt": 10,
         "text": 9,
+        "vars": 11,
+        "variables": 11,
     }
 
     def get(self, key, default=None):
@@ -130,6 +133,7 @@ class ZombiehausPipeBus:
         p_mask = None
         p_positive_text = ""
         p_negative_text = ""
+        p_variables = {}
 
         if pipe is not None:
             if isinstance(pipe, dict):
@@ -144,6 +148,7 @@ class ZombiehausPipeBus:
                 p_mask = pipe.get("mask")
                 p_positive_text = pipe.get("positive_text", "")
                 p_negative_text = pipe.get("negative_text", "")
+                p_variables = pipe.get("variables") or {}
             elif isinstance(pipe, (tuple, list)):
                 p_model = pipe[0] if len(pipe) > 0 else None
                 p_clip = pipe[1] if len(pipe) > 1 else None
@@ -156,12 +161,19 @@ class ZombiehausPipeBus:
                 p_mask = pipe[8] if len(pipe) > 8 else None
                 p_positive_text = pipe[9] if len(pipe) > 9 else ""
                 p_negative_text = pipe[10] if len(pipe) > 10 else ""
+                p_variables = pipe[11] if len(pipe) > 11 and isinstance(pipe[11], dict) else {}
 
         # Extract prompt text from positive conditioning metadata if not explicitly provided
         if not p_positive_text and p_positive and isinstance(p_positive, (list, tuple)):
             for chunk in p_positive:
                 if len(chunk) > 1 and isinstance(chunk[1], dict) and "clean_prompt" in chunk[1]:
                     p_positive_text = chunk[1]["clean_prompt"]
+                    break
+
+        if not p_variables and p_positive and isinstance(p_positive, (list, tuple)):
+            for chunk in p_positive:
+                if len(chunk) > 1 and isinstance(chunk[1], dict) and "zombiehaus_variables" in chunk[1]:
+                    p_variables = chunk[1]["zombiehaus_variables"]
                     break
 
         # 2. Individual inputs take priority over pipe values
@@ -190,6 +202,7 @@ class ZombiehausPipeBus:
             out_mask,
             out_pos_text,
             out_neg_text,
+            p_variables,
         ))
 
         return (

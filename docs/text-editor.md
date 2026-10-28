@@ -48,8 +48,8 @@ The Text Editor node provides a full-featured dual text editing interface (Posit
 - **curator_negative** (STRING): Curated negative trait. Replaces `{curator}` in the negative prompt.
 - **positive_input** (STRING): Positive text from another node (overrides widget)
 - **negative_input** (STRING): Negative text from another node (overrides widget)
-- **positive_embedding** (STRING): Embedding string to append to positive text (e.g., from LoRA Loader)
-- **negative_embedding** (STRING): Embedding string to append to negative text
+- **positive_embedding** (STRING): Embedding string to append to positive text (e.g., from [Embedding Loader](embedding-loader.md))
+- **negative_embedding** (STRING): Embedding string to append to negative text (e.g., from [Embedding Loader](embedding-loader.md))
 
 ## Outputs
 
@@ -879,11 +879,11 @@ Each saved prompt is a `.json` file with the following structure:
 Model Loader → CLIP → Text Editor (edit prompt) → CLIP Text Encode → KSampler
 ```
 
-### With Embeddings from LoRA
+### With Textual Inversion Embeddings
 ```
-LoRA Loader → embedding_str → Text Editor (+ text)
+Embedding Loader → positive_embedding / negative_embedding → Text Editor (+ text)
                  ↓
-             CLIP Text Encode → KSampler
+             CLIP Text Encode / Conditioning → KSampler
 ```
 
 ### Prompt Library

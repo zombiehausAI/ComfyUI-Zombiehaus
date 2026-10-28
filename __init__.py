@@ -3,6 +3,7 @@ from .modules.ollama_text_refiner_node import OllamaTextRefinerNode
 from .modules.image_for_prompting_node import ZombiehausImageForPromptingNode
 from .modules.zombiehaus_utils import get_ollama_models
 from .modules.batch_ksampler_node import ZombiehausBatchKSampler
+from .modules.embedding_loader_node import ZombiehausEmbeddingLoader
 from .modules.lora_loader_node import ZombiehausLoraLoader
 from .modules.upscaler_node import ZombiehausUpscaler
 from .modules.ksampler_node import ZombiehausKSampler
@@ -2037,6 +2038,7 @@ NODE_CLASS_MAPPINGS = {
     "ZombiehausPromptRefiner": OllamaPromptRefinerNode,
     "ZombiehausImageForPrompting": ZombiehausImageForPromptingNode,
     "ZombiehausBatchKSampler": ZombiehausBatchKSampler,
+    "ZombiehausEmbeddingLoader": ZombiehausEmbeddingLoader,
     "ZombiehausLoraLoader": ZombiehausLoraLoader,
     "ZombiehausUpscaler": ZombiehausUpscaler,
     "ZombiehausKSampler": ZombiehausKSampler,
@@ -2103,6 +2105,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZombiehausPromptRefiner": "Zombiehaus Ollama Prompt Refiner",
     "ZombiehausImageForPrompting": "Zombiehaus Image For Prompting",
     "ZombiehausBatchKSampler": "Zombiehaus Batch KSampler",
+    "ZombiehausEmbeddingLoader": "Zombiehaus Embedding Loader",
     "ZombiehausLoraLoader": "Zombiehaus LoRA Deck",
     "ZombiehausUpscaler": "Zombiehaus Upscaler",
     "ZombiehausKSampler": "Zombiehaus KSampler",

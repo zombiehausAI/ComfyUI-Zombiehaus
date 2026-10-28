@@ -141,6 +141,17 @@ class ZombiehausDynamicGuidance:
         else:
             # Mode 2: Scale internal DiT guidance embedding in conditioning c["guidance"]
             # Specifically designed for Stock Flux.1-dev / SD3 with KSampler CFG = 1.0
+            if positive is not None and isinstance(positive, (list, tuple)):
+                new_positive = []
+                for chunk in positive:
+                    chunk_copy = list(chunk)
+                    if len(chunk_copy) > 1 and isinstance(chunk_copy[1], dict):
+                        d = dict(chunk_copy[1])
+                        d["guidance"] = scale_start
+                        chunk_copy[1] = d
+                    new_positive.append(chunk_copy)
+                positive = new_positive
+
             existing_wrapper = None
             if hasattr(m, "model_options") and isinstance(m.model_options, dict):
                 existing_wrapper = m.model_options.get("model_function_wrapper", None)
@@ -172,6 +183,11 @@ class ZombiehausDynamicGuidance:
                             c["cfg"] = torch.full_like(orig_cfg, current_scale)
                         else:
                             c["cfg"] = current_scale
+                    else:
+                        inp = params.get("input")
+                        device = inp.device if hasattr(inp, "device") else None
+                        dtype = inp.dtype if hasattr(inp, "dtype") else torch.float32
+                        c["guidance"] = torch.tensor([current_scale], device=device, dtype=dtype) if device is not None else current_scale
 
                 if existing_wrapper is not None:
                     return existing_wrapper(apply_model, params)

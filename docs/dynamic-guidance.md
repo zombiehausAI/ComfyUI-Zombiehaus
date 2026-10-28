@@ -65,7 +65,7 @@ When removed or bypassed, the model reverts 100% to standard vanilla ComfyUI beh
   - **SDXL, Pony, SD 1.5**: Standard diffusion models where guidance is governed by KSampler's CFG slider.
 
 ### 2. `Flux / SD3 (Distilled Guidance)`
-- **How it works**: Hooks into ComfyUI's `model_function_wrapper` to update the internal `c["guidance"]` tensor passed into the DiT transformer.
+- **How it works**: Hooks into ComfyUI's `model_function_wrapper` to dynamically update the internal `c["guidance"]` tensor passed into the DiT transformer across timesteps. If `pipe` is passed and conditioning does not yet have guidance embedded, it automatically injects initial guidance into `positive` conditioning and provides a fallback guidance tensor in `params["c"]`.
 - **When to use**: 
   - **Stock Flux.1-dev / SD3**: Models that utilize distilled guidance with KSampler's `cfg` widget kept strictly at `1.0`.
 

@@ -531,23 +531,23 @@ A rapid, one-click visual dock above the editor to inject curated prompt tokens 
         }
         // ➜ name: MyName, role: tank, weapon: aegis shield, armor: adamant plate,
         ```
-      - **Named Entity Catalog Files (`women.txt`, `characters.txt`)**:
+      - **Named Entity Catalog Files (`characters.txt`)**:
         Format wildcard files as a key-value dictionary catalog (one named entry per line):
         ```text
-        // saved_prompts/wildcards/women.txt
-        MeganFox: { lora: "<lora:Chroma/Testing/Megan_Fox_Chroma_V1:1.0>", eyes: "blue", breasts: "small", hair: "jet black", ethnicity: "caucasian" }
-        Amanda: { lora: "<lora:Chroma/Amanda_Chroma_V6:1.0>", eyes: "blue", breasts: "medium", hair: "brunette", ethnicity: "caucasian" }
+        // saved_prompts/wildcards/characters.txt
+        Aria: { lora: "<lora:Characters/Aria_V1:1.0>", eyes: "blue", hair: "jet black", style: "cyberpunk" }
+        Lyra: { lora: "<lora:Characters/Lyra_V2:1.0>", eyes: "hazel", hair: "brunette", style: "fantasy" }
         ```
-        - **Full Catalog Import (`all(...)`)**: Assign to a variable using `$women = all(__women__);` (or `$women = all(women);`). The entire file is loaded into a first-class `PromptDict` lookup table.
+        - **Full Catalog Import (`all(...)`)**: Assign to a variable using `$characters = all(__characters__);` (or `$characters = all(characters);`). The entire file is loaded into a first-class `PromptDict` lookup table.
         - **Targeted Entity Lookup**: Access specific characters via dot notation or bracket access:
           ```text
-          $women = all(__women__);
-          $woman = $women.MeganFox;    
-          $woman.lora       
+          $characters = all(__characters__);
+          $char = $characters.Aria;
+          $char.lora
 
-          She has $woman.eyes eyes, and has long, messy, $woman.hair hair with some of it pulled back into a loose ponytail, long, slim legs, and a very slim, petite build.
+          Portrait of $char.name with $char.eyes eyes, long messy $char.hair hair, styled in $char.style aesthetic.
           ```
-        - **Random Single Character Roll**: `$woman = __women__;` picks a single random entity from the catalog while preserving all nested attributes (`$woman.lora`, `$woman.eyes`, `$woman.hair`, etc.).
+        - **Random Single Character Roll**: `$char = __characters__;` picks a single random entity from the catalog while preserving all nested attributes (`$char.lora`, `$char.eyes`, `$char.hair`, etc.).
       - **Multi-Entry Dictionary Lists (`heroes.txt`)**:
         Format wildcard list files with one dictionary per line:
         ```text
@@ -937,7 +937,7 @@ The Text Editor features a built-in, context-aware autocomplete menu with real-t
 | `%` | **System Variables** | `SYS` | System variables including `%date%`, `%time%`, `%seed%`, `%model%`, `%width%`, `%height%`, `%steps%`, `%cfg%`. Selecting inserts `%name% `. |
 | `{c` | **Curator Placeholders** | `CUR` | Fast insertion for `{curator}`, `{curator2}`, `{curator3}`, `{curator4}`, `{curator5}`, `{curator6}` slots. Selecting inserts `{curator} `. |
 | `<l` or `<lora:` | **LoRA Models** | `LORA` | Scans available ComfyUI LoRA models. Selecting inserts `<lora:model_name:1.0> `. |
-| `.` *(after `$var`)* | **List Items & Object Properties** | `ITEM` / `PROP` / `METH` | Typing `.` after a variable (e.g. `$scenes.`, `$women.`, or `$woman.`) autocompletes list items or dictionary keys from assigned wildcards (including `all(__name__)`, `any(__name__)`, `one(__name__)`, or direct assignments), chained sub-item properties (e.g. `$woman = $women.JulianneHough` -> `$woman.lora`), and built-in helpers (`keys`, `values`, `length`, `first`, `last`). |
+| `.` *(after `$var`)* | **List Items & Object Properties** | `ITEM` / `PROP` / `METH` | Typing `.` after a variable (e.g. `$scenes.`, `$characters.`, or `$char.`) autocompletes list items or dictionary keys from assigned wildcards (including `all(__name__)`, `any(__name__)`, `one(__name__)`, or direct assignments), chained sub-item properties (e.g. `$char = $characters.Aria` -> `$char.lora`), and built-in helpers (`keys`, `values`, `length`, `first`, `last`). |
 
 ### Keyboard & Navigation Controls
 

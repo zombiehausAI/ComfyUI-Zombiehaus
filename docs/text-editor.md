@@ -378,13 +378,17 @@ A rapid, one-click visual dock above the editor to inject curated prompt tokens 
 
     1girl, solo, $character_expression, portrait
     ```
-  - **Dynamic LoRA Tagging (`<lora:name:strength>`)**: Embed dynamic LoRAs directly inside branch results so models switch conditionally based on variables:
+  - **Dynamic LoRA Tagging (`<lora:name:strength>` / `<lora:name:model:clip>`)**: Embed dynamic LoRAs directly inside prompts or branch results:
+    - **Single Weight**: `<lora:model_name:0.8>` sets both Model and CLIP strength to `0.8`.
+    - **Independent Model & CLIP Weights**: `<lora:model_name:0.8:0.6>` sets Model weight to `0.8` and CLIP weight to `0.6`.
+    - **Default Weight (1.0)**: `<lora:model_name>` sets both Model and CLIP to `1.0`.
+    - **Dynamic Schedules & Ranges**: Supports random variation (`<lora:name:0.6~0.9>`), timing windows (`<lora:name:0.8@0.0-0.5>`), dropoffs (`<lora:name:1.0>0.2>`), and decay curves (`:cosine`, `:linear`, `:exponential`, `:step`). See [LoRA Loader](lora-loader.md#dynamic-prompt-lora-tagging-lora) for the complete reference.
     ```text
     $person = man;
 
     {case $person:
-        man => <lora:Chroma\Gentleman_Chroma_V1:1.0> smiling gentleman
-        | woman => <lora:Chroma\Lady_Chroma_V1:1.0> smiling lady
+        man => <lora:Styles/Gentleman_V1:1.0:0.8> smiling gentleman
+        | woman => <lora:Styles/Lady_V1:1.0:0.8> smiling lady
     }
     ```
     - **Syntax Flexibility**: Both `{case $var: ...}` (with colon) and `{case $var ...}` (without colon) are fully supported.

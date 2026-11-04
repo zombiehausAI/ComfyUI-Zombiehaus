@@ -100,7 +100,7 @@ Connect the `loaded_loras` output to the `text` input of a **Show Text** node (`
 [Fixed] detailer_v2.safetensors (strength: 1)
 [Random] cyberpunk_girl_v1.safetensors (rolled: 0.74 [0.4~0.9])
 [Random+Dynamic] heavy_lighting.safetensors (rolled: 0.85 [0.5~1] ➔ 0 @ 0-0.5 [cosine])
-[Prompt+Dynamic] Chroma/Melissa_Benoist_Chroma_V1 (strength: 0.92 [0.8~1] ➔ 0 @ 0-0.6 [cosine])
+[Prompt+Dynamic] Characters/Aria_V1 (strength: 0.92 [0.8~1] ➔ 0 @ 0-0.6 [cosine])
 ```
 
 ---
@@ -118,7 +118,7 @@ Prompt tags use colon-separated arguments inside angle brackets:
 ```
 
 - **Arguments are flexible and order-independent**:
-  - The first argument is always the **Model Name or Path** (e.g. `Chroma/Melissa_Benoist_Chroma_V1` or `flat2DAnimerge`).
+  - The first argument is always the **Model Name or Path** (e.g. `Characters/Aria_V1` or `flat2DAnimerge`).
   - Decay profiles (`cosine`, `linear`, `exponential`, `step`) can be placed as any colon-separated token (e.g. `:cosine` at the end).
   - Timing windows (`@start-end` or `@end`) and target dropoffs (`>end_strength`) can be attached directly to the strength token.
 
@@ -145,12 +145,13 @@ Prompt tags use colon-separated arguments inside angle brackets:
 ### Component Breakdown
 
 #### 1. Model Identifier
-- **Subdirectories**: Supported via forward slashes or backslashes (e.g. `Chroma/Melissa_Benoist_Chroma_V1` or `SDXL\Characters\Gwen`).
+- **Subdirectories**: Supported via forward slashes or backslashes (e.g. `Characters/Aria_V1` or `SDXL\Characters\Aria`).
 - **Extensions**: Optional; `.safetensors`, `.ckpt`, or `.pt` can be included or omitted.
 - **Fuzzy Matching**: Matches exact relative paths first, then falls back to case-insensitive basename matching.
 
 #### 2. Strength & Random Ranges (`~`)
-- **Fixed Value**: Single float (e.g. `:0.85` or `:1.2`).
+- **Fixed Single Strength**: Single float sets both Model and CLIP strength equally (e.g. `:0.85` or `:1.2`).
+- **Independent Model & CLIP Strengths (`:model:clip`)**: Specify two numeric values separated by colons to control Model and CLIP independently (e.g. `<lora:name:0.8:0.6>` applies weight `0.8` to the diffusion model and `0.6` to CLIP).
 - **Random Range (`Min~Max` or `Max~Min`)**:
   - Example: `0.8~1.0` rolls a uniform random float between `0.8` and `1.0` (rounded to 3 decimal places).
   - Example: `1.0~0.5` works identically; the loader automatically ensures `min <= max` during evaluation.
@@ -173,9 +174,9 @@ Prompt tags use colon-separated arguments inside angle brackets:
 #### 5. Decay Profiles (`:cosine`, `:linear`, `:exponential`, `:step`)
 - Specify the curve profile name anywhere as a colon-separated argument:
   ```text
-  <lora:Chroma/Melissa_Benoist_Chroma_V1:0.8~1.0:cosine>
-  <lora:Chroma/Melissa_Benoist_Chroma_V1:0.8~1.0@0.0-0.6:cosine>
-  <lora:Chroma/Melissa_Benoist_Chroma_V1:1.0>0.2@0.0-0.5:linear>
+  <lora:Characters/Aria_V1:0.8~1.0:cosine>
+  <lora:Characters/Aria_V1:0.8~1.0@0.0-0.6:cosine>
+  <lora:Characters/Aria_V1:1.0>0.2@0.0-0.5:linear>
   ```
 - If a timing window `@` or dropoff `>` is specified without an explicit profile token, **`cosine`** is used by default.
 
@@ -185,7 +186,7 @@ Because prompt tags are evaluated at runtime, you can combine them seamlessly wi
 
 ```text
 // 1. Dynamic choice between characters with randomized strengths and cosine decay:
-{<lora:Chroma/Melissa_Benoist_Chroma_V1:0.8~1.0@0.0-0.6:cosine> | <lora:Chroma/Gal_Gadot_V2:0.75~0.95@0.0-0.5:cosine>}
+{<lora:Characters/Aria_V1:0.8~1.0@0.0-0.6:cosine> | <lora:Characters/Lyra_V2:0.75~0.95@0.0-0.5:cosine>}
 
 // 2. Style LoRA applied only during initial composition steps:
 <lora:gothic_art_style:1.0>0.1@0.0-0.4:cosine>, 1girl, castle interior, cinematic lighting

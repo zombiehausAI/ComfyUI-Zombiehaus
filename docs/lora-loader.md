@@ -16,7 +16,7 @@ The Zombiehaus LoRA Loader manages a JSON-based stack of LoRAs through an intera
 - **Show Text Integration**: Outputs a formatted string (`loaded_loras`) listing exactly which LoRAs were applied (including rolled strengths and dynamic fade intervals), ready to connect to `ZombiehausShowText`
 - **Deterministic Randomization**: Connect a `seed` to ensure the exact same random LoRA is picked and the exact same random strength is rolled for a given seed, or leave unconnected for dynamic generation
 - **Case-Insensitive Path Matching**: Finds LoRA files using three fallback strategies (exact, basename, basename without extension) — handles subdirectories and mixed-case filenames
-- **Per-LoRA Strength**: Each entry in the stack has its own strength value; strength 0 skips the LoRA
+- **Per-LoRA Strength & Independent Model / CLIP Controls (`M|C`)**: Each entry in the stack has its own strength value. Click `M|C` to expand separate Model (`M`) and CLIP (`C`) controls. Separate weights are preserved even when collapsed back to compact mode (right-click `M|C` to re-link). Strength 0 skips the LoRA.
 - **Base Model Validation**: The `base_model_name` dropdown (populated from `config.json` definitions) lets the UI warn when a LoRA's metadata doesn't match the selected base model
 - **Civitai Integration**: Preview images, training keywords, and model info are fetched from Civitai via the built-in API routes
 - **Pipe Support**: Accepts and emits a `(model, clip, vae, positive, negative)` pipe — individual inputs override pipe values
@@ -68,6 +68,18 @@ The LoRA Loader allows combining **Fixed** LoRAs that always load alongside a **
     - **`~` (Random Weight Range)**: Switches the input to `[Min] ~ [Max]`. When sampled, generates a deterministic pseudo-random weight between `Min` and `Max` based on the seed.
     - **Reversed Ranges Supported**: Ranges can be specified in either direction (e.g. `0.5 ~ 1.0` or `1.0 ~ 0.5`). The engine automatically normalizes `min` and `max` so you never encounter invalid bounds.
 - **`random_pick_count`**: Specifies how many LoRAs to randomly sample from the pool on each generation (default: 1).
+
+## Independent Model & CLIP Strength Controls (`M|C`)
+
+By default, adjusting a LoRA's strength input controls both the diffusion model and the CLIP text encoder equally.
+
+To fine-tune them independently:
+- **Click `M|C`**: Expands the strength input into separate **`M:` (Model Strength)** and **`C:` (CLIP Strength)** fields.
+  - **Model (`M`)**: Governs visual synthesis, style rendering, anatomy, and textures in the diffusion latent space.
+  - **CLIP (`C`)**: Governs how strongly trigger words and prompt vocabulary guide text conditioning.
+- **Collapsing & Retention**: Clicking `M|C` again collapses the row back down to a single compact input (showing Model strength). **The separate CLIP weight is fully preserved** and continues to be loaded independently into CLIP.
+- **Active Split Indicator**: When a LoRA has custom split weights active, the `M|C` button stays illuminated with a subtle indigo badge and displays a tooltip previewing both weights (`Model: X.XX | CLIP: Y.YY`).
+- **Re-Linking Weights**: Right-click the `M|C` button at any time to re-link CLIP strength back to match the Model strength.
 
 ## Dynamic Step Scheduling & Dropoffs
 

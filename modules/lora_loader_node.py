@@ -448,13 +448,22 @@ class ZombiehausLoraLoader:
                     max_s = float(item.get("max_strength", 1.0))
                     if min_s > max_s:
                         min_s, max_s = max_s, min_s
-                    strength = round(rng.uniform(min_s, max_s), 3)
-                    weight_desc = f"rolled: {strength:g} [{min_s:g}~{max_s:g}]"
+                    m_strength = round(rng.uniform(min_s, max_s), 3)
+                    if item.get("split_weights", False) and "strength_clip" in item:
+                        c_strength = float(item.get("strength_clip", m_strength))
+                        weight_desc = f"rolled M: {m_strength:g} [{min_s:g}~{max_s:g}], C: {c_strength:g}"
+                    else:
+                        c_strength = m_strength
+                        weight_desc = f"rolled: {m_strength:g} [{min_s:g}~{max_s:g}]"
                 else:
-                    strength = float(item.get("strength", 1.0))
-                    weight_desc = f"strength: {strength:g}"
+                    m_strength = float(item.get("strength_model", item.get("strength", 1.0)))
+                    c_strength = float(item.get("strength_clip", item.get("strength", 1.0)))
+                    if m_strength == c_strength:
+                        weight_desc = f"strength: {m_strength:g}"
+                    else:
+                        weight_desc = f"model: {m_strength:g}, clip: {c_strength:g}"
 
-                if strength == 0:
+                if m_strength == 0 and c_strength == 0:
                     continue
 
                 is_dynamic = enable_dynamic_lora and item.get("dynamic", False)
@@ -465,7 +474,7 @@ class ZombiehausLoraLoader:
                     decay_prof = str(item.get("decay_profile", "cosine")).lower()
 
                     # If timing is flat across the whole range, skip dynamic hooks to retain native full speed
-                    if start_pct <= 0.0 and end_pct >= 1.0 and abs(end_str - strength) < 1e-4:
+                    if start_pct <= 0.0 and end_pct >= 1.0 and abs(end_str - m_strength) < 1e-4:
                         is_dynamic = False
 
                 if is_dynamic:
@@ -477,11 +486,11 @@ class ZombiehausLoraLoader:
                         if full_path and os.path.isfile(full_path):
                             lora_sd = comfy.utils.load_torch_file(full_path, safe_load=True)
                             m_model, m_clip, hook_group = comfy.hooks.load_hook_lora_for_models(
-                                model, clip, lora_sd, strength_model=strength, strength_clip=strength
+                                model, clip, lora_sd, strength_model=m_strength, strength_clip=c_strength
                             )
                             if hasattr(m_model, "set_hook_mode"):
                                 m_model.set_hook_mode(comfy.hooks.EnumHookMode.MaxSpeed)
-                            kfg = self._create_hook_keyframes(start_pct, end_pct, strength, end_str, decay_prof)
+                            kfg = self._create_hook_keyframes(start_pct, end_pct, m_strength, end_str, decay_prof)
                             if kfg:
                                 for h in hook_group.hooks:
                                     h.hook_keyframe = kfg
@@ -496,13 +505,13 @@ class ZombiehausLoraLoader:
 
                     if not applied_via_hook:
                         try:
-                            model, clip = lora_loader.load_lora(model, clip, lora_file, strength, strength)
+                            model, clip = lora_loader.load_lora(model, clip, lora_file, m_strength, c_strength)
                             loaded_summaries.append(f"[{tag}] {lora_name} ({weight_desc})")
                         except Exception:
                             pass
                 else:
                     try:
-                        model, clip = lora_loader.load_lora(model, clip, lora_file, strength, strength)
+                        model, clip = lora_loader.load_lora(model, clip, lora_file, m_strength, c_strength)
                         loaded_summaries.append(f"[{tag}] {lora_name} ({weight_desc})")
                     except Exception:
                         pass

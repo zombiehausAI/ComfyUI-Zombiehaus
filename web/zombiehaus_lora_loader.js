@@ -939,6 +939,9 @@ app.registerExtension({
                         name: availableLoras[0] || allLoras[0] || "", // Use first available, fallback to first overall
                         enabled: true,
                         strength: 1.0,
+                        strength_model: 1.0,
+                        strength_clip: 1.0,
+                        split_weights: false,
                         random: false,
                         random_strength: false,
                         min_strength: 0.5,
@@ -1233,37 +1236,148 @@ app.registerExtension({
                         const strengthContainer = createElement("div", { className: "zombiehaus-lora-strength-container" });
                         strengthContainer.style.cssText = "flex: 0 0 auto !important; display: inline-flex !important; align-items: center !important; gap: 2px !important;";
 
-                        if (isRandom && isRandomStrength) {
-                            const minVal = lora.min_strength !== undefined ? parseFloat(lora.min_strength) : 0.5;
-                            const maxVal = lora.max_strength !== undefined ? parseFloat(lora.max_strength) : 1.0;
+                        const isSplitOpen = !!lora._split_open;
+                        const hasSplitWeights = !!(lora.split_weights && lora.strength_clip !== undefined && Math.abs(parseFloat(lora.strength_clip) - parseFloat(lora.strength)) > 1e-4);
 
-                            const minInput = createNumberInput(minVal, -2, 2, stepValue, (newVal) => {
-                                const currentStack = getStack();
-                                currentStack[index].min_strength = parseFloat(newVal);
-                                loraStackWidget.value = JSON.stringify(currentStack);
-                            });
-                            minInput.title = "Min Strength (scroll or type to adjust)";
-                            minInput.classList.add("zombiehaus-lora-range-input");
+                        const splitButton = createElement("button", {
+                            className: "zombiehaus-lora-mode-button" + (isSplitOpen ? " active-split" : (hasSplitWeights ? " active-split-subtle" : "")),
+                            textContent: "M|C",
+                            title: hasSplitWeights
+                                ? `Separate Model & CLIP Weights Active (Model: ${parseFloat(lora.strength).toFixed(2)}, CLIP: ${parseFloat(lora.strength_clip).toFixed(2)}).\n• Click to ${isSplitOpen ? "collapse" : "expand"} separate controls\n• Right-click to re-link CLIP to Model`
+                                : `Linked Strength (${parseFloat(lora.strength).toFixed(2)}).\n• Click to adjust Model and CLIP separately\n• Right-click to re-link`
+                        });
+                        splitButton.style.cssText = "flex: 0 0 28px !important; width: 28px !important; min-width: 28px !important; max-width: 28px !important; height: 22px !important; padding: 0 !important; font-size: 0.72em !important; font-weight: 700 !important; letter-spacing: -0.5px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important;";
 
-                            const sep = createElement("span", { textContent: "~", className: "zombiehaus-lora-range-sep" });
+                        splitButton.addEventListener("click", () => {
+                            const currentStack = getStack();
+                            const nextState = !currentStack[index]._split_open;
+                            currentStack[index]._split_open = nextState;
+                            if (nextState) {
+                                currentStack[index].split_weights = true;
+                                if (currentStack[index].strength_clip === undefined) {
+                                    currentStack[index].strength_clip = currentStack[index].strength !== undefined ? currentStack[index].strength : 1.0;
+                                }
+                                if (currentStack[index].strength_model === undefined) {
+                                    currentStack[index].strength_model = currentStack[index].strength !== undefined ? currentStack[index].strength : 1.0;
+                                }
+                            }
+                            updateStack(currentStack);
+                        });
 
-                            const maxInput = createNumberInput(maxVal, -2, 2, stepValue, (newVal) => {
-                                const currentStack = getStack();
-                                currentStack[index].max_strength = parseFloat(newVal);
-                                loraStackWidget.value = JSON.stringify(currentStack);
-                            });
-                            maxInput.title = "Max Strength (scroll or type to adjust)";
-                            maxInput.classList.add("zombiehaus-lora-range-input");
+                        splitButton.addEventListener("contextmenu", (e) => {
+                            e.preventDefault();
+                            const currentStack = getStack();
+                            const s = currentStack[index].strength !== undefined ? currentStack[index].strength : 1.0;
+                            currentStack[index].strength = s;
+                            currentStack[index].strength_model = s;
+                            currentStack[index].strength_clip = s;
+                            currentStack[index].split_weights = false;
+                            updateStack(currentStack);
+                        });
 
-                            strengthContainer.append(minInput, sep, maxInput);
+                        if (isSplitOpen) {
+                            if (isRandom && isRandomStrength) {
+                                const minVal = lora.min_strength !== undefined ? parseFloat(lora.min_strength) : 0.5;
+                                const maxVal = lora.max_strength !== undefined ? parseFloat(lora.max_strength) : 1.0;
+
+                                const mLabel = createElement("span", { textContent: "M:", className: "zombiehaus-lora-split-label zombiehaus-lora-split-label-m" });
+                                const minInput = createNumberInput(minVal, -2, 2, stepValue, (newVal) => {
+                                    const currentStack = getStack();
+                                    currentStack[index].min_strength = parseFloat(newVal);
+                                    loraStackWidget.value = JSON.stringify(currentStack);
+                                });
+                                minInput.title = "Min Model Strength";
+                                minInput.classList.add("zombiehaus-lora-range-input");
+
+                                const sep = createElement("span", { textContent: "~", className: "zombiehaus-lora-range-sep" });
+
+                                const maxInput = createNumberInput(maxVal, -2, 2, stepValue, (newVal) => {
+                                    const currentStack = getStack();
+                                    currentStack[index].max_strength = parseFloat(newVal);
+                                    loraStackWidget.value = JSON.stringify(currentStack);
+                                });
+                                maxInput.title = "Max Model Strength";
+                                maxInput.classList.add("zombiehaus-lora-range-input");
+
+                                const cLabel = createElement("span", { textContent: "C:", className: "zombiehaus-lora-split-label zombiehaus-lora-split-label-c" });
+                                const clipVal = lora.strength_clip !== undefined ? parseFloat(lora.strength_clip) : 1.0;
+                                const clipInput = createNumberInput(clipVal, -2, 2, stepValue, (newVal) => {
+                                    const currentStack = getStack();
+                                    currentStack[index].strength_clip = parseFloat(newVal);
+                                    currentStack[index].split_weights = true;
+                                    loraStackWidget.value = JSON.stringify(currentStack);
+                                });
+                                clipInput.title = "CLIP Strength";
+                                clipInput.classList.add("zombiehaus-lora-split-input");
+
+                                strengthContainer.append(splitButton, mLabel, minInput, sep, maxInput, cLabel, clipInput);
+                            } else {
+                                const mLabel = createElement("span", { textContent: "M:", className: "zombiehaus-lora-split-label zombiehaus-lora-split-label-m" });
+                                const modelVal = lora.strength !== undefined ? parseFloat(lora.strength) : 1.0;
+                                const modelInput = createNumberInput(modelVal, -2, 2, stepValue, (newValue) => {
+                                    const currentStack = getStack();
+                                    const v = parseFloat(newValue);
+                                    currentStack[index].strength = v;
+                                    currentStack[index].strength_model = v;
+                                    loraStackWidget.value = JSON.stringify(currentStack);
+                                });
+                                modelInput.title = `Model Strength (${modelVal.toFixed(2)})`;
+                                modelInput.classList.add("zombiehaus-lora-split-input");
+
+                                const cLabel = createElement("span", { textContent: "C:", className: "zombiehaus-lora-split-label zombiehaus-lora-split-label-c" });
+                                const clipVal = lora.strength_clip !== undefined ? parseFloat(lora.strength_clip) : modelVal;
+                                const clipInput = createNumberInput(clipVal, -2, 2, stepValue, (newValue) => {
+                                    const currentStack = getStack();
+                                    currentStack[index].strength_clip = parseFloat(newValue);
+                                    currentStack[index].split_weights = true;
+                                    loraStackWidget.value = JSON.stringify(currentStack);
+                                });
+                                clipInput.title = `CLIP Strength (${clipVal.toFixed(2)})`;
+                                clipInput.classList.add("zombiehaus-lora-split-input");
+
+                                strengthContainer.append(splitButton, mLabel, modelInput, cLabel, clipInput);
+                            }
                         } else {
-                            const updateStrength = (newValue) => {
-                                const currentStack = getStack();
-                                currentStack[index].strength = parseFloat(newValue);
-                                loraStackWidget.value = JSON.stringify(currentStack);
-                            };
-                            const strengthInput = createNumberInput(lora.strength, -2, 2, stepValue, updateStrength);
-                            strengthContainer.append(strengthInput);
+                            if (isRandom && isRandomStrength) {
+                                const minVal = lora.min_strength !== undefined ? parseFloat(lora.min_strength) : 0.5;
+                                const maxVal = lora.max_strength !== undefined ? parseFloat(lora.max_strength) : 1.0;
+
+                                const minInput = createNumberInput(minVal, -2, 2, stepValue, (newVal) => {
+                                    const currentStack = getStack();
+                                    currentStack[index].min_strength = parseFloat(newVal);
+                                    loraStackWidget.value = JSON.stringify(currentStack);
+                                });
+                                minInput.title = "Min Strength (scroll or type to adjust)";
+                                minInput.classList.add("zombiehaus-lora-range-input");
+
+                                const sep = createElement("span", { textContent: "~", className: "zombiehaus-lora-range-sep" });
+
+                                const maxInput = createNumberInput(maxVal, -2, 2, stepValue, (newVal) => {
+                                    const currentStack = getStack();
+                                    currentStack[index].max_strength = parseFloat(newVal);
+                                    loraStackWidget.value = JSON.stringify(currentStack);
+                                });
+                                maxInput.title = "Max Strength (scroll or type to adjust)";
+                                maxInput.classList.add("zombiehaus-lora-range-input");
+
+                                strengthContainer.append(splitButton, minInput, sep, maxInput);
+                            } else {
+                                const updateStrength = (newValue) => {
+                                    const currentStack = getStack();
+                                    const v = parseFloat(newValue);
+                                    currentStack[index].strength = v;
+                                    currentStack[index].strength_model = v;
+                                    if (!currentStack[index].split_weights && (currentStack[index].strength_clip === undefined || currentStack[index].strength_clip === currentStack[index].strength)) {
+                                        currentStack[index].strength_clip = v;
+                                    }
+                                    loraStackWidget.value = JSON.stringify(currentStack);
+                                };
+                                const strengthInput = createNumberInput(lora.strength, -2, 2, stepValue, updateStrength);
+                                if (hasSplitWeights) {
+                                    strengthInput.title = `Model: ${parseFloat(lora.strength).toFixed(2)} | CLIP: ${parseFloat(lora.strength_clip).toFixed(2)} (Split active). Scroll to adjust Model.`;
+                                }
+                                strengthContainer.append(splitButton, strengthInput);
+                            }
                         }
 
                         // Dynamic timing toggle button
@@ -1700,6 +1814,45 @@ loraStylesEl.innerHTML = `
                 border: 1px solid rgba(52, 211, 153, 0.6);
                 color: #34d399;
                 box-shadow: 0 0 4px rgba(52, 211, 153, 0.3);
+            }
+            .zombiehaus-lora-mode-button.active-split {
+                opacity: 1 !important;
+                background: rgba(129, 140, 248, 0.25) !important;
+                border: 1px solid rgba(129, 140, 248, 0.7) !important;
+                color: #a5b4fc !important;
+                box-shadow: 0 0 4px rgba(129, 140, 248, 0.4) !important;
+            }
+            .zombiehaus-lora-mode-button.active-split-subtle {
+                opacity: 0.9 !important;
+                background: rgba(129, 140, 248, 0.12) !important;
+                border: 1px solid rgba(129, 140, 248, 0.5) !important;
+                color: #a5b4fc !important;
+            }
+            .zombiehaus-lora-split-label {
+                font-size: 0.72em;
+                font-weight: 700;
+                user-select: none;
+                line-height: 1;
+            }
+            .zombiehaus-lora-split-label-m {
+                color: #38bdf8;
+                margin-right: 1px;
+            }
+            .zombiehaus-lora-split-label-c {
+                color: #c084fc;
+                margin-left: 2px;
+                margin-right: 1px;
+            }
+            .zombiehaus-lora-split-input {
+                width: 38px !important;
+                text-align: center;
+                background: #222;
+                border: 1px solid #444;
+                color: #eee;
+                border-radius: 3px;
+                padding: 1px 2px;
+                font-size: 0.85em;
+                -moz-appearance: textfield;
             }
             .zombiehaus-lora-strength-container {
                 display: flex;

@@ -24,7 +24,7 @@ Zombiehaus Studio features a seamless mode switcher in the top header bar:
 ### 1. 🎬 Screenplay Director Mode
 - **Multi-Persona Scripting**: Write screenplays with explicit blocks: `[SCENE]`, `[PERSONA 1: Left]`, `[PERSONA 2: Right]`, and `[INTERACTION]`.
 - **Regional Spatial Masks**: Live visual preview of Left / Center / Right split regions ensuring zero concept leakage across characters.
-- **Variable Autocomplete**: Live resolution of persona tags (`$women.Amanda`, `$amanda.lora`, `$men.John`).
+- **Variable Autocomplete**: Live resolution of persona tags (`$characters.Aria`, `$char.lora`, `$characters.Lyra`).
 - **LoRA Isolation**: Persona LoRAs apply strictly to their regional masks without polluting the global background.
 
 ### 2. ✍️ Image Prompt Studio Mode
@@ -88,7 +88,7 @@ Integrated directly into the workstation for managing wildcard files and variabl
 - Drag the slider or click the number to type exact values (e.g. `3.25`, `0.05`, `28`).
 
 ### 🎨 Syntax Highlighting & Variable Autocomplete
-- **Real-Time Token Coloring**: Highlights section headers (`[SCENE]`), variables (`$women.Amanda`), wildcards (`__colors__`), LoRAs (`<lora:...>`), dynamic weights (`(word:1.2)`), choices (`{a|b}`), and comments.
+- **Real-Time Token Coloring**: Highlights section headers (`[SCENE]`), variables (`$characters.Aria`), wildcards (`__colors__`), LoRAs (`<lora:...>`), dynamic weights (`(word:1.2)`), choices (`{a|b}`), and comments.
 - **Dynamic Autocomplete**: Type `$` to trigger variable suggestions; type `__` to trigger wildcard lists.
 - **Toolbar Pickers**: Click `$ Variables` or `__ Wildcards` above any editor for quick 1-click insertion.
 

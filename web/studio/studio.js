@@ -4398,7 +4398,7 @@ function tokenizeAndHighlight(text) {
     addMatches(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*|#[^\r\n]*/g, "tok-comment");
     // 3. LoRA tags: <lora:...>
     addMatches(/<lora:[^>\r\n]+>/gi, "tok-lora");
-    // 4. Variables: $women.Amanda, $variable.key
+    // 4. Variables: $characters.Aria, $variable.key
     addMatches(/\$[a-zA-Z0-9_\.]+/g, "tok-variable");
     // 5. Wildcards: __wildcard__
     addMatches(/__[a-zA-Z0-9_\.\-]+__/g, "tok-wildcard");
@@ -4456,10 +4456,10 @@ function setupSyntaxHighlighting() {
 
 let availableWildcards = [];
 let availableVariables = [
-    { name: "$women.Amanda", desc: "Amanda (Blue eyes, Brunette, Medium)" },
-    { name: "$women.KelseyKernstine", desc: "Kelsey Kernstine (Hazel eyes, Jet black hair)" },
-    { name: "$women.Altasweet", desc: "Altasweet" },
-    { name: "$women.Kayce", desc: "Kayce" },
+    { name: "$characters.Aria", desc: "Aria (Blue eyes, Jet black hair)" },
+    { name: "$characters.Lyra", desc: "Lyra (Hazel eyes, Brunette)" },
+    { name: "$characters.Kaelen", desc: "Kaelen (Silver hair, Emerald eyes)" },
+    { name: "$characters.Zephyr", desc: "Zephyr (Rogue, Shadowed armor)" },
     { name: "$men.John", desc: "John (Tailored Tuxedo, Confident)" },
     { name: "$colors", desc: "Colors Wildcard" },
     { name: "$outfits", desc: "Outfits Wildcard" },
